@@ -11,7 +11,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = (supabaseUrl && supabaseAnonKey)
   ? createClient(supabaseUrl, supabaseAnonKey)
   : new Proxy({} as any, {
-      get: () => {
-        throw new Error('Supabase client accessed but credentials (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY) are not set. Please configure them in the Settings/Secrets menu.');
+      get: (target, prop) => {
+        if (prop === 'auth') {
+          return {
+            getSession: async () => ({ data: { session: null }, error: null }),
+            onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+            refreshSession: async () => ({ data: { session: null }, error: null }),
+            signOut: async () => ({ error: null })
+          };
+        }
+        return (...args: any[]) => {
+          console.warn(`Supabase client property "${String(prop)}" accessed but credentials (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY) are not set.`);
+          return { data: null, error: new Error('Supabase credentials missing'), select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }) }) }) };
+        };
       }
     });

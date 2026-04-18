@@ -322,9 +322,11 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`S.Art Server running on http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
+  const PORT = 3000;
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`S.Art Server running on http://localhost:${PORT}`);
+  });
+}
 
 export default app;
