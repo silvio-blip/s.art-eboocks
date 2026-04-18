@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", serif;
+  
+  --color-background: white;
+  --color-foreground: black;
+  --color-border: #ececec;
+  --color-muted: #f4f4f4;
+  --color-muted-foreground: #737373;
+  --color-primary: black;
+  --color-primary-foreground: white;
+
+  --color-luxury-gold: #D4AF37;
+  --color-luxury-black: #0a0a0a;
+  --color-luxury-dark: #141414;
+  --color-luxury-white: #FFFFFF;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@theme inline {
+    --font-heading: var(--font-serif);
+    --font-sans: 'Inter', sans-serif;
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+}
