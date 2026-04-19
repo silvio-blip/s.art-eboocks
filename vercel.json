@@ -1,11 +1,9 @@
 {
   "version": 2,
-  "cleanUrls": true,
-  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.ts"
+      "destination": "/api/$1"
     },
     {
       "source": "/(.*)",
