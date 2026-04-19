@@ -767,7 +767,13 @@ export default function App() {
         })
       });
       
-      const data = await res.json();
+      const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Resposta do servidor não é JSON válido: ${responseText.substring(0, 50)}...`);
+      }
       
       if (data.url) {
         window.location.href = data.url;
@@ -777,7 +783,7 @@ export default function App() {
         console.error('[STRIPE CHECKOUT ERROR]', data);
       }
     } catch (err: any) {
-      toast.error('Ocorreu um erro ao conectar com o servidor.');
+      toast.error(err.message || 'Ocorreu um erro ao conectar com o servidor.');
       console.error('[NETWORK ERROR]', err);
     } finally {
       setCheckoutLoading(null);
