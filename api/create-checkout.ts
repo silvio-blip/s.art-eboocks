@@ -28,7 +28,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           user_id: userId || null,
           product_id: productId,
           total_amount: product.price,
-          status: 'pending'
+          status: 'pending',
+          customer_email: email
         })
         .select()
         .single();

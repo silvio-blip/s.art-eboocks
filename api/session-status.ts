@@ -14,7 +14,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const session = await stripe.checkout.sessions.retrieve(session_id as string);
 
     if (session.payment_status === 'paid') {
-      const productId = session.metadata?.productId;
+      const { userId, productId, orderId } = session.metadata || {};
+      const customerEmail = session.customer_details?.email || session.customer_email;
+
+      // Fallback update in case webhook is delayed
+      if (orderId) {
+        await supabase
+          .from('orders')
+          .update({ 
+            status: 'completed', 
+            stripe_session_id: session.id,
+            customer_email: customerEmail 
+          })
+          .eq('id', orderId);
+      }
+
       const { data: product } = await supabase
         .from('products')
         .select('*')

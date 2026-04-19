@@ -51,22 +51,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
+    console.log(`[WEBHOOK] Processing completed session: ${session.id}`);
     
     // 1. Extrair Metadados
     const { userId, productId, orderId } = session.metadata || {};
     const customerEmail = session.customer_details?.email || session.customer_email;
 
+    console.log(`[WEBHOOK] Metadata - OrderID: ${orderId}, ProductID: ${productId}, UserID: ${userId}`);
+
     if (!productId || !customerEmail) {
+      console.error('[WEBHOOK ERROR] Missing essential data');
       return res.status(400).json({ error: 'Missing metadata or email' });
     }
 
     try {
       // 2. Atualizar Pedido no Supabase
       if (orderId) {
-        await supabase
+        const { error: updateError } = await supabase
           .from('orders')
-          .update({ status: 'completed', stripe_session_id: session.id })
+          .update({ 
+            status: 'completed', 
+            stripe_session_id: session.id,
+            customer_email: customerEmail 
+          })
           .eq('id', orderId);
+        
+        if (updateError) {
+          console.error(`[WEBHOOK ERROR] Failed to update order ${orderId}:`, updateError);
+        } else {
+          console.log(`[WEBHOOK SUCCESS] Order ${orderId} marked as completed`);
+        }
       }
 
       // 3. Buscar Dados do Produto

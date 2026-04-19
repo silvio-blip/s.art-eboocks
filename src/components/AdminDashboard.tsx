@@ -182,8 +182,11 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     }
   };
 
+  // Only consider completed orders for actual revenue and charts
+  const completedOrders = orders.filter(o => o.status === 'completed');
+
   // Processing chart data with safety for NaN
-  const chartData = orders.reduce((acc: any[], order) => {
+  const chartData = completedOrders.reduce((acc: any[], order) => {
     const amount = Number(order.total_amount) || 0;
     const date = new Date(order.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
     const existingDate = acc.find(d => d.date === date);
@@ -199,8 +202,8 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   // If no data, provide a placeholder to avoid Recharts errors
   const displayData = chartData.length > 0 ? chartData : [{ date: 'N/A', value: 0, sales: 0 }];
 
-  const totalRevenue = orders.reduce((acc, o) => acc + Number(o.total_amount), 0);
-  const completedSales = orders.filter(o => o.status === 'completed').length;
+  const totalRevenue = completedOrders.reduce((acc, o) => acc + Number(o.total_amount), 0);
+  const completedSales = completedOrders.length;
 
   if (loading) {
     return (
@@ -384,8 +387,11 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-widest font-bold ${
                             order.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
                           }`}>
-                            {order.status === 'completed' ? <CheckCircle size={8} className="mr-1" /> : <Clock size={8} className="mr-1" />}
-                            {order.status}
+                            {order.status === 'completed' ? (
+                              <><CheckCircle size={8} className="mr-1" /> Liquidado</>
+                            ) : (
+                              <><Clock size={8} className="mr-1" /> Aguardando</>
+                            )}
                           </span>
                         </td>
                       </tr>
@@ -608,10 +614,10 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                       <td className="px-8 py-6 font-mono text-[9px] text-white/30">{(order as any).stripe_session_id?.slice(0, 15) || 'N/A'}...</td>
                       <td className="px-8 py-6">
                         <span className={`inline-flex items-center px-4 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black ${
-                          order.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                          order.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
                         }`}>
-                          {order.status === 'completed' ? <CheckCircle size={10} className="mr-2" /> : <XCircle size={10} className="mr-2" />}
-                          {order.status === 'completed' ? 'Liquidado' : 'Pendente'}
+                          {order.status === 'completed' ? <CheckCircle size={10} className="mr-2" /> : <Clock size={10} className="mr-2" />}
+                          {order.status === 'completed' ? 'Liquidado' : 'Aguardando'}
                         </span>
                       </td>
                     </tr>
