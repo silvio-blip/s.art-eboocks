@@ -26,6 +26,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { supabase } from './lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import AdminDashboard from './components/AdminDashboard';
 import {
   Dialog,
   DialogContent,
@@ -134,7 +135,7 @@ function ProductCard({ product, onBuy }: { product: Product, onBuy: (p: Product)
   );
 }
 
-const ADMIN_ID = 'f86cf7f4-0f86-4f89-952f-0cb62f6dc93d';
+const ADMIN_ID = '3d596215-583e-498f-9fd5-36b83d8bccf5';
 
 const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -299,154 +300,6 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
   );
 };
 
-const AdminPanel = ({ user, products, onProductUpdate }: { 
-  user: SupabaseUser, 
-  products: Product[],
-  onProductUpdate: () => void
-}) => {
-  const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  const handleSave = async () => {
-    setLoading(true);
-    try {
-      const isNew = !editingProduct?.id;
-      const url = isNew ? '/api/admin/products' : `/api/admin/products/${editingProduct?.id}`;
-      const method = isNew ? 'POST' : 'PATCH';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...editingProduct, userId: user.id })
-      });
-
-      if (!res.ok) throw new Error('Erro ao guardar produto.');
-      
-      toast.success(isNew ? 'Produto criado!' : 'Produto atualizado!');
-      setEditingProduct(null);
-      onProductUpdate();
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Tem a certeza?')) return;
-    try {
-      const res = await fetch(`/api/admin/products/${id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id })
-      });
-      if (!res.ok) throw new Error('Erro ao eliminar.');
-      toast.success('Produto desativado.');
-      onProductUpdate();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
-  };
-
-  return (
-    <div className="space-y-12 animate-in fade-in duration-700">
-      <div className="flex justify-between items-end border-b border-black/5 pb-8">
-        <div>
-          <h2 className="text-4xl font-serif">Curadoria Administrative</h2>
-          <p className="text-[10px] uppercase tracking-widest text-black/40 mt-2">Gestão da Boutique S.Art</p>
-        </div>
-        <Button 
-          onClick={() => setEditingProduct({ title: '', price: 0, description: '', image_url: '', file_url: '' })}
-          className="bg-black text-white rounded-none px-6 h-12 text-[10px] uppercase tracking-widest"
-        >
-          <Plus size={16} className="mr-2" /> Novo Ativo Digital
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6">
-        {products.map((p) => (
-          <div key={p.id} className="flex flex-col md:flex-row gap-6 p-6 border border-black/5 bg-neutral-50 group hover:bg-neutral-100 transition-colors">
-            <img src={p.image_url} alt={p.title} className="w-24 h-32 object-cover border border-black/10" />
-            <div className="flex-1 space-y-2">
-              <div className="flex justify-between">
-                <h3 className="font-serif text-xl">{p.title}</h3>
-                <span className="font-medium">€{p.price}</span>
-              </div>
-              <p className="text-xs text-black/50 line-clamp-1">{p.description}</p>
-              <div className="flex gap-4 pt-4">
-                <Button variant="outline" size="sm" className="rounded-none text-[9px] uppercase tracking-widest" onClick={() => setEditingProduct(p)}>
-                  <Edit size={12} className="mr-1" /> Editar
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-none text-[9px] uppercase tracking-widest text-red-500 hover:text-red-600" onClick={() => handleDelete(p.id)}>
-                  Eliminar
-                </Button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <Dialog open={!!editingProduct} onOpenChange={() => setEditingProduct(null)}>
-        <DialogContent className="sm:max-w-xl bg-white rounded-none border-none shadow-2xl p-12 max-h-[90vh] overflow-y-auto custom-scrollbar">
-          <DialogTitle className="font-serif text-2xl mb-6">Configuração do E-Book</DialogTitle>
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[9px] uppercase tracking-widest text-black/50">Título</label>
-                <input 
-                  value={editingProduct?.title || ''}
-                  onChange={e => setEditingProduct({ ...editingProduct!, title: e.target.value })}
-                  className="w-full border-b border-black/10 py-3 text-xs outline-none focus:border-black"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[9px] uppercase tracking-widest text-black/50">Preço (€)</label>
-                <input 
-                  type="number"
-                  value={editingProduct?.price || ''}
-                  onChange={e => setEditingProduct({ ...editingProduct!, price: parseFloat(e.target.value) })}
-                  className="w-full border-b border-black/10 py-3 text-xs outline-none focus:border-black"
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50">Descrição Breve</label>
-              <textarea 
-                value={editingProduct?.description || ''}
-                onChange={e => setEditingProduct({ ...editingProduct!, description: e.target.value })}
-                className="w-full border border-black/10 p-3 text-xs min-h-[100px] outline-none focus:border-black"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50">URL da Imagem (Capa)</label>
-              <input 
-                value={editingProduct?.image_url || ''}
-                onChange={e => setEditingProduct({ ...editingProduct!, image_url: e.target.value })}
-                className="w-full border-b border-black/10 py-3 text-xs outline-none focus:border-black"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50">URL do Ficheiro (PDF)</label>
-              <input 
-                value={editingProduct?.file_url || ''}
-                onChange={e => setEditingProduct({ ...editingProduct!, file_url: e.target.value })}
-                className="w-full border-b border-black/10 py-3 text-xs outline-none focus:border-black"
-              />
-            </div>
-
-            <Button onClick={handleSave} disabled={loading} className="w-full bg-black text-white rounded-none h-14 uppercase tracking-widest text-[10px]">
-              {loading ? 'A processar...' : 'Confirmar Alterações'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-};
-
 export default function App() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -455,6 +308,18 @@ export default function App() {
   const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin'>('home');
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
+
+  useEffect(() => {
+    if (window.location.pathname === '/admin') {
+      if (user && user.id !== ADMIN_ID) {
+        setView('home');
+        window.history.replaceState({}, '', '/');
+        toast.error('Acesso restrito ao Administrador.');
+      } else {
+        setView('admin');
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -565,7 +430,7 @@ export default function App() {
       <main className="pt-32 pb-20 px-6 max-w-7xl mx-auto">
         <AnimatePresence mode="wait">
           {view === 'admin' && user && user.id === ADMIN_ID && (
-            <AdminPanel user={user} products={products} onProductUpdate={fetchProducts} />
+            <AdminDashboard user={user} onBack={() => setView('home')} />
           )}
 
           {view === 'home' && (

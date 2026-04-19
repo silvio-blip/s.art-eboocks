@@ -218,7 +218,7 @@ app.get('/api/session-status', async (req, res) => {
 app.post('/api/admin/products', async (req, res) => {
   try {
     const { title, description, price, image_url, file_url, userId } = req.body;
-    const ADMIN_ID = 'f86cf7f4-0f86-4f89-952f-0cb62f6dc93d';
+    const ADMIN_ID = '3d596215-583e-498f-9fd5-36b83d8bccf5';
     
     if (userId !== ADMIN_ID) return res.status(403).json({ error: 'Unauthorized' });
 
@@ -241,7 +241,7 @@ app.patch('/api/admin/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, price, image_url, file_url, userId } = req.body;
-    const ADMIN_ID = 'f86cf7f4-0f86-4f89-952f-0cb62f6dc93d';
+    const ADMIN_ID = '3d596215-583e-498f-9fd5-36b83d8bccf5';
     
     if (userId !== ADMIN_ID) return res.status(403).json({ error: 'Unauthorized' });
 
@@ -265,7 +265,7 @@ app.delete('/api/admin/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { userId } = req.body;
-    const ADMIN_ID = 'f86cf7f4-0f86-4f89-952f-0cb62f6dc93d';
+    const ADMIN_ID = '3d596215-583e-498f-9fd5-36b83d8bccf5';
     
     if (userId !== ADMIN_ID) return res.status(403).json({ error: 'Unauthorized' });
 
