@@ -213,20 +213,20 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     <div className="min-h-screen bg-luxury-black text-luxury-white font-sans selection:bg-luxury-gold selection:text-black">
       {/* Admin Sidebar/Toprail */}
       <div className="border-b border-white/5 bg-luxury-dark/50 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-8">
+        <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4 md:gap-8">
             <button onClick={onBack} className="text-luxury-gold hover:text-white transition-colors">
               <ArrowLeft size={20} />
             </button>
-            <h1 className="text-xl font-serif tracking-tight">S.Art <span className="text-luxury-gold italic">Admin</span></h1>
+            <h1 className="text-lg md:text-xl font-serif tracking-tight">S.Art <span className="text-luxury-gold italic">Admin</span></h1>
           </div>
           
-          <div className="flex bg-white/5 rounded-full p-1 border border-white/5">
+          <div className="hidden sm:flex bg-white/5 rounded-full p-1 border border-white/5">
             {(['overview', 'products', 'orders'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-6 py-2 rounded-full text-[10px] uppercase tracking-widest transition-all ${
+                className={`px-4 md:px-6 py-2 rounded-full text-[9px] md:text-[10px] uppercase tracking-widest transition-all ${
                   tab === t ? 'bg-luxury-gold text-black font-semibold' : 'text-white/40 hover:text-white'
                 }`}
               >
@@ -235,45 +235,60 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
             ))}
           </div>
         </div>
+        
+        {/* Mobile Tabs */}
+        <div className="sm:hidden flex border-t border-white/5">
+          {(['overview', 'products', 'orders'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-4 text-[9px] uppercase tracking-widest border-b-2 transition-all ${
+                tab === t ? 'border-luxury-gold text-luxury-gold bg-luxury-gold/5 font-bold' : 'border-transparent text-white/40'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-12 space-y-12">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 md:py-12 space-y-12">
         {tab === 'overview' && (
           <div className="space-y-12 animate-in fade-in duration-700">
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="bg-luxury-dark border-white/5 rounded-none p-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8">
                 <CardHeader className="p-0 pb-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Faturamento Bruto</p>
                 </CardHeader>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-4xl font-serif">€{totalRevenue.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</h3>
-                  <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-full">
-                    <TrendingUp size={20} />
+                  <h3 className="text-3xl md:text-4xl font-serif">€{totalRevenue.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</h3>
+                  <div className="p-2 md:p-3 bg-emerald-500/10 text-emerald-500 rounded-full">
+                    <TrendingUp size={18} />
                   </div>
                 </div>
               </Card>
               
-              <Card className="bg-luxury-dark border-white/5 rounded-none p-8">
+              <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8">
                 <CardHeader className="p-0 pb-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Vendas Concluídas</p>
                 </CardHeader>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-4xl font-serif">{completedSales}</h3>
-                  <div className="p-3 bg-luxury-gold/10 text-luxury-gold rounded-full">
-                    <ShoppingBag size={20} />
+                  <h3 className="text-3xl md:text-4xl font-serif">{completedSales}</h3>
+                  <div className="p-2 md:p-3 bg-luxury-gold/10 text-luxury-gold rounded-full">
+                    <ShoppingBag size={18} />
                   </div>
                 </div>
               </Card>
-
-              <Card className="bg-luxury-dark border-white/5 rounded-none p-8">
+ 
+              <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-2 lg:col-span-1">
                 <CardHeader className="p-0 pb-4">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Valor Médio</p>
                 </CardHeader>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-4xl font-serif">€{(totalRevenue / (completedSales || 1)).toFixed(2)}</h3>
-                  <div className="p-3 bg-blue-500/10 text-blue-500 rounded-full">
-                    <DollarSign size={20} />
+                  <h3 className="text-3xl md:text-4xl font-serif">€{(totalRevenue / (completedSales || 1)).toFixed(2)}</h3>
+                  <div className="p-2 md:p-3 bg-blue-500/10 text-blue-500 rounded-full">
+                    <DollarSign size={18} />
                   </div>
                 </div>
               </Card>
@@ -383,14 +398,14 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
 
         {tab === 'products' && (
           <div className="space-y-12 animate-in slide-in-from-bottom-6 duration-700">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
               <div>
-                <h2 className="text-3xl font-serif">Gestão de Portfólio Digital</h2>
+                <h2 className="text-2xl md:text-3xl font-serif">Gestão de Portfólio Digital</h2>
                 <p className="text-[10px] uppercase tracking-widest text-white/30 mt-2">Adicione ou edite e-books exclusivos</p>
               </div>
               <Button 
                 onClick={() => setEditingProduct({ title: '', price: 0, description: '', category: 'Geral', image_url: '', file_url: '' })}
-                className="bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold"
+                className="w-full sm:w-auto bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold"
               >
                 <Plus size={16} className="mr-2" /> Novo Ativo Digital
               </Button>
@@ -427,40 +442,42 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
 
             {/* Product Editor Inline (Full Screen/Wide Overlap) */}
             {editingProduct && (
-              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-6">
-                <Card className="max-w-4xl w-full bg-luxury-dark border-white/10 rounded-none p-12 space-y-8 animate-in zoom-in-95 duration-500">
+              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
+                <Card className="max-w-4xl w-full bg-luxury-dark border-white/10 rounded-none p-6 md:p-12 my-8 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500">
                   <div className="flex justify-between items-center">
-                    <h3 className="text-3xl font-serif">{editingProduct.id ? 'Editar E-Book' : 'Novo Lançamento'}</h3>
-                    <button onClick={() => setEditingProduct(null)} className="text-white/30 hover:text-white"><ArrowLeft /></button>
+                    <h3 className="text-2xl md:text-3xl font-serif">{editingProduct.id ? 'Editar E-Book' : 'Novo Lançamento'}</h3>
+                    <button onClick={() => setEditingProduct(null)} className="text-white/30 hover:text-white p-2">
+                       <XCircle size={24} />
+                    </button>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                    <div className="space-y-6">
-                      <div className="space-y-4">
-                        <label className="text-[10px] uppercase tracking-widest text-white/40">Título do Produto</label>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
+                    <div className="space-y-4 md:space-y-6">
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">Título do Produto</label>
                         <input 
                           value={editingProduct.title}
                           onChange={e => setEditingProduct({ ...editingProduct, title: e.target.value })}
-                          className="w-full bg-transparent border-b border-white/10 py-4 text-xl outline-none focus:border-luxury-gold transition-colors"
+                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors"
                           placeholder="Ex: O Código da Elegância"
                         />
                       </div>
-                      <div className="space-y-4">
-                        <label className="text-[10px] uppercase tracking-widest text-white/40">Preço (€)</label>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">Preço (€)</label>
                         <input 
                           type="number"
                           value={editingProduct.price}
                           onChange={e => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) })}
-                          className="w-full bg-transparent border-b border-white/10 py-4 text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
+                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
                           placeholder="0.00"
                         />
                       </div>
-                      <div className="space-y-4">
-                        <label className="text-[10px] uppercase tracking-widest text-white/40">Categoria</label>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">Categoria</label>
                         <select 
                           value={editingProduct.category || "Geral"}
                           onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })}
-                          className="w-full bg-luxury-dark border border-white/10 p-4 text-sm outline-none focus:border-luxury-gold transition-colors text-white"
+                          className="w-full bg-luxury-dark border border-white/10 p-3 md:p-4 text-sm outline-none focus:border-luxury-gold transition-colors text-white"
                         >
                           <option value="Moda">Moda</option>
                           <option value="Saúde">Saúde</option>
@@ -468,33 +485,34 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                           <option value="Geral">Geral</option>
                         </select>
                       </div>
-                      <div className="space-y-4">
-                        <label className="text-[10px] uppercase tracking-widest text-white/40">Manifesto / Descrição</label>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">Manifesto / Descrição</label>
                         <textarea 
                           value={editingProduct.description}
                           onChange={e => setEditingProduct({ ...editingProduct, description: e.target.value })}
-                          className="w-full bg-transparent border border-white/10 p-4 text-sm min-h-[150px] outline-none focus:border-luxury-gold transition-colors"
+                          className="w-full bg-transparent border border-white/10 p-4 text-sm min-h-[120px] md:min-h-[150px] outline-none focus:border-luxury-gold transition-colors"
                           placeholder="Descreva a exclusividade deste conteúdo..."
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-8">
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className="space-y-4">
-                          <label className="text-[10px] uppercase tracking-widest text-white/40 block">Capa (JPG/PNG)</label>
-                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer group transition-all overflow-hidden">
+                    <div className="space-y-6 md:space-y-8">
+                       <div className="grid grid-cols-2 gap-4 md:gap-6">
+                        <div className="space-y-3">
+                          <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">Capa (JPG/PNG)</label>
+                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer group transition-all overflow-hidden bg-white/5">
                             {editingProduct.image_url ? (
                               <img 
                                 src={editingProduct.image_url.startsWith('http') 
                                   ? editingProduct.image_url 
                                   : supabase.storage.from('covers').getPublicUrl(editingProduct.image_url).data.publicUrl} 
                                 className="w-full h-full object-cover" 
+                                referrerPolicy="no-referrer"
                               />
                             ) : (
                               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
-                                <Upload size={32} strokeWidth={1} />
-                                <span className="text-[8px] uppercase mt-4">Upload Imagem</span>
+                                <Upload size={24} strokeWidth={1} />
+                                <span className="text-[7px] md:text-[8px] uppercase mt-2">Upload Imagem</span>
                               </div>
                             )}
                             <input 
@@ -503,22 +521,22 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                               onChange={(e) => handleFileUpload(e, 'image')}
                               className="absolute inset-0 opacity-0 cursor-pointer" 
                             />
-                            {uploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}
+                            {uploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="animate-spin text-luxury-gold" /></div>}
                           </div>
                         </div>
 
-                        <div className="space-y-4">
-                          <label className="text-[10px] uppercase tracking-widest text-white/40 block">Ficheiro (PDF)</label>
-                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-blue-500 cursor-pointer group transition-all">
+                        <div className="space-y-3">
+                          <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">Ficheiro (PDF)</label>
+                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-blue-500 cursor-pointer group transition-all bg-white/5">
                             {editingProduct.file_url ? (
                               <div className="w-full h-full flex flex-col items-center justify-center text-blue-400 bg-blue-500/5">
-                                <FileText size={48} strokeWidth={1} />
-                                <span className="text-[8px] uppercase mt-4">PDF Pronto</span>
+                                <FileText size={32} md:size={48} strokeWidth={1} />
+                                <span className="text-[7px] md:text-[8px] uppercase mt-2">PDF Pronto</span>
                               </div>
                             ) : (
                               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
-                                <Download size={32} strokeWidth={1} />
-                                <span className="text-[8px] uppercase mt-4">Upload PDF</span>
+                                <Download size={24} strokeWidth={1} />
+                                <span className="text-[7px] md:text-[8px] uppercase mt-2">Upload PDF</span>
                               </div>
                             )}
                             <input 
@@ -527,14 +545,24 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                               onChange={(e) => handleFileUpload(e, 'pdf')}
                               className="absolute inset-0 opacity-0 cursor-pointer" 
                             />
-                            {uploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}
+                            {uploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="animate-spin text-luxury-gold" /></div>}
                           </div>
                         </div>
                       </div>
 
-                      <div className="pt-8">
-                        <Button onClick={handleSaveProduct} className="w-full bg-luxury-gold text-black hover:bg-white rounded-none h-16 uppercase tracking-widest font-bold">
-                          Guardar Alterações do Ativo
+                      <div className="pt-4 md:pt-8 flex flex-col sm:flex-row gap-4">
+                        <Button 
+                          onClick={handleSaveProduct} 
+                          className="flex-1 bg-luxury-gold text-black hover:bg-white rounded-none h-14 md:h-16 uppercase tracking-widest font-bold"
+                        >
+                          Guardar Ativo
+                        </Button>
+                        <Button 
+                          variant="outline"
+                          onClick={() => setEditingProduct(null)} 
+                          className="flex-1 border-white/10 rounded-none h-14 md:h-16 uppercase tracking-widest text-[9px]"
+                        >
+                          Cancelar
                         </Button>
                       </div>
                     </div>

@@ -132,11 +132,19 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 app.use(express.json());
 
 // --- API ROUTES ---
+const apiRouter = express.Router();
+
+// Health check
+apiRouter.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // Create Stripe Checkout Session
-app.post('/api/create-checkout', async (req, res) => {
+apiRouter.post('/create-checkout', async (req, res) => {
   try {
     const { productId, userId, email } = req.body;
+    console.log(`[S.ART] Create Checkout Request - Product: ${productId}, User: ${userId}, Email: ${email}`);
+    
     const stripe = getStripe();
     const supabase = getSupabase();
 
@@ -147,9 +155,12 @@ app.post('/api/create-checkout', async (req, res) => {
       .eq('id', productId)
       .single();
 
-    if (error || !product) return res.status(404).json({ error: 'Product not found' });
+    if (error || !product) {
+      console.error(`[S.ART] Product not found: ${productId}`);
+      return res.status(404).json({ error: 'Product not found' });
+    }
 
-    // Create Order Record in Pending State (Optional - fallback to session only if DB is out of sync)
+    // Create Order Record in Pending State
     let orderId = '';
     try {
       const { data: order, error: orderError } = await supabase
@@ -166,11 +177,15 @@ app.post('/api/create-checkout', async (req, res) => {
       if (!orderError && order) {
         orderId = order.id;
       } else {
-        console.warn("[S.ART] DB Sync Warning: Could not create initial order record. Checkout will continue.", orderError);
+        console.warn("[S.ART] DB Sync Warning: Could not create initial order record.", orderError);
       }
     } catch (dbErr) {
-      console.warn("[S.ART] DB Exception: Failed to insert order. Schema might be outdated.", dbErr);
+      console.warn("[S.ART] DB Exception: Failed to insert order.", dbErr);
     }
+
+    // Determine the origin for URLs
+    const clientOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
+    console.log(`[S.ART] Using origin: ${clientOrigin}`);
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -188,8 +203,8 @@ app.post('/api/create-checkout', async (req, res) => {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `https://s.art-full.pt/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `https://s.art-full.pt/cancel`,
+      success_url: `${clientOrigin}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${clientOrigin}/cancel`,
       metadata: {
         userId: userId || '',
         productId: productId,
@@ -199,12 +214,13 @@ app.post('/api/create-checkout', async (req, res) => {
 
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
+    console.error(`[S.ART CHECKOUT ERROR]`, error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get Session Status (for Success Page)
-app.get('/api/session-status', async (req, res) => {
+// Get Session Status
+apiRouter.get('/session-status', async (req, res) => {
   try {
     const { session_id } = req.query;
     if (!session_id) return res.status(400).json({ error: 'Session ID required' });
@@ -234,15 +250,20 @@ app.get('/api/session-status', async (req, res) => {
 });
 
 // --- ADMIN API ---
+const adminRouter = express.Router();
 
-// Create Product
-app.post('/api/admin/products', async (req, res) => {
+adminRouter.use((req, res, next) => {
+  const userId = req.body.userId || req.query.userId || req.headers['x-user-id'];
+  const ADMIN_IDS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
+  if (!ADMIN_IDS.includes(userId as string)) {
+    return res.status(403).json({ error: 'Unauthorized admin access' });
+  }
+  next();
+});
+
+adminRouter.post('/products', async (req, res) => {
   try {
-    const { title, description, price, image_url, file_url, category, userId } = req.body;
-    const ADMIN_IDS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
-    
-    if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
-
+    const { title, description, price, image_url, file_url, category } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
@@ -257,15 +278,10 @@ app.post('/api/admin/products', async (req, res) => {
   }
 });
 
-// Update Product
-app.patch('/api/admin/products/:id', async (req, res) => {
+adminRouter.patch('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, image_url, file_url, category, userId } = req.body;
-    const ADMIN_IDS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
-    
-    if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
-
+    const { title, description, price, image_url, file_url, category } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
@@ -281,15 +297,9 @@ app.patch('/api/admin/products/:id', async (req, res) => {
   }
 });
 
-// Delete Product (Soft delete or toggle active)
-app.delete('/api/admin/products/:id', async (req, res) => {
+adminRouter.delete('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.body;
-    const ADMIN_IDS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
-    
-    if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
-
     const supabase = getSupabase();
     const { error } = await supabase
       .from('products')
@@ -303,13 +313,11 @@ app.delete('/api/admin/products/:id', async (req, res) => {
   }
 });
 
-// Download Route (Signed URL)
-app.get('/api/orders/:orderId/download', async (req, res) => {
+// Download Route
+apiRouter.get('/orders/:orderId/download', async (req, res) => {
   try {
     const { orderId } = req.params;
     const supabase = getSupabase();
-
-    // 1. Fetch order and product details
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('*, product:products(*)')
@@ -318,21 +326,23 @@ app.get('/api/orders/:orderId/download', async (req, res) => {
       .single();
 
     if (orderError || !order || !order.product) {
-      return res.status(404).json({ error: 'Order not found or not paid.' });
+      return res.status(404).json({ error: 'Order not found.' });
     }
 
-    // 2. Generate signed URL for the private 'ebooks' bucket
     const { data, error: storageError } = await supabase.storage
       .from('ebooks')
-      .createSignedUrl(order.product.file_url, 3600); // 1 hour link
+      .createSignedUrl(order.product.file_url, 3600);
 
     if (storageError) throw storageError;
-
     res.json({ url: data.signedUrl });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Mount Routers
+app.use('/api', apiRouter);
+app.use('/api/admin', adminRouter);
 
 // --- VITE MIDDLEWARE ---
 if (process.env.NODE_ENV !== 'production') {

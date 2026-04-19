@@ -70,61 +70,134 @@ const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onH
   onHomeClick: () => void,
   onSearch: (q: string) => void,
   searchQuery: string
-}) => (
-  <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-colors duration-500">
-    <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-      <button onClick={onHomeClick} className="text-2xl font-serif tracking-tighter hover:opacity-70 transition-opacity dark:text-white">S.Art</button>
-      
-      <div className="flex items-center gap-8">
-        <div className="hidden md:flex items-center gap-6">
-          <div className="relative group">
-            <input 
-              type="text" 
-              value={searchQuery}
-              onChange={(e) => onSearch(e.target.value)}
-              placeholder="PESQUISAR..."
-              className="bg-transparent border-b border-black/10 dark:border-white/10 py-1 pl-2 pr-8 text-[10px] uppercase tracking-[0.25em] outline-none w-40 focus:w-60 focus:border-luxury-gold transition-all duration-700 font-medium dark:text-white placeholder:text-black/20 dark:placeholder:text-white/20"
-            />
-            <Search size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30 group-focus-within:text-luxury-gold transition-colors" />
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-4 pl-4 border-l border-black/10 dark:border-white/10">
-          <button 
-            onClick={() => {
-              console.log("Toggle clicked, current theme:", theme);
-              onThemeToggle();
-            }} 
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white transition-all duration-500 cursor-pointer z-[100]"
-            aria-label="Toggle Theme"
-          >
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
+}) => {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-          {user ? (
-            <div className="flex items-center gap-3">
-              {ADMIN_IDS.includes(user.id) && (
-                <Button variant="ghost" size="icon" onClick={() => onDashboardClick('admin')} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-luxury-gold">
-                  <Shield size={18} />
+  return (
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-colors duration-500">
+      <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
+        <button onClick={onHomeClick} className="text-xl md:text-2xl font-serif tracking-tighter hover:opacity-70 transition-opacity dark:text-white">S.Art</button>
+        
+        <div className="flex items-center gap-2 md:gap-8">
+          <div className="hidden lg:flex items-center gap-6">
+            <div className="relative group">
+              <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => onSearch(e.target.value)}
+                placeholder="PESQUISAR..."
+                className="bg-transparent border-b border-black/10 dark:border-white/10 py-1 pl-2 pr-8 text-[10px] uppercase tracking-[0.25em] outline-none w-40 focus:w-60 focus:border-luxury-gold transition-all duration-700 font-medium dark:text-white placeholder:text-black/20 dark:placeholder:text-white/20"
+              />
+              <Search size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30 group-focus-within:text-luxury-gold transition-colors" />
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 md:gap-4 pl-0 md:pl-4 md:border-l border-black/10 dark:border-white/10">
+            <button 
+              onClick={onThemeToggle} 
+              className="flex items-center justify-center w-8 h-8 md:w-10 md:h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white transition-all duration-500 cursor-pointer"
+              aria-label="Toggle Theme"
+            >
+              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
+
+            <div className="hidden md:flex items-center gap-2 md:gap-3">
+              {user ? (
+                <>
+                  {ADMIN_IDS.includes(user.id) && (
+                    <Button variant="ghost" size="icon" onClick={() => onDashboardClick('admin')} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-luxury-gold">
+                      <Shield size={18} />
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="icon" onClick={() => onDashboardClick('dashboard')} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
+                    <LayoutGrid size={18} />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => supabase.auth.signOut()} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
+                    <LogOut size={16} />
+                  </Button>
+                </>
+              ) : (
+                <Button variant="ghost" size="icon" onClick={onAuthClick} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
+                  <User size={18} />
                 </Button>
               )}
-              <Button variant="ghost" size="icon" onClick={() => onDashboardClick('dashboard')} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
-                <LayoutGrid size={18} />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => supabase.auth.signOut()} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
-                <LogOut size={16} />
-              </Button>
             </div>
-          ) : (
-            <Button variant="ghost" size="icon" onClick={onAuthClick} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
-              <User size={18} />
-            </Button>
-          )}
+
+            {/* Mobile Menu Toggle */}
+            <button 
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="md:hidden flex items-center justify-center w-8 h-8 rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white transition-all"
+            >
+              {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  </nav>
-);
+
+      {/* Mobile Menu Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div 
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="md:hidden bg-white dark:bg-black border-b border-black/5 dark:border-white/5 overflow-hidden"
+          >
+            <div className="px-6 py-8 space-y-8">
+              <div className="relative group w-full">
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => onSearch(e.target.value)}
+                  placeholder="PESQUISAR NA BOUTIQUE..."
+                  className="w-full bg-transparent border-b border-black/10 dark:border-white/10 py-3 text-[10px] uppercase tracking-[0.2em] outline-none font-medium dark:text-white"
+                />
+                <Search size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {user ? (
+                  <>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => { onDashboardClick('dashboard'); setIsMobileMenuOpen(false); }}
+                      className="rounded-none border-black/10 dark:border-white/10 dark:text-white h-12 uppercase tracking-widest text-[9px]"
+                    >
+                      <LayoutGrid size={14} className="mr-2" /> Biblioteca
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => { supabase.auth.signOut(); setIsMobileMenuOpen(false); }}
+                      className="rounded-none border-black/10 dark:border-white/10 dark:text-white h-12 uppercase tracking-widest text-[9px]"
+                    >
+                      <LogOut size={14} className="mr-2" /> Sair
+                    </Button>
+                    {ADMIN_IDS.includes(user.id) && (
+                      <Button 
+                        variant="outline" 
+                        onClick={() => { onDashboardClick('admin'); setIsMobileMenuOpen(false); }}
+                        className="rounded-none border-luxury-gold/30 text-luxury-gold col-span-2 h-12 uppercase tracking-widest text-[9px]"
+                      >
+                        <Shield size={14} className="mr-2" /> Painel Admin
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <Button 
+                    onClick={() => { onAuthClick(); setIsMobileMenuOpen(false); }}
+                    className="rounded-none bg-black dark:bg-white text-white dark:text-black col-span-2 h-12 uppercase tracking-widest text-[9px]"
+                  >
+                    <User size={14} className="mr-2" /> Iniciar Sessão
+                  </Button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </nav>
+  );
+};
 
 function ProductCard({ product, onBuy, isProcessing }: { product: Product, onBuy: (p: Product) => any, isProcessing?: boolean }) {
   const getImageUrl = (url: string) => {
@@ -253,7 +326,7 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md bg-white dark:bg-zinc-950 rounded-none border-none shadow-2xl p-12 max-h-[90vh] overflow-y-auto custom-scrollbar transition-colors duration-500">
+      <DialogContent className="sm:max-w-md bg-white dark:bg-zinc-950 rounded-none border-none shadow-2xl p-6 md:p-12 w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto custom-scrollbar transition-colors duration-500">
         <DialogHeader className="items-center text-center">
           <DialogTitle className="font-serif text-3xl mb-2 dark:text-white">S.Art Atelier</DialogTitle>
           <p className="text-[10px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">
@@ -375,7 +448,7 @@ const CheckoutModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[420px] rounded-none border-none dark:bg-zinc-900 p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
+      <DialogContent className="sm:max-w-[420px] w-[95vw] rounded-none border-none dark:bg-zinc-900 p-6 md:p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
         <DialogHeader className="space-y-4">
           <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">Destino da sua Obra</DialogTitle>
           <div className="flex gap-4 items-center p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5">
@@ -751,7 +824,7 @@ export default function App() {
         onConfirm={handleCheckoutConfirm}
       />
 
-      <main className="pt-32 pb-20 px-6 max-w-7xl mx-auto w-full">
+      <main className="pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full">
         <AnimatePresence mode="wait">
           {view === 'admin' && user && ADMIN_IDS.includes(user.id) && (
             <AdminDashboard user={user} onBack={() => {
@@ -773,7 +846,7 @@ export default function App() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.2 }}
-                  className="text-5xl md:text-7xl font-serif tracking-tight"
+                  className="text-4xl sm:text-5xl md:text-7xl font-serif tracking-tight px-4"
                 >
                   Boutique de <br />Conhecimento Digital
                 </motion.h1>
@@ -788,12 +861,12 @@ export default function App() {
               </section>
 
               {/* Category Filter Bar */}
-              <div className="flex flex-wrap justify-center gap-4 py-8 border-y border-black/5 dark:border-white/5">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 py-6 md:py-8 border-y border-black/5 dark:border-white/5">
                 {(['Todos', 'Moda', 'Saúde', 'Tecnologia'] as const).map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
-                    className={`px-8 py-2 text-[10px] uppercase tracking-[0.2em] transition-all duration-300 ${
+                    className={`px-4 sm:px-8 py-2 text-[8px] sm:text-[10px] uppercase tracking-[0.2em] transition-all duration-300 ${
                       selectedCategory === cat 
                         ? 'bg-black dark:bg-white text-white dark:text-black font-bold' 
                         : 'text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white border border-transparent hover:border-black/10 dark:hover:border-white/10'
@@ -840,12 +913,12 @@ export default function App() {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-12"
             >
-              <div className="flex justify-between items-end border-b border-black/5 dark:border-white/5 pb-8">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-black/5 dark:border-white/5 pb-8 gap-6">
                 <div>
-                  <h2 className="text-4xl font-serif dark:text-white">Biblioteca Privada</h2>
+                  <h2 className="text-3xl sm:text-4xl font-serif dark:text-white">Biblioteca Privada</h2>
                   <p className="text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40 mt-2">Os Seus Ativos Digitais</p>
                 </div>
-                <Button variant="outline" className="rounded-none text-[9px] uppercase tracking-widest h-10 dark:text-white dark:border-white/10" onClick={() => setView('home')}>
+                <Button variant="outline" className="rounded-none text-[9px] uppercase tracking-widest h-10 w-full sm:w-auto dark:text-white dark:border-white/10" onClick={() => setView('home')}>
                   Voltar à Coleção
                 </Button>
               </div>
@@ -899,10 +972,10 @@ export default function App() {
                 <CheckCircle2 size={40} className="text-white" />
               </motion.div>
 
-              <div className="space-y-6">
-                <h2 className="text-5xl md:text-6xl font-serif dark:text-white leading-[1.1]">Aquisição <br />Concluída.</h2>
+              <div className="space-y-6 md:space-y-8">
+                <h2 className="text-4xl md:text-6xl font-serif dark:text-white leading-[1.1] px-4">Aquisição <br />Concluída.</h2>
                 <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
-                <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed px-4">
+                <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed px-6">
                   A sua obra já está disponível para download imediato na sua biblioteca e foi enviada para o seu destino digital.
                 </p>
               </div>
