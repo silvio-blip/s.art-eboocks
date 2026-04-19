@@ -18,7 +18,9 @@ import {
   Plus,
   Edit,
   Sun,
-  Moon
+  Moon,
+  Loader2,
+  Search
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -59,22 +61,32 @@ interface Order {
 
 // --- Components ---
 
-const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onHomeClick }: { 
+const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onHomeClick, onSearch, searchQuery }: { 
   user: SupabaseUser | null, 
   theme: 'light' | 'dark',
   onThemeToggle: () => void,
   onAuthClick: () => void,
   onDashboardClick: (v: 'dashboard' | 'admin') => void,
-  onHomeClick: () => void
+  onHomeClick: () => void,
+  onSearch: (q: string) => void,
+  searchQuery: string
 }) => (
   <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-colors duration-500">
     <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
       <button onClick={onHomeClick} className="text-2xl font-serif tracking-tighter hover:opacity-70 transition-opacity dark:text-white">S.Art</button>
       
       <div className="flex items-center gap-8">
-        <div className="hidden md:flex gap-8 text-[11px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60">
-          <button onClick={onHomeClick} className="hover:text-black dark:hover:text-white transition-colors">Coleção</button>
-          <button className="hover:text-black dark:hover:text-white transition-colors">Manifesto</button>
+        <div className="hidden md:flex items-center gap-6">
+          <div className="relative group">
+            <input 
+              type="text" 
+              value={searchQuery}
+              onChange={(e) => onSearch(e.target.value)}
+              placeholder="PESQUISAR..."
+              className="bg-transparent border-b border-black/10 dark:border-white/10 py-1 pl-2 pr-8 text-[10px] uppercase tracking-[0.25em] outline-none w-40 focus:w-60 focus:border-luxury-gold transition-all duration-700 font-medium dark:text-white placeholder:text-black/20 dark:placeholder:text-white/20"
+            />
+            <Search size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30 group-focus-within:text-luxury-gold transition-colors" />
+          </div>
         </div>
         
         <div className="flex items-center gap-4 pl-4 border-l border-black/10 dark:border-white/10">
@@ -114,7 +126,7 @@ const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onH
   </nav>
 );
 
-function ProductCard({ product, onBuy }: { product: Product, onBuy: (p: Product) => any }) {
+function ProductCard({ product, onBuy, isProcessing }: { product: Product, onBuy: (p: Product) => any, isProcessing?: boolean }) {
   const getImageUrl = (url: string) => {
     if (!url) return 'https://picsum.photos/seed/ebook/600/800';
     if (url.startsWith('http')) return url;
@@ -140,10 +152,16 @@ function ProductCard({ product, onBuy }: { product: Product, onBuy: (p: Product)
         />
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500 flex items-center justify-center opacity-0 group-hover:opacity-100 p-4 text-center backdrop-blur-[1px]">
           <Button 
+            disabled={isProcessing}
             onClick={(e) => { e.stopPropagation(); onBuy(product); }}
-            className="bg-white text-black hover:bg-luxury-gold hover:text-white rounded-none px-6 py-4 text-[10px] font-bold uppercase tracking-[0.25em] transition-all duration-500 transform translate-y-8 group-hover:translate-y-0 w-full max-w-[140px] shadow-2xl border-none"
+            className={`bg-white text-black hover:bg-luxury-gold hover:text-white rounded-none px-6 py-4 text-[10px] font-bold uppercase tracking-[0.25em] transition-all duration-500 transform ${isProcessing ? 'translate-y-0 opacity-100' : 'translate-y-8'} group-hover:translate-y-0 w-full max-w-[140px] shadow-2xl border-none`}
           >
-            Adquirir
+            {isProcessing ? (
+              <span className="flex items-center gap-2">
+                <Loader2 size={12} className="animate-spin" />
+                Processar...
+              </span>
+            ) : 'Adquirir'}
           </Button>
         </div>
         <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-md text-[8px] text-white px-2 py-1 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
@@ -332,6 +350,89 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
   );
 };
 
+const CheckoutModal = ({ 
+  isOpen, 
+  onClose, 
+  product, 
+  userEmail, 
+  onConfirm, 
+  isProcessing 
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  product: Product | null, 
+  userEmail: string,
+  onConfirm: (email: string) => void,
+  isProcessing: boolean
+}) => {
+  const [email, setEmail] = useState('');
+
+  useEffect(() => {
+    if (isOpen) setEmail(userEmail || '');
+  }, [userEmail, isOpen]);
+
+  if (!product) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-[420px] rounded-none border-none dark:bg-zinc-900 p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
+        <DialogHeader className="space-y-4">
+          <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">Destino da sua Obra</DialogTitle>
+          <div className="flex gap-4 items-center p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5">
+            <div className="w-14 h-20 bg-neutral-200 dark:bg-zinc-700 flex-shrink-0 overflow-hidden shadow-md">
+               <img src={product.image_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[9px] uppercase tracking-[0.3em] text-black/30 dark:text-white/30 font-bold">Investimento Digital</p>
+              <p className="text-sm font-serif dark:text-white leading-tight">{product.title}</p>
+              <p className="text-xs font-black tracking-tight dark:text-luxury-gold pt-1">€{product.price}</p>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="space-y-8 pt-6">
+          <div className="space-y-3">
+            <label className="text-[10px] uppercase tracking-[0.25em] font-bold text-black/50 dark:text-white/50 pl-1">
+              Endereço de Entrega (Email)
+            </label>
+            <div className="relative group">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="seu@atelier.com"
+                className="w-full bg-neutral-100/50 dark:bg-zinc-800/50 border border-transparent focus:border-luxury-gold/30 px-5 py-4 text-sm outline-none dark:text-white transition-all duration-300 rounded-sm"
+              />
+              <div className="absolute bottom-0 left-0 h-[1px] bg-luxury-gold w-0 group-focus-within:w-full transition-all duration-700" />
+            </div>
+            <p className="text-[9px] text-black/40 dark:text-zinc-500 italic pl-1 flex items-center gap-1.5">
+              <span className="w-1 h-1 bg-luxury-gold rounded-full" />
+              O link de acesso vitalício será enviado para este destino.
+            </p>
+          </div>
+
+          <Button 
+            onClick={() => onConfirm(email)}
+            disabled={isProcessing || !email || !email.includes('@')}
+            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-luxury-gold dark:hover:bg-luxury-gold hover:text-white rounded-none h-14 text-[11px] font-bold uppercase tracking-[0.3em] transition-all duration-500 shadow-xl disabled:opacity-50"
+          >
+            {isProcessing ? (
+               <span className="flex items-center gap-3">
+                 <Loader2 size={16} className="animate-spin" />
+                 A Iniciar Protocolo Stripe...
+               </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                Concluir Aquisição <ArrowRight size={14} />
+              </span>
+            )}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -341,6 +442,10 @@ export default function App() {
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('sart-theme');
@@ -424,20 +529,48 @@ export default function App() {
     }
   }, [user]);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchDashboardData(session.user.id);
-        fetchProfile(session.user.id);
-      }
-    });
+  // Ref para gerir a subscrição em tempo real e evitar duplicados
+  const ordersSubRef = React.useRef<any>(null);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchDashboardData(session.user.id);
-        fetchProfile(session.user.id);
+  useEffect(() => {
+    // Escuta mudanças de autenticação
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const currentUser = session?.user ?? null;
+      setUser(currentUser);
+
+      if (currentUser) {
+        fetchDashboardData(currentUser.id);
+        fetchProfile(currentUser.id);
+
+        // Configura Real-time se ainda não estiver configurado
+        if (!ordersSubRef.current) {
+          ordersSubRef.current = supabase
+            .channel(`user-orders-realtime-${currentUser.id}`)
+            .on('postgres_changes', { 
+              event: 'UPDATE', 
+              table: 'orders', 
+              filter: `user_id=eq.${currentUser.id}` 
+            }, (payload: any) => {
+              if (payload.new.status === 'completed') {
+                fetchDashboardData(currentUser.id);
+                toast.success('Pagamento confirmado! O seu e-book já está na biblioteca.', {
+                  duration: 5000,
+                  icon: <CheckCircle2 className="text-emerald-500" size={18} />
+                });
+              }
+            })
+            .subscribe();
+        }
+      } else {
+        // Limpa subscrição ao sair
+        if (ordersSubRef.current) {
+          supabase.removeChannel(ordersSubRef.current);
+          ordersSubRef.current = null;
+        }
+      }
+      
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        fetchProducts();
       }
     });
 
@@ -445,7 +578,11 @@ export default function App() {
     checkUrlParams();
 
     return () => {
-      subscription.unsubscribe();
+      authSub.unsubscribe();
+      if (ordersSubRef.current) {
+        supabase.removeChannel(ordersSubRef.current);
+        ordersSubRef.current = null;
+      }
     };
   }, []);
 
@@ -485,6 +622,11 @@ export default function App() {
         if (data.status === 'paid') {
           setSuccessProduct(data.product);
           toast.success('Compra realizada com sucesso!');
+          // Refresh dashboard to show the new book
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            fetchDashboardData(session.user.id);
+          }
         }
       } catch (err) {
         console.error(err);
@@ -526,22 +668,47 @@ export default function App() {
       setIsAuthOpen(true);
       return;
     }
+    
+    setSelectedProduct(product);
+    setIsCheckoutModalOpen(true);
+  };
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
+    if (view !== 'home' && query.trim() !== '') {
+      setView('home');
+    }
+  };
+
+  const handleCheckoutConfirm = async (email: string) => {
+    if (!selectedProduct || !user) return;
+
+    setCheckoutLoading(selectedProduct.id);
     try {
       const res = await fetch('/api/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productId: product.id,
+          productId: selectedProduct.id,
           userId: user.id,
-          email: user.email
+          email: email
         })
       });
+      
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else toast.error('Erro ao processar checkout.');
-    } catch (err) {
-      toast.error('Ocorreu um erro.');
+      
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        const errorMsg = data.error || 'Erro ao processar checkout.';
+        toast.error(errorMsg);
+        console.error('[STRIPE CHECKOUT ERROR]', data);
+      }
+    } catch (err: any) {
+      toast.error('Ocorreu um erro ao conectar com o servidor.');
+      console.error('[NETWORK ERROR]', err);
+    } finally {
+      setCheckoutLoading(null);
     }
   };
 
@@ -567,7 +734,21 @@ export default function App() {
         onThemeToggle={toggleTheme}
         onAuthClick={() => setIsAuthOpen(true)} 
         onDashboardClick={(v) => setView(v)}
-        onHomeClick={() => setView('home')}
+        onHomeClick={() => {
+          setView('home');
+          setSearchQuery('');
+        }}
+        onSearch={handleSearch}
+        searchQuery={searchQuery}
+      />
+
+      <CheckoutModal 
+        isOpen={isCheckoutModalOpen}
+        onClose={() => setIsCheckoutModalOpen(false)}
+        product={selectedProduct}
+        userEmail={user?.email || ''}
+        isProcessing={!!checkoutLoading}
+        onConfirm={handleCheckoutConfirm}
       />
 
       <main className="pt-32 pb-20 px-6 max-w-7xl mx-auto w-full">
@@ -625,10 +806,19 @@ export default function App() {
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-10 pt-8">
                 {products
-                  .filter(p => selectedCategory === 'Todos' || p.category === selectedCategory)
+                  .filter(p => {
+                    const matchesCategory = selectedCategory === 'Todos' || p.category === selectedCategory;
+                    const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                                         p.description.toLowerCase().includes(searchQuery.toLowerCase());
+                    return matchesCategory && matchesSearch;
+                  })
                   .map((product) => (
                     <div key={product.id}>
-                      <ProductCard product={product} onBuy={handleBuy} />
+                      <ProductCard 
+                        product={product} 
+                        onBuy={handleBuy} 
+                        isProcessing={checkoutLoading === product.id}
+                      />
                     </div>
                   ))}
               </div>
@@ -696,41 +886,68 @@ export default function App() {
           {view === 'success' && (
             <motion.div 
               key="success"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="max-w-md mx-auto py-20 text-center space-y-8"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-xl mx-auto py-24 text-center space-y-12"
             >
-              <div className="flex justify-center">
-                <CheckCircle2 size={64} strokeWidth={1} className="text-black dark:text-white" />
-              </div>
-              <div className="space-y-4">
-                <h2 className="text-4xl font-serif dark:text-white">A sua encomenda está pronta.</h2>
-                <p className="text-xs uppercase tracking-widest leading-relaxed text-black/60 dark:text-white/60">
-                  Confirmamos o seu pagamento. O link de download também foi enviado para o seu email através da nossa boutique.
+              <motion.div 
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', damping: 12 }}
+                className="w-24 h-24 bg-luxury-gold rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-luxury-gold/20"
+              >
+                <CheckCircle2 size={40} className="text-white" />
+              </motion.div>
+
+              <div className="space-y-6">
+                <h2 className="text-5xl md:text-6xl font-serif dark:text-white leading-[1.1]">Aquisição <br />Concluída.</h2>
+                <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
+                <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed px-4">
+                  A sua obra já está disponível para download imediato na sua biblioteca e foi enviada para o seu destino digital.
                 </p>
               </div>
 
               {successProduct && (
-                <Card className="rounded-none border-black/5 dark:border-white/5 bg-neutral-50 dark:bg-zinc-900 shadow-none p-6">
-                  <div className="flex gap-4 text-left items-center">
-                    <img src={getImageUrl(successProduct.image_url)} className="w-16 h-20 object-cover border border-black/10" />
-                    <div>
-                      <h4 className="font-serif dark:text-white">{successProduct.title}</h4>
-                      <p className="text-[9px] uppercase tracking-widest text-black/40 dark:text-white/40 mb-2">Aquisição Confirmada</p>
-                      <Button onClick={() => setView('dashboard')} variant="link" className="p-0 h-auto text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white">
-                        Ver na Biblioteca <ExternalLink size={10} className="ml-1" />
-                      </Button>
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="rounded-none border border-black/5 dark:border-white/5 bg-neutral-50 dark:bg-zinc-900 overflow-hidden shadow-2xl mx-auto max-w-sm"
+                >
+                  <div className="flex bg-white dark:bg-black/20 p-6 gap-6 text-left items-center">
+                    <div className="shadow-xl flex-shrink-0">
+                      <img src={getImageUrl(successProduct.image_url)} className="w-20 h-28 object-cover" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-[9px] uppercase tracking-[0.3em] font-bold text-luxury-gold">Novo Ativo</p>
+                      <h4 className="font-serif text-xl dark:text-white leading-tight">{successProduct.title}</h4>
+                      <div className="pt-2">
+                        <Button 
+                          onClick={() => setView('dashboard')} 
+                          variant="ghost" 
+                          className="p-0 h-auto text-[10px] uppercase tracking-[0.2em] font-bold text-black/60 dark:text-white/60 hover:text-luxury-gold dark:hover:text-luxury-gold transition-all"
+                        >
+                          Ir para Biblioteca Privada <ArrowRight size={12} className="ml-2" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </Card>
+                </motion.div>
               )}
 
-              <div className="pt-8">
+              <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
                 <Button 
                   onClick={() => setView('dashboard')}
-                  className="bg-black dark:bg-white text-white dark:text-black px-12 h-14 rounded-none uppercase tracking-widest text-[10px]"
+                  className="bg-black dark:bg-white text-white dark:text-black px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl hover:bg-luxury-gold dark:hover:bg-luxury-gold hover:text-white transition-all duration-500"
                 >
-                  Ir para a minha Biblioteca
+                  Aceder à Minha Obra
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={() => setView('home')}
+                  className="border-black/10 dark:border-white/10 px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-all duration-500"
+                >
+                  Mais Coleções
                 </Button>
               </div>
             </motion.div>

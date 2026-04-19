@@ -76,10 +76,23 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   try {
     // 1. Update Order in Supabase
     if (orderId) {
-      await supabase.from('orders').update({ 
+      const updateData: any = { 
         status: 'completed',
         stripe_session_id: session.id 
-      }).eq('id', orderId);
+      };
+      
+      if (email) updateData.customer_email = email;
+
+      try {
+        await supabase.from('orders').update(updateData).eq('id', orderId);
+      } catch (err) {
+        console.warn("[S.ART WEBHOOK] Partial update on order. customer_email might be missing from schema.");
+        // Fallback update without customer_email if it fails
+        await supabase.from('orders').update({
+          status: 'completed',
+          stripe_session_id: session.id
+        }).eq('id', orderId);
+      }
     }
 
     // 2. Get Product Info (for the download link)
@@ -136,20 +149,28 @@ app.post('/api/create-checkout', async (req, res) => {
 
     if (error || !product) return res.status(404).json({ error: 'Product not found' });
 
-    // Create Order Record in Pending State
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        user_id: userId || null,
-        product_id: productId,
-        total_amount: product.price,
-        customer_email: email,
-        status: 'pending'
-      })
-      .select()
-      .single();
-
-    if (orderError) throw orderError;
+    // Create Order Record in Pending State (Optional - fallback to session only if DB is out of sync)
+    let orderId = '';
+    try {
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: userId || null,
+          product_id: productId,
+          total_amount: product.price,
+          status: 'pending'
+        })
+        .select()
+        .single();
+        
+      if (!orderError && order) {
+        orderId = order.id;
+      } else {
+        console.warn("[S.ART] DB Sync Warning: Could not create initial order record. Checkout will continue.", orderError);
+      }
+    } catch (dbErr) {
+      console.warn("[S.ART] DB Exception: Failed to insert order. Schema might be outdated.", dbErr);
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -167,12 +188,12 @@ app.post('/api/create-checkout', async (req, res) => {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.origin}/`,
+      success_url: `https://s.art-full.pt/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://s.art-full.pt/cancel`,
       metadata: {
         userId: userId || '',
         productId: productId,
-        orderId: order.id
+        orderId: orderId
       }
     });
 
