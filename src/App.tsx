@@ -146,16 +146,13 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
 
   const handleGoogleLogin = async () => {
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
+          redirectTo: window.location.origin
         }
       });
       if (error) throw error;
-      if (data?.url) {
-        window.open(data.url, 'oauth_popup', 'width=600,height=700');
-      }
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -470,21 +467,11 @@ export default function App() {
       if (session?.user) fetchDashboardData(session.user.id);
     });
 
-    // Handle Google Login Success from Popup
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        supabase.auth.refreshSession();
-        toast.success('Autenticação Google concluída.');
-      }
-    };
-    window.addEventListener('message', handleMessage);
-
     fetchProducts();
     checkUrlParams();
 
     return () => {
       subscription.unsubscribe();
-      window.removeEventListener('message', handleMessage);
     };
   }, []);
 

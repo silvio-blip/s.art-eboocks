@@ -212,28 +212,6 @@ app.get('/api/session-status', async (req, res) => {
   }
 });
 
-// --- OAUTH CALLBACK (Skill: oauth-integration) ---
-app.get(['/auth/callback', '/auth/callback/'], (req, res) => {
-  res.send(`
-    <html>
-      <body style="background: #fff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0;">
-        <div style="text-align: center;">
-          <h2 style="font-weight: 300;">Autenticação concluída</h2>
-          <p style="color: #666; font-size: 14px;">Esta janela fechará automaticamente...</p>
-        </div>
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-            setTimeout(() => window.close(), 1000);
-          } else {
-            window.location.href = '/';
-          }
-        </script>
-      </body>
-    </html>
-  `);
-});
-
 // --- ADMIN API ---
 
 // Create Product
