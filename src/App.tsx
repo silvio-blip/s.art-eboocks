@@ -602,8 +602,37 @@ export default function App() {
     }
   }, [user]);
 
-  // Ref para gerir a subscrição em tempo real e evitar duplicados
-  const ordersSubRef = React.useRef<any>(null);
+  // Gerir subscrição em tempo real separadamente para evitar conflitos de bloqueio
+  useEffect(() => {
+    if (!user) return;
+
+    const channelName = `user-orders-realtime-${user.id}`;
+    const ordersChannel = supabase
+      .channel(channelName)
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        table: 'orders', 
+        filter: `user_id=eq.${user.id}` 
+      }, (payload: any) => {
+        if (payload.new.status === 'completed') {
+          fetchDashboardData(user.id);
+          toast.success('Pagamento confirmado! O seu e-book já está na biblioteca.', {
+            duration: 5000,
+            icon: <CheckCircle2 className="text-emerald-500" size={18} />
+          });
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`[REALTIME] Subscribed to ${channelName}`);
+        }
+      });
+
+    return () => {
+      console.log(`[REALTIME] Unsubscribing from ${channelName}`);
+      supabase.removeChannel(ordersChannel);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     // Escuta mudanças de autenticação
@@ -614,32 +643,6 @@ export default function App() {
       if (currentUser) {
         fetchDashboardData(currentUser.id);
         fetchProfile(currentUser.id);
-
-        // Configura Real-time se ainda não estiver configurado
-        if (!ordersSubRef.current) {
-          ordersSubRef.current = supabase
-            .channel(`user-orders-realtime-${currentUser.id}`)
-            .on('postgres_changes', { 
-              event: 'UPDATE', 
-              table: 'orders', 
-              filter: `user_id=eq.${currentUser.id}` 
-            }, (payload: any) => {
-              if (payload.new.status === 'completed') {
-                fetchDashboardData(currentUser.id);
-                toast.success('Pagamento confirmado! O seu e-book já está na biblioteca.', {
-                  duration: 5000,
-                  icon: <CheckCircle2 className="text-emerald-500" size={18} />
-                });
-              }
-            })
-            .subscribe();
-        }
-      } else {
-        // Limpa subscrição ao sair
-        if (ordersSubRef.current) {
-          supabase.removeChannel(ordersSubRef.current);
-          ordersSubRef.current = null;
-        }
       }
       
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
@@ -652,10 +655,6 @@ export default function App() {
 
     return () => {
       authSub.unsubscribe();
-      if (ordersSubRef.current) {
-        supabase.removeChannel(ordersSubRef.current);
-        ordersSubRef.current = null;
-      }
     };
   }, []);
 

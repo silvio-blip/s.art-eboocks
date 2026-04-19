@@ -77,9 +77,10 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
 
     fetchData();
 
-    // Real-time subscription for orders
+    // Real-time subscription for orders - unique name per admin to avoid "steal" conflict
+    const channelName = `admin-updates-${user.id}`;
     const channel = supabase
-      .channel('admin-updates')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', table: 'orders' }, () => {
         fetchDashboardData();
         toast.info('Novas atividades de vendas detectadas!');
