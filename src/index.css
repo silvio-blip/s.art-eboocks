@@ -20,7 +20,19 @@
   --color-luxury-white: #FFFFFF;
 }
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
+  .dark {
+    --color-background: #000000;
+    --color-foreground: #ffffff;
+    --color-border: #262626;
+    --color-muted: #171717;
+    --color-muted-foreground: #a1a1aa;
+    --color-primary: white;
+    --color-primary-foreground: black;
+  }
+  
   * {
     @apply border-border;
   }

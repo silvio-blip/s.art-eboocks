@@ -34,13 +34,17 @@ import { toast } from 'sonner';
 import { supabase } from '@/src/lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
-const ADMIN_ID = '3d596215-583e-498f-9fd5-36b83d8bccf5';
+const ADMIN_IDS = [
+  '3d596215-583e-498f-9fd5-36b83d8bccf5',
+  '00d44feb-0b51-405e-86f7-31b67edfb7b6'
+];
 
 interface Product {
   id: string;
   title: string;
   description: string;
   price: number;
+  category: string;
   image_url: string;
   file_url: string;
   is_active: boolean;
@@ -66,7 +70,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    if (user.id !== ADMIN_ID) {
+    if (!ADMIN_IDS.includes(user.id)) {
       onBack();
       return;
     }
@@ -137,22 +141,19 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     setUploading(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `${type === 'image' ? 'covers' : 'ebooks'}/${fileName}`;
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const bucketName = type === 'image' ? 'covers' : 'ebooks';
 
-      const { data, error } = await supabase.storage
-        .from('assets') // Assuming a bucket named 'assets' exists
-        .upload(filePath, file);
+      const { error } = await supabase.storage
+        .from(bucketName)
+        .upload(fileName, file);
 
       if (error) throw error;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('assets')
-        .getPublicUrl(filePath);
-
+      // Update state with just the fileName (as we'll resolve full URLs later)
       setEditingProduct(prev => ({
         ...prev!,
-        [type === 'image' ? 'image_url' : 'file_url']: publicUrl
+        [type === 'image' ? 'image_url' : 'file_url']: fileName
       }));
       
       toast.success(`${type === 'image' ? 'Capa' : 'PDF'} carregado com sucesso.`);
@@ -180,18 +181,22 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     }
   };
 
-  // Processing chart data
+  // Processing chart data with safety for NaN
   const chartData = orders.reduce((acc: any[], order) => {
+    const amount = Number(order.total_amount) || 0;
     const date = new Date(order.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
     const existingDate = acc.find(d => d.date === date);
     if (existingDate) {
-      existingDate.value += Number(order.total_amount);
+      existingDate.value += amount;
       existingDate.sales += 1;
     } else {
-      acc.push({ date, value: Number(order.total_amount), sales: 1 });
+      acc.push({ date, value: amount, sales: 1 });
     }
     return acc;
   }, []).reverse().slice(-7);
+
+  // If no data, provide a placeholder to avoid Recharts errors
+  const displayData = chartData.length > 0 ? chartData : [{ date: 'N/A', value: 0, sales: 0 }];
 
   const totalRevenue = orders.reduce((acc, o) => acc + Number(o.total_amount), 0);
   const completedSales = orders.filter(o => o.status === 'completed').length;
@@ -278,9 +283,9 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
               <div className="space-y-6">
                 <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">Fluxo de Faturamento (7 Dias)</h3>
-                <div className="h-[300px] w-full bg-luxury-dark/30 border border-white/5 p-8">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
+                <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px]">
+                  <ResponsiveContainer width="100%" height={350}>
+                    <AreaChart data={displayData}>
                       <defs>
                         <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3}/>
@@ -311,9 +316,9 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
 
               <div className="space-y-6">
                 <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">Volume de Vendas</h3>
-                <div className="h-[300px] w-full bg-luxury-dark/30 border border-white/5 p-8">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData}>
+                <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px]">
+                  <ResponsiveContainer width="100%" height={350}>
+                    <BarChart data={displayData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                       <XAxis 
                         dataKey="date" 
@@ -384,7 +389,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                 <p className="text-[10px] uppercase tracking-widest text-white/30 mt-2">Adicione ou edite e-books exclusivos</p>
               </div>
               <Button 
-                onClick={() => setEditingProduct({ title: '', price: 0, description: '', image_url: '', file_url: '' })}
+                onClick={() => setEditingProduct({ title: '', price: 0, description: '', category: 'Geral', image_url: '', file_url: '' })}
                 className="bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold"
               >
                 <Plus size={16} className="mr-2" /> Novo Ativo Digital
@@ -451,6 +456,19 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                         />
                       </div>
                       <div className="space-y-4">
+                        <label className="text-[10px] uppercase tracking-widest text-white/40">Categoria</label>
+                        <select 
+                          value={editingProduct.category || "Geral"}
+                          onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })}
+                          className="w-full bg-luxury-dark border border-white/10 p-4 text-sm outline-none focus:border-luxury-gold transition-colors text-white"
+                        >
+                          <option value="Moda">Moda</option>
+                          <option value="Saúde">Saúde</option>
+                          <option value="Tecnologia">Tecnologia</option>
+                          <option value="Geral">Geral</option>
+                        </select>
+                      </div>
+                      <div className="space-y-4">
                         <label className="text-[10px] uppercase tracking-widest text-white/40">Manifesto / Descrição</label>
                         <textarea 
                           value={editingProduct.description}
@@ -465,9 +483,14 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                       <div className="grid grid-cols-2 gap-6">
                         <div className="space-y-4">
                           <label className="text-[10px] uppercase tracking-widest text-white/40 block">Capa (JPG/PNG)</label>
-                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer group transition-all">
+                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer group transition-all overflow-hidden">
                             {editingProduct.image_url ? (
-                              <img src={editingProduct.image_url} className="w-full h-full object-cover" />
+                              <img 
+                                src={editingProduct.image_url.startsWith('http') 
+                                  ? editingProduct.image_url 
+                                  : supabase.storage.from('covers').getPublicUrl(editingProduct.image_url).data.publicUrl} 
+                                className="w-full h-full object-cover" 
+                              />
                             ) : (
                               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
                                 <Upload size={32} strokeWidth={1} />

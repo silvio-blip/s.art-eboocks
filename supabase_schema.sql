@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
   email TEXT NOT NULL,
   full_name TEXT,
+  theme TEXT DEFAULT 'light',
   is_admin BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS products (
   image_url TEXT, -- Capa do E-book
   file_url TEXT, -- Link para o PDF no Storage/CDN
   is_active BOOLEAN DEFAULT true,
+  category TEXT DEFAULT 'Geral',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
@@ -55,7 +57,20 @@ CREATE POLICY "Public can view active products" ON products
 CREATE POLICY "Users can view their own orders" ON orders
   FOR SELECT USING (auth.uid() = user_id);
 
--- Admin Access (Example UIDs from prompt or current user)
--- Using a common admin check via auth.uid() if needed
--- For now, let's allow the user silviok5000@gmail.com full access if we had their ID, 
--- but we'll use a generic "admin" role concept if implemented.
+-- 4. STORAGE SETUP (Specific Buckets)
+-- Run these in the SQL Editor to create buckets and set dynamic policies
+
+-- Create 'covers' bucket (Public for images)
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('covers', 'covers', true) ON CONFLICT (id) DO NOTHING;
+
+-- Create 'ebooks' bucket (Private for PDF delivery)
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('ebooks', 'ebooks', false) ON CONFLICT (id) DO NOTHING;
+
+-- Policy: Public Access for covers
+-- CREATE POLICY "Public Covers" ON storage.objects FOR SELECT USING (bucket_id = 'covers');
+
+-- Policy: Admin Upload for both (Uids: 3d596215-583e-498f-9fd5-36b83d8bccf5, 00d44feb-0b51-405e-86f7-31b67edfb7b6)
+-- CREATE POLICY "Admin Storage Manage" ON storage.objects FOR ALL WITH CHECK (
+--   bucket_id IN ('covers', 'ebooks') AND 
+--   auth.uid() IN ('3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6')
+-- );
