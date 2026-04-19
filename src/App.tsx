@@ -756,6 +756,12 @@ export default function App() {
     if (!selectedProduct || !user) return;
 
     setCheckoutLoading(selectedProduct.id);
+    console.log('Enviando dados:', { 
+      productId: selectedProduct.id, 
+      userId: user.id, 
+      email: email 
+    });
+
     try {
       const res = await fetch('/api/create-checkout', {
         method: 'POST',
@@ -772,19 +778,21 @@ export default function App() {
       try {
         data = JSON.parse(responseText);
       } catch (e) {
-        throw new Error(`Resposta do servidor não é JSON válido: ${responseText.substring(0, 50)}...`);
+        throw new Error(`Resposta do servidor não é JSON: ${responseText}`);
+      }
+      
+      if (!res.ok) {
+        throw new Error(data.error || `Erro do servidor (${res.status})`);
       }
       
       if (data.url) {
         window.location.href = data.url;
       } else {
-        const errorMsg = data.error || 'Erro ao processar checkout.';
-        toast.error(errorMsg);
-        console.error('[STRIPE CHECKOUT ERROR]', data);
+        throw new Error('URL de checkout não recebida.');
       }
     } catch (err: any) {
-      toast.error(err.message || 'Ocorreu um erro ao conectar com o servidor.');
       console.error('[NETWORK ERROR]', err);
+      alert(`Erro ao iniciar pagamento: ${err.message}`);
     } finally {
       setCheckoutLoading(null);
     }

@@ -7,6 +7,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const { productId, userId, email } = req.body;
+    console.log('[CHECKOUT] Request body:', { productId, userId, email });
+
+    if (!productId) return res.status(400).json({ error: 'Product ID required' });
+
     const stripe = getStripe();
     const supabase = getSupabase();
 
@@ -16,29 +20,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq('id', productId)
       .single();
 
-    if (error || !product) {
+    if (error) {
+      console.error('[CHECKOUT] DB Error:', error);
       return res.status(404).json({ error: 'Product not found' });
     }
 
     let orderId = '';
-    try {
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          user_id: userId || null,
-          product_id: productId,
-          total_amount: product.price,
-          status: 'pending',
-          customer_email: email
-        })
-        .select()
-        .single();
-        
-      if (!orderError && order) {
-        orderId = order.id;
-      }
-    } catch (dbErr) {
-      console.warn("DB Exception in checkout:", dbErr);
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert({
+        user_id: userId || null,
+        product_id: productId,
+        total_amount: product.price,
+        status: 'pending',
+        customer_email: email
+      })
+      .select()
+      .single();
+      
+    if (orderError) {
+      console.error('[CHECKOUT] Order Insert Error:', orderError);
+    } else if (order) {
+      orderId = order.id;
     }
 
     const clientOrigin = req.headers.origin || `https://${req.headers.host}`;
@@ -53,9 +56,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           product_data: {
             name: product.title,
             description: product.description,
-            images: [product.image_url],
+            images: product.image_url ? [product.image_url] : [],
           },
-          unit_amount: Math.round(product.price * 100),
+          unit_amount: Math.round(Number(product.price) * 100),
         },
         quantity: 1,
       }],
@@ -71,6 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
+    console.error('[STRIPE_ERROR_DETAIL]:', error.message);
     res.status(500).json({ error: error.message });
   }
 }
