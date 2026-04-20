@@ -423,27 +423,31 @@ apiRouter.get('/verify-session', async (req, res) => {
 apiRouter.get('/get-book', async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
-    const fileName = url.searchParams.get('fileName') || url.searchParams.get('filePath'); // Suporta ambos para compatibilidade
+    const filePath = url.searchParams.get('fileName') || url.searchParams.get('filePath');
 
-    if (!fileName) return res.status(400).json({ error: 'fileName ou filePath é necessário' });
+    if (!filePath) return res.status(400).json({ error: 'filePath is required' });
 
-    const supabase = getSupabase();
+    // Instanciar supabase com Service Role Key para permissão total
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+        return res.status(500).json({ error: "SERVICE_ROLE_KEY_MISSING" });
+    }
+    const supabase = createClient(process.env.VITE_SUPABASE_URL!, serviceRoleKey);
     
-    // Usa o caminho exatamente como enviado, pois já contém 'ebook/' no Banco de Dados
-    const finalPath = fileName;
-
-    console.log("[DEBUG] Solicitando ficheiro no bucket 'assets' com o path exato:", finalPath);
+    // Caminho forçado: assegurar prefixo 'ebook/'
+    const finalPath = filePath.startsWith('ebook/') ? filePath : `ebook/${filePath}`;
+    
+    console.log("[S.ART FINAL CHECK] Path solicitado: ", finalPath);
 
     const { data, error } = await supabase.storage
         .from('assets')
         .createSignedUrl(finalPath, 3600);
 
     if (error) {
-      console.error(`[S.ART GET-BOOK ERROR] Falha ao aceder ao path "${finalPath}":`, error);
+      console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, error);
       return res.status(404).json({ 
-        error: `O ficheiro não foi encontrado em 'assets/${finalPath}'`,
-        triedPath: finalPath,
-        bucket: 'assets'
+        error: `Obra não encontrada: ${error?.message || 'Object not found'}`,
+        triedPath: finalPath
       });
     }
     
