@@ -59,18 +59,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (storageError) {
       console.error(`[DOWNLOAD ERROR] Storage fail for "${sanitizedPath}":`, storageError);
       
-      // Se não encontrou no 'ebooks', vamos tentar uma mensagem mais útil
       const errorMessage = storageError.message === 'Object not found' 
-        ? `Ficheiro "${sanitizedPath}" não encontrado no armazenamento (bucket: ebooks).`
-        : storageError.message;
+        ? `Ficheiro "${sanitizedPath}" não encontrado no armazenamento.`
+        : `Erro no servidor de ficheiros: ${storageError.message}`;
 
       return res.status(500).json({ error: errorMessage });
     }
 
     console.log(`[DOWNLOAD SUCCESS] Signed URL generated for order ${orderId}`);
-    res.json({ url: signedUrlData.signedUrl });
+    return res.status(200).json({ url: signedUrlData.signedUrl });
   } catch (error: any) {
     console.error(`[DOWNLOAD FATAL ERROR]:`, error.message);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ 
+      error: 'Ocorreu um erro interno ao processar o seu pedido.',
+      details: error.message 
+    });
   }
 }

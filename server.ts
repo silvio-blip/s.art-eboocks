@@ -311,6 +311,42 @@ apiRouter.post('/save-reading-state', async (req, res) => {
   }
 });
 
+// Verify Session (Updated with WHATWG URL)
+apiRouter.get('/verify-session', async (req, res) => {
+  try {
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const fullUrl = new URL(req.url, `${protocol}://${host}`);
+    const session_id = fullUrl.searchParams.get('session_id');
+
+    if (!session_id) return res.status(400).json({ error: 'Session ID required' });
+
+    const stripe = getStripe();
+    const supabase = getSupabase();
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (session.payment_status === 'paid') {
+      const productId = session.metadata?.productId;
+      const orderId = session.metadata?.orderId;
+      const { data: product } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', productId)
+        .single();
+
+      return res.json({ 
+        status: 'paid', 
+        product: product,
+        orderId: orderId
+      });
+    }
+
+    res.json({ status: session.payment_status });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- ADMIN API ---
 const adminRouter = express.Router();
 

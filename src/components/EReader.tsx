@@ -67,18 +67,18 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
     const initializeReader = async () => {
       try {
         setLoading(true);
+        console.log(`[READER DATA] Fetching book data for order: ${orderId}`);
         
         const res = await fetch(`/api/orders/${orderId}/download`);
+        const responseText = await res.text();
         
-        // Handle non-JSON responses (HTML error pages)
-        const contentType = res.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await res.text();
-          console.error('[READER INIT] Non-JSON response:', text.substring(0, 200));
-          throw new Error('Resposta inválida do servidor. Por favor, tente novamente mais tarde.');
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          console.error('[READER FATAL] Server response is not JSON:', responseText.substring(0, 300));
+          throw new Error('Resposta inválida do servidor (não JSON).');
         }
-
-        const data = await res.json();
         
         if (!res.ok || !data.url) {
           throw new Error(data.error || 'Não foi possível carregar o livro.');

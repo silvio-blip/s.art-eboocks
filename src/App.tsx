@@ -524,6 +524,7 @@ export default function App() {
   const [readingProgress, setReadingProgress] = useState<Record<string, ReadingProgress>>({});
   const [activeReading, setActiveReading] = useState<{orderId: string, product: Product} | null>(null);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
+  const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
@@ -718,23 +719,33 @@ export default function App() {
   const checkUrlParams = async () => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session_id');
-    const success = params.get('success');
+
+    // Security & Redirect: If session state is active but no ID is present, kick back to library
+    if (view === 'success' && !sessionId) {
+      setView('dashboard');
+      return;
+    }
 
     if (sessionId) {
       setView('success');
       try {
-        const res = await fetch(`/api/session-status?session_id=${sessionId}`);
+        console.log(`[S.ART DEBUG] Verifying Stripe session: ${sessionId}`);
+        const res = await fetch(`/api/verify-session?session_id=${sessionId}`);
         
-        // Anti-HTML Guard
+        // Anti-HTML Guard (Crucial for Vercel 500s)
         const contentType = res.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
-          throw new Error('Servidor retornou formato inválido.');
+          const rawText = await res.text();
+          console.error('[CRITICAL] API returned HTML instead of JSON:', rawText.substring(0, 300));
+          throw new Error(`Resposta inválida do servidor (HTML). Status: ${res.status}`);
         }
 
         const data = await res.json();
+        
         if (data.status === 'paid') {
           setSuccessProduct(data.product);
-          toast.success('Compra realizada com sucesso!');
+          setSuccessOrderId(data.orderId);
+          toast.success('Compra validada com sucesso! Obra desbloqueada.');
           
           if (data.orderId) {
             handleDownload(data.orderId);
@@ -744,10 +755,16 @@ export default function App() {
           if (session?.user) {
             fetchDashboardData(session.user.id);
           }
+        } else {
+          console.warn('[S.ART DEBUG] Session not paid yet:', data);
         }
-      } catch (err) {
-        console.error('[SESSION CHECK ERROR]', err);
-        // toast.error('Sincronização pendente. Verifique a sua biblioteca em instantes.');
+      } catch (err: any) {
+        console.error('[S.ART SESSION ERROR LOG]', {
+          message: err.message,
+          stack: err.stack,
+          timestamp: new Date().toISOString()
+        });
+        toast.error('Erro ao validar o pagamento. Por favor, contacte o suporte se o valor foi debitado.');
       }
     }
   };
@@ -795,11 +812,9 @@ export default function App() {
     }
   };
 
-  const handleOpenReader = (order: Order) => {
-    if (order.product) {
-      setActiveReading({ orderId: order.id, product: order.product });
-      setView('reader');
-    }
+  const handleOpenReader = (product: Product, orderId: string) => {
+    setActiveReading({ orderId, product });
+    setView('reader');
   };
 
   const handleBuy = async (product: Product) => {
@@ -1056,7 +1071,7 @@ export default function App() {
                     return order.product && (
                       <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group shadow-sm">
                         <CardContent className="p-0">
-                          <div className="aspect-[3/4] overflow-hidden relative cursor-pointer" onClick={() => handleOpenReader(order)}>
+                          <div className="aspect-[3/4] overflow-hidden relative cursor-pointer" onClick={() => handleOpenReader(order.product, order.id)}>
                             <img 
                               src={getImageUrl(order.product.image_url)} 
                               alt={order.product.title} 
@@ -1087,7 +1102,7 @@ export default function App() {
                             </div>
                             <div className="grid grid-cols-1 gap-2">
                               <Button 
-                                onClick={() => handleOpenReader(order)}
+                                onClick={() => handleOpenReader(order.product, order.id)}
                                 className="bg-luxury-gold text-white hover:bg-luxury-gold/80 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest"
                               >
                                 <BookOpen size={12} className="hidden sm:block" />
@@ -1179,18 +1194,20 @@ export default function App() {
               )}
 
               <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
+                {successProduct && successOrderId && (
+                  <Button 
+                    onClick={() => handleOpenReader(successProduct, successOrderId)} 
+                    className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
+                  >
+                    Começar a Ler Agora <ArrowRight size={14} className="ml-2 animate-pulse" />
+                  </Button>
+                )}
                 <Button 
                   onClick={() => setView('dashboard')}
-                  className="bg-black dark:bg-white text-white dark:text-black px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl hover:bg-luxury-gold dark:hover:bg-luxury-gold hover:text-white transition-all duration-500"
+                  variant={successProduct ? "outline" : "default"}
+                  className={`${!successProduct ? 'bg-black text-white' : 'border-black/10 dark:border-white/10'} px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500`}
                 >
-                  Aceder à Minha Obra
-                </Button>
-                <Button 
-                  variant="outline"
-                  onClick={() => setView('home')}
-                  className="border-black/10 dark:border-white/10 px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black transition-all duration-500"
-                >
-                  Mais Coleções
+                  Minha Biblioteca
                 </Button>
               </div>
             </motion.div>
