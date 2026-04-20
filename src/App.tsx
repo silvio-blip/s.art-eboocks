@@ -782,10 +782,16 @@ export default function App() {
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
       .select('*')
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .eq('status', 'completed'); // CRÍTICO: Mostrar APENAS encomendas pagas
     
     if (ordersError) {
       console.error("[DEBUG] Error fetching orders:", ordersError);
+      return;
+    }
+
+    if (!orders || orders.length === 0) {
+      setPurchasedProducts([]);
       return;
     }
 
