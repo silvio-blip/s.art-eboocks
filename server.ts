@@ -104,11 +104,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     if (product && email) {
       // 3. Generate Signed URL (Secure)
+      const sanitizedPath = (product.file_url || '').replace(/^\/+/, '');
+      console.log(`[S.ART] Delivery - Generating signed URL for: ${sanitizedPath}`);
+      
       const { data: signedData, error: signedError } = await supabase.storage
         .from('ebooks')
-        .createSignedUrl(product.file_url, 3600); // 1 hour
+        .createSignedUrl(sanitizedPath, 3600); // 1 hour
 
-      if (signedError) throw signedError;
+      if (signedError) {
+        console.error(`[S.ART] Storage error during delivery:`, signedError);
+        throw signedError;
+      }
 
       // 4. Trigger Email via Resend with Luxury Branding
       await resend.emails.send({
@@ -175,6 +181,13 @@ apiRouter.post('/create-checkout', async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
+    // Gerar URL pública da imagem para o Stripe
+    let stripeImage = product.image_url;
+    if (stripeImage && !stripeImage.startsWith('http')) {
+      const { data } = supabase.storage.from('covers').getPublicUrl(stripeImage);
+      stripeImage = data.publicUrl;
+    }
+
     // Create Order Record in Pending State
     let orderId = '';
     try {
@@ -203,7 +216,8 @@ apiRouter.post('/create-checkout', async (req, res) => {
     console.log(`[S.ART] Using origin: ${clientOrigin}`);
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
+      automatic_payment_methods: { enabled: true },
+      billing_address_collection: 'required',
       customer_email: email,
       line_items: [{
         price_data: {
@@ -211,9 +225,9 @@ apiRouter.post('/create-checkout', async (req, res) => {
           product_data: {
             name: product.title,
             description: product.description,
-            images: [product.image_url],
+            images: stripeImage ? [stripeImage] : [],
           },
-          unit_amount: Math.round(product.price * 100),
+          unit_amount: Math.round(parseFloat(product.price.toString()) * 100),
         },
         quantity: 1,
       }],
@@ -225,12 +239,12 @@ apiRouter.post('/create-checkout', async (req, res) => {
         productId: productId,
         orderId: orderId
       }
-    });
+    } as any);
 
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
-    console.error(`[S.ART CHECKOUT ERROR]`, error);
-    res.status(500).json({ error: error.message });
+    console.error(`[S.ART CHECKOUT FATAL ERROR]`, error);
+    res.status(500).json({ error: error.message || 'Erro interno no checkout do Stripe' });
   }
 });
 
@@ -246,6 +260,7 @@ apiRouter.get('/session-status', async (req, res) => {
 
     if (session.payment_status === 'paid') {
       const productId = session.metadata?.productId;
+      const orderId = session.metadata?.orderId;
       const { data: product } = await supabase
         .from('products')
         .select('*')
@@ -254,7 +269,8 @@ apiRouter.get('/session-status', async (req, res) => {
 
       return res.json({ 
         status: 'paid', 
-        product: product 
+        product: product,
+        orderId: orderId
       });
     }
 
@@ -330,27 +346,50 @@ adminRouter.delete('/products/:id', async (req, res) => {
 
 // Download Route
 apiRouter.get('/orders/:orderId/download', async (req, res) => {
+  const { orderId } = req.params;
+  console.log(`[DOWNLOAD] Request for Order: ${orderId}`);
+
   try {
-    const { orderId } = req.params;
     const supabase = getSupabase();
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, product:products(*)')
+      .select('*, product:products(*) ')
       .eq('id', orderId)
       .eq('status', 'completed')
       .single();
 
-    if (orderError || !order || !order.product) {
-      return res.status(404).json({ error: 'Order not found.' });
+    if (orderError) {
+      console.error(`[DOWNLOAD ERROR] DB fail:`, orderError);
+      return res.status(404).json({ error: `Ordem não encontrada: ${orderError.message}` });
     }
+
+    if (!order || !order.product) {
+      return res.status(404).json({ error: 'Produto não associado a esta ordem.' });
+    }
+
+    const originalPath = order.product.file_url || '';
+    
+    // Se for URL externo
+    if (originalPath.startsWith('http')) {
+      return res.json({ url: originalPath });
+    }
+
+    const sanitizedPath = originalPath.replace(/^\/+/, '');
+    console.log(`[DOWNLOAD] Sanitized Path: "${sanitizedPath}" in bucket "ebooks"`);
 
     const { data, error: storageError } = await supabase.storage
       .from('ebooks')
-      .createSignedUrl(order.product.file_url, 3600);
+      .createSignedUrl(sanitizedPath, 3600);
 
-    if (storageError) throw storageError;
+    if (storageError) {
+      console.error(`[DOWNLOAD ERROR] Storage fail for "${sanitizedPath}":`, storageError);
+      return res.status(404).json({ error: `Fisheiro não encontrado: ${storageError.message}` });
+    }
+
+    console.log(`[DOWNLOAD SUCCESS] Link generated for ${sanitizedPath}`);
     res.json({ url: data.signedUrl });
   } catch (error: any) {
+    console.error(`[DOWNLOAD FATAL]:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });

@@ -37,7 +37,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return res.json({ 
         status: 'paid', 
-        product: product 
+        product: product,
+        orderId: orderId
       });
     }
 

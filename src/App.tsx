@@ -719,6 +719,12 @@ export default function App() {
         if (data.status === 'paid') {
           setSuccessProduct(data.product);
           toast.success('Compra realizada com sucesso!');
+          
+          // Trigger automatic download
+          if (data.orderId) {
+            handleDownload(data.orderId);
+          }
+
           // Refresh dashboard to show the new book
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {

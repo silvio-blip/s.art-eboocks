@@ -54,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const clientOrigin = req.headers.origin || `https://${req.headers.host}`;
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card', 'multibanco', 'mb_way'],
+      automatic_payment_methods: { enabled: true },
       billing_address_collection: 'required',
       customer_email: email,
       line_items: [{
@@ -65,7 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             description: product.description,
             images: stripeImage ? [stripeImage] : [],
           },
-          unit_amount: Math.round(Number(product.price) * 100),
+          unit_amount: Math.round(parseFloat(product.price.toString()) * 100),
         },
         quantity: 1,
       }],
@@ -77,11 +77,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         productId: productId,
         orderId: orderId
       }
-    });
+    } as any);
 
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
-    console.error('[STRIPE_ERROR_DETAIL]:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('[STRIPE_CHECKOUT_FATAL_ERROR]:', error);
+    res.status(500).json({ error: error.message || 'Erro ao processar checkout' });
   }
 }

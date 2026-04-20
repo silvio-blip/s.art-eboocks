@@ -47,6 +47,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log(`[DOWNLOAD] Final path for Storage: "${sanitizedPath}" in bucket "ebooks"`);
 
+    if (!sanitizedPath || sanitizedPath === 'undefined' || sanitizedPath === 'null') {
+      console.error(`[DOWNLOAD ERROR] Invalid path resolved: "${sanitizedPath}"`);
+      return res.status(400).json({ error: 'Caminho do ficheiro inválido para este e-book.' });
+    }
+
     const { data: signedUrlData, error: storageError } = await supabase.storage
       .from('ebooks')
       .createSignedUrl(sanitizedPath, 3600);
