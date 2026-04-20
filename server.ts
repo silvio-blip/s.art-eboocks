@@ -429,21 +429,19 @@ apiRouter.get('/get-book', async (req, res) => {
 
     const supabase = getSupabase();
     
-    // Conforme pedido: Pasta 'ebook/' (singular) dentro do bucket 'assets'
-    // Removemos qualquer prefixo que venha no fileName para garantir o path ebook/nome.pdf
-    const pureFileName = fileName.split('/').pop();
-    const finalPath = `ebook/${pureFileName}`;
+    // Usa o caminho exatamente como enviado, pois já contém 'ebook/' no Banco de Dados
+    const finalPath = fileName;
 
-    console.log("[DEBUG] Solicitando ficheiro no bucket 'assets' com o path:", finalPath);
+    console.log("[DEBUG] Solicitando ficheiro no bucket 'assets' com o path exato:", finalPath);
 
     const { data, error } = await supabase.storage
         .from('assets')
         .createSignedUrl(finalPath, 3600);
 
-    if (error || !data) {
-      console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, error);
+    if (error) {
+      console.error(`[S.ART GET-BOOK ERROR] Falha ao aceder ao path "${finalPath}":`, error);
       return res.status(404).json({ 
-        error: `Obra não encontrada: ${error?.message || 'Object not found'}`,
+        error: `O ficheiro não foi encontrado em 'assets/${finalPath}'`,
         triedPath: finalPath,
         bucket: 'assets'
       });
