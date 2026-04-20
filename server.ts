@@ -280,6 +280,37 @@ apiRouter.get('/session-status', async (req, res) => {
   }
 });
 
+// Save Reading Progress
+apiRouter.post('/save-reading-state', async (req, res) => {
+  try {
+    const { userId, bookId, lastPage, totalPages, annotations } = req.body;
+    if (!userId || !bookId) return res.status(400).json({ error: 'Missing userId or bookId' });
+
+    const supabase = getSupabase();
+    
+    const upsertData: any = {
+      user_id: userId,
+      book_id: bookId,
+      last_page_read: lastPage,
+      updated_at: new Date().toISOString()
+    };
+
+    if (typeof totalPages === 'number') upsertData.total_pages = totalPages;
+    if (annotations) upsertData.annotations = annotations;
+
+    const { data, error } = await supabase
+      .from('user_reading_progress')
+      .upsert(upsertData, { onConflict: 'user_id,book_id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- ADMIN API ---
 const adminRouter = express.Router();
 

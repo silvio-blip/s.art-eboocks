@@ -724,24 +724,30 @@ export default function App() {
       setView('success');
       try {
         const res = await fetch(`/api/session-status?session_id=${sessionId}`);
+        
+        // Anti-HTML Guard
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Servidor retornou formato inválido.');
+        }
+
         const data = await res.json();
         if (data.status === 'paid') {
           setSuccessProduct(data.product);
           toast.success('Compra realizada com sucesso!');
           
-          // Trigger automatic download
           if (data.orderId) {
             handleDownload(data.orderId);
           }
 
-          // Refresh dashboard to show the new book
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
             fetchDashboardData(session.user.id);
           }
         }
       } catch (err) {
-        console.error(err);
+        console.error('[SESSION CHECK ERROR]', err);
+        // toast.error('Sincronização pendente. Verifique a sua biblioteca em instantes.');
       }
     }
   };
