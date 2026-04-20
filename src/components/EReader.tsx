@@ -206,9 +206,10 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
         
         {diagnostics && (
           <div className="bg-neutral-50 dark:bg-zinc-900 border border-black/5 dark:border-white/5 p-4 text-[8px] font-mono text-left max-w-xs opacity-50 uppercase tracking-tighter">
-            <p>Debug Info:</p>
-            <p>Path: {diagnostics.path}</p>
-            <p>Bucket: {diagnostics.bucket}</p>
+            <p className="font-bold border-b border-black/5 dark:border-white/5 pb-1 mb-1">Diagnóstico Técnico:</p>
+            <p>Path Tentado: {diagnostics.path}</p>
+            <p>Bucket: assets</p>
+            <p className="mt-1 text-red-500">Nota: Verifique se as Variáveis de Ambiente (SUPABASE_SERVICE_ROLE_KEY) estão configuradas na Vercel.</p>
           </div>
         )}
         <Button onClick={onBack} variant="outline" className="rounded-none border-black/10 dark:border-white/10 uppercase tracking-widest text-[9px] h-12 px-10">

@@ -22,27 +22,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const supabase = getSupabase();
+    if (!supabase) {
+      return res.status(500).json({ error: 'Erro de configuração do servidor (Supabase Keys em falta na Vercel).' });
+    }
 
     // Prepare path - clean up leading slashes and handle potential bucket prefix
-    const sanitizedPath = resolveStoragePath(filePath);
+    const baseName = resolveStoragePath(filePath);
     
-    console.log(`[S.ART GET-BOOK] Resolved: "${sanitizedPath}" (from: "${filePath}")`);
+    console.log(`[S.ART GET-BOOK] Resolved Base Name: "${baseName}" (from: "${filePath}")`);
 
-    // 3. Generate Signed URL (1 hour)
-    let { data: signedData, error: storageError } = await supabase.storage
-      .from('assets')
-      .createSignedUrl(sanitizedPath, 3600);
+    // Tentar múltiplos caminhos possíveis para máxima compatibilidade
+    const possiblePaths = [
+      baseName,               // Raiz do bucket assets
+      `ebooks/${baseName}`    // Subpasta ebooks
+    ];
 
-    // Fallback: If not found, try ebooks/ subfolder
-    if (storageError && storageError.message === 'Object not found') {
-        const { data: fallbackData, error: fallbackError } = await supabase.storage
-          .from('assets')
-          .createSignedUrl(`ebooks/${sanitizedPath}`, 3600);
-        
-        if (!fallbackError && fallbackData) {
-            signedData = fallbackData;
-            storageError = null;
-        }
+    let signedData = null;
+    let storageError = null;
+
+    for (const p of possiblePaths) {
+      console.log(`[S.ART GET-BOOK] Trying path: "${p}" in bucket "assets"`);
+      const { data, error } = await supabase.storage
+        .from('assets')
+        .createSignedUrl(p, 3600);
+      
+      if (!error && data) {
+        signedData = data;
+        storageError = null;
+        console.log(`[S.ART GET-BOOK] Success with path: "${p}"`);
+        break;
+      }
+      storageError = error;
     }
 
     if (storageError) {

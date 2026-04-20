@@ -13,7 +13,8 @@ export const getSupabase = () => {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    throw new Error('Supabase credentials (URL/KEY) are missing.');
+    console.error('[CRITICAL] Supabase credentials (URL/KEY) are missing in environment.');
+    return null;
   }
   return createClient(url, key);
 };
@@ -30,19 +31,19 @@ export const resolveStoragePath = (input: string) => {
   if (!input) return '';
   let path = input.replace(/^\/+/, '');
   
-  // Se for URL completo
+  // Se for URL completo do Supabase
   if (path.startsWith('http')) {
     try {
       const urlObj = new URL(path);
+      // Padrão Supabase: .../storage/v1/object/public/bucketName/path
       if (urlObj.pathname.includes('/storage/v1/object/')) {
-        const parts = urlObj.pathname.split('/');
+        const parts = urlObj.pathname.split('/').filter(Boolean); // ["storage", "v1", "object", "public", "assets", "ebooks", "0.07"]
         const bucketIndex = parts.findIndex(p => p === 'assets' || p === 'ebooks' || p === 'covers');
         if (bucketIndex !== -1 && bucketIndex < parts.length - 1) {
           return parts.slice(bucketIndex + 1).join('/');
         }
       }
-      const parts = urlObj.pathname.split('/');
-      return parts[parts.length - 1];
+      return path.split('/').pop() || '';
     } catch (e) {
       return path;
     }
@@ -52,7 +53,8 @@ export const resolveStoragePath = (input: string) => {
   const prefixes = ['assets/', 'ebooks/', 'ebook/'];
   for (const p of prefixes) {
     if (path.toLowerCase().startsWith(p)) {
-      return path.substring(p.length);
+      path = path.substring(p.length);
+      break; 
     }
   }
   

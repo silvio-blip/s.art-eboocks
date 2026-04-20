@@ -40,10 +40,29 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
+-- 4. User Reading Progress & Annotations
+CREATE TABLE IF NOT EXISTS user_reading_progress (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id) NOT NULL,
+  book_id UUID REFERENCES products(id) NOT NULL,
+  last_page_read INTEGER DEFAULT 0,
+  total_pages INTEGER DEFAULT 0,
+  annotations JSONB DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  UNIQUE(user_id, book_id)
+);
+
 -- SECURITY (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_reading_progress ENABLE ROW LEVEL SECURITY;
+
+-- ... (outras policies)
+
+-- Reading Progress: Users manage their own
+CREATE POLICY "Users manage their own progress" ON user_reading_progress
+  FOR ALL USING (auth.uid() = user_id);
 
 -- Profiles: Users can read their own
 CREATE POLICY "Users can view their own profile" ON profiles

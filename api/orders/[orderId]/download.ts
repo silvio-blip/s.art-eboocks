@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 // @ts-ignore
-import { getSupabase, resolveStoragePath } from '../../server-utils.js';
+import { getSupabase, resolveStoragePath } from '../../server-utils';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -10,6 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const supabase = getSupabase();
+    if (!supabase) throw new Error('Falha ao inicializar Supabase. Verifique SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel.');
     console.log(`[DOWNLOAD] Fetching order from DB...`);
     
     const { data: order, error: orderError } = await supabase
@@ -43,30 +44,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Limpar o caminho de barras iniciais e tratar prefixo de bucket redundante usando o helper comum
-    const sanitizedPath = resolveStoragePath(order.product.file_url);
+    const baseName = resolveStoragePath(order.product.file_url);
 
-    console.log(`[DOWNLOAD] Attempting signed URL. Path: "${sanitizedPath}" (raw: "${order.product.file_url}") in bucket "assets"`);
+    console.log(`[DOWNLOAD] Attempting signed URL. Base Name: "${baseName}" (raw: "${order.product.file_url}") in bucket "assets"`);
 
-    if (!sanitizedPath || sanitizedPath === 'undefined' || sanitizedPath === 'null') {
-      console.error(`[DOWNLOAD ERROR] Invalid path resolved: "${sanitizedPath}"`);
+    if (!baseName || baseName === 'undefined' || baseName === 'null') {
+      console.error(`[DOWNLOAD ERROR] Invalid path resolved: "${baseName}"`);
       return res.status(400).json({ error: 'Caminho do ficheiro inválido para este e-book.' });
     }
 
-    let { data: signedUrlData, error: storageError } = await supabase.storage
-      .from('assets')
-      .createSignedUrl(sanitizedPath, 3600);
+    const possiblePaths = [baseName, `ebooks/${baseName}`];
+    let signedUrlData = null;
+    let storageError = null;
 
-    // Fallback: Tentar subpasta ebooks/ se falhar na raiz
-    if (storageError && storageError.message === 'Object not found') {
-      console.log(`[DOWNLOAD] Not found in root of "assets". Trying "ebooks/" subfolder...`);
-      const { data: fallbackData, error: fallbackError } = await supabase.storage
+    for (const p of possiblePaths) {
+      const { data, error } = await supabase.storage
         .from('assets')
-        .createSignedUrl(`ebooks/${sanitizedPath}`, 3600);
+        .createSignedUrl(p, 3600);
       
-      if (!fallbackError && fallbackData) {
-        signedUrlData = fallbackData;
+      if (!error && data) {
+        signedUrlData = data;
         storageError = null;
+        break;
       }
+      storageError = error;
     }
 
     if (storageError) {
