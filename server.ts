@@ -487,6 +487,25 @@ adminRouter.post('/products', async (req, res) => {
   }
 });
 
+adminRouter.put('/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, description, price, image_url, file_url, category } = req.body;
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('products')
+      .update({ title, description, price, image_url, file_url, category })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 adminRouter.patch('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;

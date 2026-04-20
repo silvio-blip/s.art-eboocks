@@ -148,7 +148,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     try {
       const isNew = !editingProduct.id;
       const res = await fetch(isNew ? '/api/admin/products' : `/api/admin/products/${editingProduct.id}`, {
-        method: isNew ? 'POST' : 'PATCH',
+        method: isNew ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...editingProduct, userId: user.id })
       });
