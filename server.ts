@@ -422,95 +422,54 @@ apiRouter.get('/verify-session', async (req, res) => {
 // Get Book Signed URL (assets bucket)
 apiRouter.get('/get-book', async (req, res) => {
   try {
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const fullUrl = new URL(req.url, `${protocol}://${host}`);
-    const filePath = fullUrl.searchParams.get('filePath');
+    const url = new URL(req.url, 'http://localhost');
+    const filePath = url.searchParams.get('filePath');
 
     if (!filePath) return res.status(400).json({ error: 'filePath matching products.file_url is required' });
 
     const supabase = getSupabase();
     
-    // Smart Path Resolver
-    const resolveStoragePath = (input: string) => {
-      let path = input.replace(/^\/+/, '');
-      
-      // If it's a full URL, try to extract the core path
-      if (path.startsWith('http')) {
-        try {
-          const urlObj = new URL(path);
-          // Standard Supabase storage URL: .../storage/v1/object/public/bucketName/path/to/file
-          if (urlObj.pathname.includes('/storage/v1/object/')) {
-            const parts = urlObj.pathname.split('/');
-            const bucketIndex = parts.findIndex(p => p === 'assets' || p === 'ebooks' || p === 'covers');
-            if (bucketIndex !== -1 && bucketIndex < parts.length - 1) {
-              return parts.slice(bucketIndex + 1).join('/');
-            }
-          }
-          // Generic fallback for any other URL format - take the last parts
-          const parts = urlObj.pathname.split('/');
-          return parts[parts.length - 1];
-        } catch (e) {
-          console.warn('[STORAGE RESOLVER] Failed to parse URL:', path);
+    // Lista de caminhos para tentar, em ordem:
+    // 1. O caminho exacto (do banco de dados)
+    // 2. Prefixo 'ebook/' (conforme pedido pelo utilizador)
+    // 3. Prefixo 'ebooks/'
+    const pathsToTry = [
+      filePath, 
+      `ebook/${filePath}`,
+      `ebooks/${filePath}`
+    ];
+
+    let signedData = null;
+    let storageError = null;
+    let lastTriedPath = filePath;
+
+    for (const path of pathsToTry) {
+        lastTriedPath = path;
+        console.log("[DEBUG] Solicitando ficheiro no bucket 'assets' com o path:", path);
+        const { data, error } = await supabase.storage
+            .from('assets')
+            .createSignedUrl(path, 3600);
+        
+        if (!error && data) {
+            signedData = data;
+            storageError = null;
+            break;
         }
-      }
-
-      // Handle common bucket prefixes that shouldn't be in the path
-      const prefixesToRemove = ['assets/', 'ebooks/', 'ebook/'];
-      for (const prefix of prefixesToRemove) {
-        if (path.toLowerCase().startsWith(prefix)) {
-          return path.substring(prefix.length);
-        }
-      }
-      
-      return path;
-    };
-
-    const sanitizedPath = resolveStoragePath(filePath);
-    console.log(`[S.ART GET-BOOK] Attempting signed URL. Raw: "${filePath}" -> Resolved: "${sanitizedPath}"`);
-
-    // Try primary path in 'assets' bucket
-    let { data: signedData, error: storageError } = await supabase.storage
-      .from('assets')
-      .createSignedUrl(sanitizedPath, 3600);
-
-    // Fallback: Try 'ebooks' bucket
-    if (storageError && storageError.message === 'Object not found') {
-       console.log(`[S.ART GET-BOOK] Not found in "assets". Trying "ebooks" bucket...`);
-       const { data: fallbackData, error: fallbackError } = await supabase.storage
-        .from('ebooks')
-        .createSignedUrl(sanitizedPath, 3600);
-       
-       if (!fallbackError && fallbackData) {
-         signedData = fallbackData;
-         storageError = null;
-       }
+        storageError = error;
     }
 
-    // Fallback: If still fails, try 'ebooks/' subfolder in 'assets'
-    if (storageError && storageError.message === 'Object not found') {
-      console.log(`[S.ART GET-BOOK] Not found in "ebooks" bucket. Trying "ebooks/" subfolder in "assets"...`);
-      const fallbackPath = `ebooks/${sanitizedPath}`;
-      const { data: fallbackData, error: fallbackError } = await supabase.storage
-        .from('assets')
-        .createSignedUrl(fallbackPath, 3600);
-      
-      if (!fallbackError && fallbackData) {
-        signedData = fallbackData;
-        storageError = null;
-      }
-    }
-
-    if (storageError) {
-      console.error(`[S.ART GET-BOOK STORAGE ERROR] Path: "${sanitizedPath}"`, storageError);
+    if (storageError || !signedData) {
+      console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, storageError);
       return res.status(404).json({ 
-        error: `Obra não encontrada no servidor: ${storageError.message}`,
-        triedPath: sanitizedPath,
+        error: `Obra não encontrada: ${storageError?.message || 'Object not found'}`,
+        triedPath: lastTriedPath,
         bucket: 'assets'
       });
     }
+    
     res.json({ url: signedData.signedUrl });
   } catch (error: any) {
+    console.error('[S.ART GET-BOOK SERVER ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
