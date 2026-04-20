@@ -503,12 +503,71 @@ const CheckoutModal = ({
   );
 };
 
+const ResetPasswordView = ({ onComplete }: { onComplete: () => void }) => {
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleReset = async () => {
+    if (!password || password.length < 6) {
+      toast.error('A password deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      toast.success('Password atualizada com sucesso!');
+      onComplete();
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao redefinir password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh]">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md bg-white dark:bg-zinc-900 border border-black/5 dark:border-white/5 p-8 shadow-2xl"
+      >
+        <h2 className="font-serif text-3xl mb-2 text-center dark:text-white">Nova Password</h2>
+        <p className="text-[10px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40 text-center mb-8">
+          Defina o seu novo acesso à boutique
+        </p>
+
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Palavra-passe</label>
+            <input 
+              type="password" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white" 
+              placeholder="••••••••" 
+            />
+          </div>
+
+          <Button 
+            onClick={handleReset}
+            disabled={loading}
+            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-none h-14 uppercase tracking-widest text-[10px] cursor-pointer"
+          >
+            {loading ? 'A processar...' : 'Atualizar Password'}
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin' | 'reader'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin' | 'reader' | 'reset-password'>('home');
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [readingProgress, setReadingProgress] = useState<Record<string, ReadingProgress>>({});
   const [activeReading, setActiveReading] = useState<{orderId: string, product: Product} | null>(null);
@@ -668,8 +727,8 @@ export default function App() {
       }
 
       if (event === 'PASSWORD_RECOVERY') {
-        setIsAuthOpen(true);
-        setMode('reset');
+        setIsAuthOpen(false); // Make sure auth dialog is closed
+        setView('reset-password');
       }
     });
 
@@ -982,6 +1041,10 @@ export default function App() {
 
       <main className="pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full">
         <AnimatePresence mode="wait">
+          {view === 'reset-password' && (
+            <ResetPasswordView onComplete={() => setView('home')} />
+          )}
+
           {view === 'admin' && user && ADMIN_IDS.includes(user.id) && (
             <AdminDashboard user={user} onBack={() => {
               setView('home');
