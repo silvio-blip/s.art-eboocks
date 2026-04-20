@@ -112,11 +112,31 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   };
 
   const fetchDashboardData = async () => {
-    const { data } = await supabase
+    const { data: ordersData } = await supabase
       .from('orders')
-      .select('*, product:products(*)')
+      .select('*')
       .order('created_at', { ascending: false });
-    if (data) setOrders(data);
+    
+    if (ordersData) {
+      if (ordersData.length === 0) {
+        setOrders([]);
+        return;
+      }
+      
+      const productIds = Array.from(new Set(ordersData.map(o => o.product_id).filter(Boolean)));
+      
+      const { data: productsData } = await supabase
+        .from('products')
+        .select('*')
+        .in('id', productIds);
+        
+      const merged = ordersData.map(order => ({
+        ...order,
+        product: productsData?.find(p => p.id === order.product_id) || null
+      }));
+      
+      setOrders(merged as any);
+    }
   };
 
   const handleSaveProduct = async () => {
