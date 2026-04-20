@@ -207,7 +207,7 @@ const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onLogoutClick, onDash
   );
 };
 
-function ProductCard({ product, onBuy, isProcessing }: { product: Product, onBuy: (p: Product) => any, isProcessing?: boolean }) {
+function ProductCard({ product, onBuy, onRead, isOwned, isProcessing }: { product: Product, onBuy: (p: Product) => any, onRead?: (p: Product) => any, isOwned?: boolean, isProcessing?: boolean }) {
   const getImageUrl = (url: string) => {
     if (!url) return 'https://picsum.photos/seed/ebook/600/800';
     if (url.startsWith('http')) return url;
@@ -234,7 +234,14 @@ function ProductCard({ product, onBuy, isProcessing }: { product: Product, onBuy
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500 flex items-center justify-center opacity-0 group-hover:opacity-100 p-4 text-center backdrop-blur-[1px]">
           <Button 
             disabled={isProcessing}
-            onClick={(e) => { e.stopPropagation(); onBuy(product); }}
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              if (isOwned && onRead) {
+                onRead(product);
+              } else {
+                onBuy(product);
+              }
+            }}
             className={`bg-white text-black hover:bg-luxury-gold hover:text-white rounded-none px-6 py-4 text-[10px] font-bold uppercase tracking-[0.25em] transition-all duration-500 transform ${isProcessing ? 'translate-y-0 opacity-100' : 'translate-y-8'} group-hover:translate-y-0 w-full max-w-[140px] shadow-2xl border-none`}
           >
             {isProcessing ? (
@@ -242,7 +249,7 @@ function ProductCard({ product, onBuy, isProcessing }: { product: Product, onBuy
                 <Loader2 size={12} className="animate-spin" />
                 Processar...
               </span>
-            ) : 'Adquirir'}
+            ) : isOwned ? 'Ler Obra' : 'Adquirir'}
           </Button>
         </div>
         <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-md text-[8px] text-white px-2 py-1 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
@@ -446,19 +453,13 @@ const CheckoutModal = ({
   onConfirm: (email: string) => void,
   isProcessing: boolean
 }) => {
-  const [email, setEmail] = useState('');
-
-  useEffect(() => {
-    if (isOpen) setEmail(userEmail || '');
-  }, [userEmail, isOpen]);
-
   if (!product) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[420px] w-[95vw] rounded-none border-none dark:bg-zinc-900 p-6 md:p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
         <DialogHeader className="space-y-4">
-          <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">Destino da sua Obra</DialogTitle>
+          <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">Confirmar Aquisição</DialogTitle>
           <div className="flex gap-4 items-center p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5">
             <div className="w-14 h-20 bg-neutral-200 dark:bg-zinc-700 flex-shrink-0 overflow-hidden shadow-md">
                <img src={product.image_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
@@ -473,28 +474,15 @@ const CheckoutModal = ({
 
         <div className="space-y-8 pt-6">
           <div className="space-y-3">
-            <label className="text-[10px] uppercase tracking-[0.25em] font-bold text-black/50 dark:text-white/50 pl-1">
-              Endereço de Entrega (Email)
-            </label>
-            <div className="relative group">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="seu@atelier.com"
-                className="w-full bg-neutral-100/50 dark:bg-zinc-800/50 border border-transparent focus:border-luxury-gold/30 px-5 py-4 text-sm outline-none dark:text-white transition-all duration-300 rounded-sm"
-              />
-              <div className="absolute bottom-0 left-0 h-[1px] bg-luxury-gold w-0 group-focus-within:w-full transition-all duration-700" />
-            </div>
             <p className="text-[9px] text-black/40 dark:text-zinc-500 italic pl-1 flex items-center gap-1.5">
               <span className="w-1 h-1 bg-luxury-gold rounded-full" />
-              O link de acesso vitalício será enviado para este destino.
+              A obra será desbloqueada instantaneamente na sua Biblioteca Privada após o pagamento.
             </p>
           </div>
 
           <Button 
-            onClick={() => onConfirm(email)}
-            disabled={isProcessing || !email || !email.includes('@')}
+            onClick={() => onConfirm(userEmail)}
+            disabled={isProcessing}
             className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-luxury-gold dark:hover:bg-luxury-gold hover:text-white rounded-none h-14 text-[11px] font-bold uppercase tracking-[0.3em] transition-all duration-500 shadow-xl disabled:opacity-50"
           >
             {isProcessing ? (
@@ -504,7 +492,7 @@ const CheckoutModal = ({
                </span>
             ) : (
               <span className="flex items-center gap-2">
-                Concluir Aquisição <ArrowRight size={14} />
+                Prosseguir para Pagamento <ArrowRight size={14} />
               </span>
             )}
           </Button>
@@ -823,6 +811,13 @@ export default function App() {
       return;
     }
     
+    // Check if user already owns the product
+    const order = purchasedProducts.find(o => o.product_id === product.id);
+    if (order) {
+      handleOpenReader(product, order.id);
+      return;
+    }
+    
     setSelectedProduct(product);
     setIsCheckoutModalOpen(true);
   };
@@ -1022,6 +1017,11 @@ export default function App() {
                       <ProductCard 
                         product={product} 
                         onBuy={handleBuy} 
+                        onRead={(p) => {
+                          const order = purchasedProducts.find(o => o.product_id === p.id);
+                          if (order) handleOpenReader(p, order.id);
+                        }}
+                        isOwned={purchasedProducts.some(p => p.product_id === product.id)}
                         isProcessing={checkoutLoading === product.id}
                       />
                     </div>
@@ -1103,18 +1103,10 @@ export default function App() {
                             <div className="grid grid-cols-1 gap-2">
                               <Button 
                                 onClick={() => handleOpenReader(order.product, order.id)}
-                                className="bg-luxury-gold text-white hover:bg-luxury-gold/80 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest"
+                                className="bg-luxury-gold text-white hover:bg-luxury-gold/80 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest w-full"
                               >
                                 <BookOpen size={12} className="hidden sm:block" />
                                 Ler Obra
-                              </Button>
-                              <Button 
-                                variant="outline"
-                                onClick={() => handleDownload(order.id)}
-                                className="border-black/10 dark:border-white/10 dark:text-white rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest"
-                              >
-                                <Download size={12} className="hidden sm:block" />
-                                PDF
                               </Button>
                             </div>
                           </div>

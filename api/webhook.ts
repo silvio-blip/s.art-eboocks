@@ -112,35 +112,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (signedError) throw signedError;
 
-        // 5. Enviar Email Luxuoso via Resend
+        // Note: Automatic email delivery of the book link is being disabled per user request.
+        // Users can now download/read directly from the application dashboard.
+        // The Resend integration is maintained for future use (e.g., password recovery).
+        /*
         await resend.emails.send({
           from: 'S.Art Atelier <vendas@s.art-full.pt>',
           to: customerEmail,
-          subject: 'O teu E-book da S.Art chegou! 📖',
-          html: `
-            <div style="font-family: 'serif', 'Georgia', 'Times New Roman', serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; padding: 40px; border: 1px solid #f0f0f0;">
-              <div style="text-align: center; margin-bottom: 40px;">
-                <h1 style="letter-spacing: 5px; text-transform: uppercase; font-size: 24px; border-bottom: 1px solid #e5e7eb; padding-bottom: 20px; color: #000;">S.ART</h1>
-                <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: #6b7280; margin-top: 15px;">Digital Boutique Excellence</p>
-              </div>
-              
-              <p style="font-size: 18px; line-height: 1.6;">Obrigado pela tua aquisição.</p>
-              <p style="font-size: 16px; line-height: 1.6; color: #4b5563;">Confirmamos o teu investimento no conhecimento. O teu exemplar de <strong>"${product.title}"</strong> está pronto para ser apreciado.</p>
-              
-              <div style="margin: 40px 0; text-align: center;">
-                <a href="${signedData.signedUrl}" style="display: inline-block; background-color: #000; color: #fff; padding: 18px 36px; text-decoration: none; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease;">Descarregar Guia Digital</a>
-                <p style="font-size: 9px; color: #9ca3af; margin-top: 15px; font-style: italic;">* Este link de acesso privado expira em 60 minutos por motivos de segurança.</p>
-              </div>
-              
-              <div style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #f0f0f0; text-align: center;">
-                <p style="font-size: 11px; color: #6b7280; line-height: 1.8;">Esperamos que esta obra seja uma peça fundamental no teu percurso.</p>
-                <p style="font-size: 9px; color: #9ca3af; margin-top: 20px;">S.Art Studio © 2024 | Curadoria Digital de Luxo</p>
-              </div>
-            </div>
-          `
+          ...
         });
+        */
 
-        console.log(`[S.ART SUCCESS] E-book entregue a ${customerEmail}`);
+        console.log(`[S.ART SUCCESS] Order ${orderId} finalized. eBook link generated (skipping email delivery per config).`);
       }
     } catch (err) {
       console.error(`[S.ART PROCESSING ERROR]`, err);

@@ -67,6 +67,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
   const [tab, setTab] = useState<'overview' | 'products' | 'orders'>('overview');
+  const [timeRange, setTimeRange] = useState<'weekly' | 'monthly' | 'yearly'>('weekly');
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -186,21 +187,58 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   const completedOrders = orders.filter(o => o.status === 'completed');
 
   // Processing chart data with safety for NaN
-  const chartData = completedOrders.reduce((acc: any[], order) => {
-    const amount = Number(order.total_amount) || 0;
-    const date = new Date(order.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
-    const existingDate = acc.find(d => d.date === date);
-    if (existingDate) {
-      existingDate.value += amount;
-      existingDate.sales += 1;
-    } else {
-      acc.push({ date, value: amount, sales: 1 });
+  const getChartData = () => {
+    if (timeRange === 'weekly') {
+      const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+      const data = days.map(day => ({ name: day, value: 0, sales: 0 }));
+      
+      completedOrders.forEach(order => {
+        const date = new Date(order.created_at);
+        const dayIndex = (date.getDay() + 6) % 7; // Convert 0-6 (Sun-Sat) to 0-6 (Mon-Sun)
+        data[dayIndex].value += Number(order.total_amount) || 0;
+        data[dayIndex].sales += 1;
+      });
+      return data;
     }
-    return acc;
-  }, []).reverse().slice(-7);
 
-  // If no data, provide a placeholder to avoid Recharts errors
-  const displayData = chartData.length > 0 ? chartData : [{ date: 'N/A', value: 0, sales: 0 }];
+    if (timeRange === 'monthly') {
+      const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+      const currentYear = new Date().getFullYear();
+      const data = months.map(month => ({ name: month, value: 0, sales: 0 }));
+
+      completedOrders.forEach(order => {
+        const date = new Date(order.created_at);
+        if (date.getFullYear() === currentYear) {
+          const monthIndex = date.getMonth();
+          data[monthIndex].value += Number(order.total_amount) || 0;
+          data[monthIndex].sales += 1;
+        }
+      });
+      return data;
+    }
+
+    if (timeRange === 'yearly') {
+      // Get last 5 years
+      const currentYear = new Date().getFullYear();
+      const years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
+      const data = years.map(year => ({ name: year.toString(), value: 0, sales: 0 }));
+
+      completedOrders.forEach(order => {
+        const date = new Date(order.created_at);
+        const year = date.getFullYear();
+        const yearData = data.find(d => d.name === year.toString());
+        if (yearData) {
+          yearData.value += Number(order.total_amount) || 0;
+          yearData.sales += 1;
+        }
+      });
+      return data;
+    }
+
+    return [{ name: 'N/A', value: 0, sales: 0 }];
+  };
+
+  const displayData = getChartData();
 
   const totalRevenue = completedOrders.reduce((acc, o) => acc + Number(o.total_amount), 0);
   const completedSales = completedOrders.length;
@@ -299,63 +337,111 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
             </div>
 
             {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-              <div className="space-y-6">
-                <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">Fluxo de Faturamento (7 Dias)</h3>
-                <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px]">
-                  <ResponsiveContainer width="100%" height={350}>
-                    <AreaChart data={displayData}>
-                      <defs>
-                        <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                      <XAxis 
-                        dataKey="date" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                      />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#141414', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
-                        itemStyle={{ color: '#D4AF37' }}
-                      />
-                      <Area type="monotone" dataKey="value" stroke="#D4AF37" fillOpacity={1} fill="url(#colorVal)" strokeWidth={2} />
-                    </AreaChart>
-                  </ResponsiveContainer>
+            <div className="space-y-8">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">Fluxo de Desempenho</h3>
+                <div className="flex bg-white/5 rounded-none p-1 border border-white/5">
+                  {(['weekly', 'monthly', 'yearly'] as const).map(range => (
+                    <button
+                      key={range}
+                      onClick={() => setTimeRange(range)}
+                      className={`px-4 py-1.5 text-[8px] uppercase tracking-widest transition-all ${
+                        timeRange === range ? 'bg-luxury-gold text-black font-bold' : 'text-white/40 hover:text-white'
+                      }`}
+                    >
+                      {range === 'weekly' ? 'Semanal' : range === 'monthly' ? 'Mensal' : 'Anual'}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <div className="space-y-6">
-                <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">Volume de Vendas</h3>
-                <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px]">
-                  <ResponsiveContainer width="100%" height={350}>
-                    <BarChart data={displayData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                      <XAxis 
-                        dataKey="date" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
-                      />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#141414', border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }}
-                      />
-                      <Bar dataKey="sales" fill="#fff" radius={[2, 2, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                <div className="space-y-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Faturamento por Período</p>
+                  <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px] group">
+                    <ResponsiveContainer width="100%" height={350}>
+                      <AreaChart data={displayData}>
+                        <defs>
+                          <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.4}/>
+                            <stop offset="95%" stopColor="#D4AF37" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                          dy={10}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                        />
+                        <Tooltip 
+                          cursor={{ stroke: 'rgba(212,175,55,0.2)', strokeWidth: 1 }}
+                          contentStyle={{ backgroundColor: '#0A0A0A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0px' }}
+                          itemStyle={{ color: '#D4AF37', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+                          labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.2em' }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="value" 
+                          stroke="#D4AF37" 
+                          fillOpacity={1} 
+                          fill="url(#colorVal)" 
+                          strokeWidth={2} 
+                          animationDuration={1500}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Volume de Transações</p>
+                  <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px]">
+                    <ResponsiveContainer width="100%" height={350}>
+                      <AreaChart data={displayData}>
+                        <defs>
+                          <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#FFFFFF" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#FFFFFF" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                          dy={10}
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                        />
+                        <Tooltip 
+                          cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1 }}
+                          contentStyle={{ backgroundColor: '#0A0A0A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0px' }}
+                          itemStyle={{ color: '#fff', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+                          labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.2em' }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          dataKey="sales" 
+                          stroke="#FFFFFF" 
+                          fillOpacity={1} 
+                          fill="url(#colorSales)" 
+                          strokeWidth={2} 
+                          animationDuration={1500}
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
             </div>
