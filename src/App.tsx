@@ -782,23 +782,35 @@ export default function App() {
   const fetchDashboardData = async (userId: string) => {
     console.log("[DEBUG] Fetching dashboard data for:", userId);
     
-    // Conforme pedido: Usando a nova relação products()
+    // QUERY DE SEGURANÇA (sem joins complexos para evitar PGRST200)
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
-      .select('*, products(*)')
+      .select('*')
       .eq('user_id', userId);
     
     if (ordersError) {
       console.error("[DEBUG] Error fetching orders:", ordersError);
-    } else {
-      console.log("[DEBUG] Orders fetched successfully:", orders);
-      // Mapeamos para manter compatibilidade com o resto do código que usa .product
-      const mappedOrders = (orders || []).map((o: any) => ({
-        ...o,
-        product: o.products // O Supabase devolve o objecto da relação como 'products'
-      }));
-      setPurchasedProducts(mappedOrders);
+      return;
     }
+
+    // Buscar produtos separadamente para garantir compatibilidade
+    const productIds = orders.map(o => o.product_id);
+    const { data: products } = await supabase
+      .from('products')
+      .select('*')
+      .in('id', productIds);
+
+    const productsMap = (products || []).reduce((acc: any, p: any) => {
+      acc[p.id] = p;
+      return acc;
+    }, {});
+
+    const mappedOrders = (orders || []).map((o: any) => ({
+      ...o,
+      product: productsMap[o.product_id] || null
+    }));
+    
+    setPurchasedProducts(mappedOrders);
 
     // Fetch Reading Progress
     const { data: progress, error: progressError } = await supabase
