@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import { supabase } from './lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import AdminDashboard from './components/AdminDashboard';
+import EReader from './components/EReader';
 import {
   Dialog,
   DialogContent,
@@ -57,6 +58,12 @@ interface Order {
   total_amount: number;
   created_at: string;
   product?: Product;
+}
+
+interface ReadingProgress {
+  book_id: string;
+  last_page_read: number;
+  total_pages: number;
 }
 
 // --- Components ---
@@ -512,8 +519,10 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin' | 'reader'>('home');
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
+  const [readingProgress, setReadingProgress] = useState<Record<string, ReadingProgress>>({});
+  const [activeReading, setActiveReading] = useState<{orderId: string, product: Product} | null>(null);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
@@ -757,13 +766,34 @@ export default function App() {
   };
 
   const fetchDashboardData = async (userId: string) => {
-    const { data, error } = await supabase
+    const { data: orders, error: ordersError } = await supabase
       .from('orders')
       .select('*, product:products(*)')
       .eq('user_id', userId)
       .eq('status', 'completed');
     
-    if (!error && data) setPurchasedProducts(data);
+    if (!ordersError && orders) setPurchasedProducts(orders);
+
+    // Fetch Reading Progress
+    const { data: progress, error: progressError } = await supabase
+      .from('user_reading_progress')
+      .select('*')
+      .eq('user_id', userId);
+    
+    if (!progressError && progress) {
+      const progressMap: Record<string, ReadingProgress> = {};
+      progress.forEach((p: any) => {
+        progressMap[p.book_id] = p;
+      });
+      setReadingProgress(progressMap);
+    }
+  };
+
+  const handleOpenReader = (order: Order) => {
+    if (order.product) {
+      setActiveReading({ orderId: order.id, product: order.product });
+      setView('reader');
+    }
   };
 
   const handleBuy = async (product: Product) => {
@@ -1010,31 +1040,84 @@ export default function App() {
                   <p className="text-xs uppercase tracking-widest text-black/40 dark:text-white/40">Ainda não possui e-books na sua biblioteca.</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {purchasedProducts.map((order) => (
-                    order.product && (
-                      <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8">
+                  {purchasedProducts.map((order) => {
+                    const progress = readingProgress[order.product_id];
+                    const progressPercent = progress && progress.total_pages > 0 
+                      ? Math.round((progress.last_page_read / progress.total_pages) * 100) 
+                      : 0;
+
+                    return order.product && (
+                      <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group shadow-sm">
                         <CardContent className="p-0">
-                          <div className="aspect-[3/4] overflow-hidden">
-                            <img src={getImageUrl(order.product.image_url)} alt={order.product.title} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+                          <div className="aspect-[3/4] overflow-hidden relative cursor-pointer" onClick={() => handleOpenReader(order)}>
+                            <img 
+                              src={getImageUrl(order.product.image_url)} 
+                              alt={order.product.title} 
+                              loading="lazy"
+                              className="w-full h-full object-cover transition-transform group-hover:scale-105" 
+                            />
+                            {progressPercent > 0 && (
+                              <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/20 backdrop-blur-sm">
+                                <div 
+                                  className="h-full bg-luxury-gold transition-all duration-1000" 
+                                  style={{ width: `${progressPercent}%` }}
+                                />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <BookOpen className="text-white" size={24} />
+                            </div>
                           </div>
-                          <div className="p-6 space-y-4">
-                            <h3 className="font-serif text-lg dark:text-white">{order.product.title}</h3>
-                            <Button 
-                              onClick={() => handleDownload(order.id)}
-                              className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-100 rounded-none inline-flex gap-2"
-                            >
-                              <Download size={14} />
-                              <span className="text-[10px] uppercase tracking-widest">Descarregar PDF</span>
-                            </Button>
+                          <div className="p-3 sm:p-5 space-y-3">
+                            <div className="space-y-1">
+                              <h3 className="font-serif text-sm sm:text-base dark:text-white truncate" title={order.product.title}>{order.product.title}</h3>
+                              <div className="flex justify-between items-center">
+                                <span className="text-[7px] sm:text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40">Guia Digital</span>
+                                {progressPercent > 0 && (
+                                  <span className="text-[7px] sm:text-[8px] uppercase tracking-widest text-luxury-gold font-bold">{progressPercent}% Lido</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 gap-2">
+                              <Button 
+                                onClick={() => handleOpenReader(order)}
+                                className="bg-luxury-gold text-white hover:bg-luxury-gold/80 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest"
+                              >
+                                <BookOpen size={12} className="hidden sm:block" />
+                                Ler Obra
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={() => handleDownload(order.id)}
+                                className="border-black/10 dark:border-white/10 dark:text-white rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest"
+                              >
+                                <Download size={12} className="hidden sm:block" />
+                                PDF
+                              </Button>
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
-                    )
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </motion.div>
+          )}
+
+          {view === 'reader' && activeReading && (
+            <div className="max-w-6xl mx-auto">
+              <EReader 
+                orderId={activeReading.orderId}
+                bookId={activeReading.product.id}
+                bookTitle={activeReading.product.title}
+                onBack={() => {
+                  setView('dashboard');
+                  fetchDashboardData(user!.id);
+                }}
+              />
+            </div>
           )}
 
           {view === 'success' && (
