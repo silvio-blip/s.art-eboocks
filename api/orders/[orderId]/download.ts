@@ -53,11 +53,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Caminho do ficheiro inválido para este e-book.' });
     }
 
-    const possiblePaths = [baseName, `ebooks/${baseName}`];
+    const possiblePaths = [baseName, `ebook/${baseName}`];
     let signedUrlData = null;
     let storageError = null;
 
     for (const p of possiblePaths) {
+      console.log(`[DOWNLOAD] Trying path: "${p}" in bucket "assets"`);
       const { data, error } = await supabase.storage
         .from('assets')
         .createSignedUrl(p, 3600);
@@ -65,6 +66,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!error && data) {
         signedUrlData = data;
         storageError = null;
+        console.log(`[DOWNLOAD] Success with path: "${p}"`);
         break;
       }
       storageError = error;
