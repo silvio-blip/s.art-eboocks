@@ -780,13 +780,20 @@ export default function App() {
   };
 
   const fetchDashboardData = async (userId: string) => {
+    console.log("[DEBUG] Fetching dashboard data for:", userId);
+    
+    // Check if status=completed is causing 400 errors by loosening the query
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
       .select('*, product:products(*)')
-      .eq('user_id', userId)
-      .eq('status', 'completed');
+      .eq('user_id', userId);
     
-    if (!ordersError && orders) setPurchasedProducts(orders);
+    if (ordersError) {
+      console.error("[DEBUG] Error fetching orders:", ordersError);
+    } else {
+      console.log("[DEBUG] Orders fetched successfully:", orders);
+      setPurchasedProducts(orders || []);
+    }
 
     // Fetch Reading Progress
     const { data: progress, error: progressError } = await supabase
