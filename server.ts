@@ -616,9 +616,37 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
     
     console.log(`[DOWNLOAD] Sanitized Path: "${sanitizedPath}" (raw: "${originalPath}") in bucket "assets"`);
 
-    const { data, error: storageError } = await supabase.storage
+    // Try primary path in 'assets' bucket
+    let { data, error: storageError } = await supabase.storage
       .from('assets')
       .createSignedUrl(sanitizedPath, 3600);
+
+    // Fallback: Try 'ebooks' bucket
+    if (storageError && storageError.message === 'Object not found') {
+       console.log(`[DOWNLOAD] Not found in "assets". Trying "ebooks" bucket...`);
+       const { data: fallbackData, error: fallbackError } = await supabase.storage
+        .from('ebooks')
+        .createSignedUrl(sanitizedPath, 3600);
+       
+       if (!fallbackError && fallbackData) {
+         data = fallbackData;
+         storageError = null;
+       }
+    }
+
+    // Fallback: If still fails, try 'ebooks/' subfolder in 'assets'
+    if (storageError && storageError.message === 'Object not found') {
+      console.log(`[DOWNLOAD] Not found in "ebooks" bucket. Trying "ebooks/" subfolder in "assets"...`);
+      const fallbackPath = `ebooks/${sanitizedPath}`;
+      const { data: fallbackData, error: fallbackError } = await supabase.storage
+        .from('assets')
+        .createSignedUrl(fallbackPath, 3600);
+      
+      if (!fallbackError && fallbackData) {
+        data = fallbackData;
+        storageError = null;
+      }
+    }
 
     if (storageError) {
       console.error(`[DOWNLOAD ERROR] Storage fail for "${sanitizedPath}":`, storageError);
