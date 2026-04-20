@@ -39,6 +39,13 @@ const ADMIN_IDS = [
   '00d44feb-0b51-405e-86f7-31b67edfb7b6'
 ];
 
+const getImageUrl = (url: string) => {
+  if (!url) return 'https://picsum.photos/seed/ebook/600/800';
+  if (url.startsWith('http')) return url;
+  const { data } = supabase.storage.from('assets').getPublicUrl(url);
+  return data.publicUrl;
+};
+
 interface Product {
   id: string;
   title: string;
