@@ -263,7 +263,7 @@ function ProductCard({ product, onBuy, onRead, isOwned, isProcessing }: { produc
           <span className="text-[11px] font-black tracking-tight dark:text-luxury-gold">€{product.price}</span>
         </div>
         <div className="h-[1px] w-0 group-hover:w-full bg-expensive-gold transition-all duration-700 opacity-40 bg-luxury-gold" />
-        <p className="text-[9px] text-black/40 dark:text-zinc-400 line-clamp-1 uppercase tracking-tighter pt-1 font-medium">
+        <p className="text-[10px] text-black/50 dark:text-zinc-400 line-clamp-3 leading-snug pt-1">
           {product.description}
         </p>
       </div>
@@ -461,14 +461,23 @@ const CheckoutModal = ({
       <DialogContent className="sm:max-w-[420px] w-[95vw] rounded-none border-none dark:bg-zinc-900 p-6 md:p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
         <DialogHeader className="space-y-4">
           <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">Confirmar Aquisição</DialogTitle>
-          <div className="flex gap-4 items-center p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5">
-            <div className="w-14 h-20 bg-neutral-200 dark:bg-zinc-700 flex-shrink-0 overflow-hidden shadow-md">
+          <div className="flex gap-4 items-start p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5 overflow-hidden">
+            <div className="w-16 h-24 bg-neutral-200 dark:bg-zinc-700 flex-shrink-0 overflow-hidden shadow-md">
                <img src={getImageUrl(product.image_url)} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
             </div>
-            <div className="space-y-1">
-              <p className="text-[9px] uppercase tracking-[0.3em] text-black/30 dark:text-white/30 font-bold">Investimento Digital</p>
-              <p className="text-sm font-serif dark:text-white leading-tight">{product.title}</p>
-              <p className="text-xs font-black tracking-tight dark:text-luxury-gold pt-1">€{product.price}</p>
+            <div className="space-y-2 flex-1 min-w-0">
+              <div className="space-y-1">
+                <p className="text-[9px] uppercase tracking-[0.3em] text-black/30 dark:text-white/30 font-bold">Investimento Digital</p>
+                <p className="text-sm font-serif dark:text-white leading-tight truncate-multiline line-clamp-2">{product.title}</p>
+                <p className="text-xs font-black tracking-tight dark:text-luxury-gold pt-1">€{product.price}</p>
+              </div>
+              {product.description && (
+                <div className="pt-2 border-t border-black/5 dark:border-white/10 mt-2">
+                  <p className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed line-clamp-6 whitespace-pre-wrap">
+                    {product.description}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </DialogHeader>
