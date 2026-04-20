@@ -61,11 +61,12 @@ interface Order {
 
 // --- Components ---
 
-const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onHomeClick, onSearch, searchQuery }: { 
+const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onLogoutClick, onDashboardClick, onHomeClick, onSearch, searchQuery }: { 
   user: SupabaseUser | null, 
   theme: 'light' | 'dark',
   onThemeToggle: () => void,
   onAuthClick: () => void,
+  onLogoutClick: () => void,
   onDashboardClick: (v: 'dashboard' | 'admin') => void,
   onHomeClick: () => void,
   onSearch: (q: string) => void,
@@ -112,7 +113,7 @@ const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onH
                   <Button variant="ghost" size="icon" onClick={() => onDashboardClick('dashboard')} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
                     <LayoutGrid size={18} />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => supabase.auth.signOut()} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
+                  <Button variant="ghost" size="icon" onClick={onLogoutClick} className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white">
                     <LogOut size={16} />
                   </Button>
                 </>
@@ -167,7 +168,7 @@ const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onDashboardClick, onH
                     </Button>
                     <Button 
                       variant="outline" 
-                      onClick={() => { supabase.auth.signOut(); setIsMobileMenuOpen(false); }}
+                      onClick={() => { onLogoutClick(); setIsMobileMenuOpen(false); }}
                       className="rounded-none border-black/10 dark:border-white/10 dark:text-white h-12 uppercase tracking-widest text-[9px]"
                     >
                       <LogOut size={14} className="mr-2" /> Sair
@@ -517,6 +518,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [isLogoutOpen, setIsLogoutOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -570,16 +572,39 @@ export default function App() {
   }, [theme]);
 
   const handleDownload = async (orderId: string) => {
+    const downloadToast = toast.loading('A preparar o seu descarregamento...');
     try {
       const res = await fetch(`/api/orders/${orderId}/download`);
-      const data = await res.json();
-      if (data.url) {
-        window.open(data.url, '_blank');
-      } else {
-        toast.error('Erro ao gerar link de download.');
+      const responseContent = await res.text();
+      
+      let data;
+      try {
+        data = JSON.parse(responseContent);
+      } catch (e) {
+        throw new Error('Resposta inválida do servidor.');
       }
-    } catch (err) {
-      toast.error('Erro na ligação ao servidor.');
+
+      if (!res.ok) {
+        throw new Error(data.error || `Erro de servidor (${res.status})`);
+      }
+
+      if (data.url) {
+        // Criar um elemento link invisível para forçar o descarregamento/abertura
+        const link = document.createElement('a');
+        link.href = data.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.success('Guia pronta para leitura.', { id: downloadToast });
+      } else {
+        throw new Error('Link de descarregamento não encontrado.');
+      }
+    } catch (err: any) {
+      console.error('[DOWNLOAD ERR]', err);
+      toast.error(err.message || 'Erro na ligação ao servidor.', { id: downloadToast });
     }
   };
 
@@ -819,6 +844,7 @@ export default function App() {
         theme={theme}
         onThemeToggle={toggleTheme}
         onAuthClick={() => setIsAuthOpen(true)} 
+        onLogoutClick={() => setIsLogoutOpen(true)}
         onDashboardClick={(v) => setView(v)}
         onHomeClick={() => {
           setView('home');
@@ -836,6 +862,42 @@ export default function App() {
         isProcessing={!!checkoutLoading}
         onConfirm={handleCheckoutConfirm}
       />
+
+      <Dialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
+        <DialogContent className="max-w-[320px] rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8">
+          <DialogHeader className="space-y-4">
+            <div className="flex justify-center">
+              <div className="w-12 h-12 rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center text-luxury-gold">
+                <LogOut size={20} />
+              </div>
+            </div>
+            <DialogTitle className="text-center font-serif text-xl dark:text-white">Encerrar Sessão?</DialogTitle>
+            <p className="text-center text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40 leading-relaxed">
+              Deseja realmente sair da sua conta na boutique S.Art?
+            </p>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 pt-4">
+            <Button 
+              onClick={async () => {
+                await supabase.auth.signOut();
+                setIsLogoutOpen(false);
+                setView('home');
+                toast.success('Até breve.');
+              }}
+              className="rounded-none bg-black dark:bg-white text-white dark:text-black h-12 uppercase tracking-[0.2em] text-[9px] font-bold hover:opacity-80 transition-opacity"
+            >
+              Confirmar Saída
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={() => setIsLogoutOpen(false)}
+              className="rounded-none h-12 uppercase tracking-[0.2em] text-[9px] dark:text-white/60 hover:text-black dark:hover:text-white"
+            >
+              Cancelar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <main className="pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full">
         <AnimatePresence mode="wait">

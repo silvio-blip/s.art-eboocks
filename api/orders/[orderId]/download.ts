@@ -6,9 +6,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   const { orderId } = req.query;
+  console.log(`[DOWNLOAD] Attempting download for Order ID: ${orderId}`);
 
   try {
     const supabase = getSupabase();
+    console.log(`[DOWNLOAD] Fetching order from DB...`);
+    
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('*, product:products(*)')
@@ -16,17 +19,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq('status', 'completed')
       .single();
 
-    if (orderError || !order || !order.product) {
-      return res.status(404).json({ error: 'Order not found.' });
+    if (orderError) {
+      console.error(`[DOWNLOAD ERROR] Database fetch failed:`, orderError);
+      return res.status(404).json({ error: `Ordem não encontrada ou não concluída. Detalhe: ${orderError.message}` });
+    }
+
+    if (!order || !order.product) {
+      console.error(`[DOWNLOAD ERROR] Order or associated product missing for ID: ${orderId}`);
+      return res.status(404).json({ error: 'Ficheiro do produto não disponível para esta ordem.' });
+    }
+
+    console.log(`[DOWNLOAD] Order found. Product file path: ${order.product.file_url}`);
+
+    if (!order.product.file_url) {
+      console.error(`[DOWNLOAD ERROR] file_url is empty in products table for ID ${order.product.id}`);
+      return res.status(400).json({ error: 'O ficheiro para este e-book ainda não foi carregado.' });
     }
 
     const { data, error: storageError } = await supabase.storage
       .from('ebooks')
       .createSignedUrl(order.product.file_url, 3600);
 
-    if (storageError) throw storageError;
+    if (storageError) {
+      console.error(`[DOWNLOAD ERROR] Storage signed URL generation failed:`, storageError);
+      throw storageError;
+    }
+
+    console.log(`[DOWNLOAD SUCCESS] Signed URL generated for order ${orderId}`);
     res.json({ url: data.signedUrl });
   } catch (error: any) {
+    console.error(`[DOWNLOAD FATAL ERROR]:`, error.message);
     res.status(500).json({ error: error.message });
   }
 }
