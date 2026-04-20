@@ -247,6 +247,72 @@ apiRouter.post('/create-checkout', async (req, res) => {
   }
 });
 
+// Reset Password
+apiRouter.post('/auth/reset-password', async (req, res) => {
+  const { action, email, otp, password } = req.body;
+  const supabase = getSupabase(); // Admin client (service_role)
+  const resend = getResend();
+
+  try {
+    if (action === 'request') {
+      // 1. Verificar se usuário existe
+      const { data: usersData } = await supabase.auth.admin.listUsers();
+      if (!usersData.users.find(u => u.email === email)) 
+        return res.status(404).json({ error: 'E-mail não encontrado.' });
+
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      // 2. Guardar OTP
+      await supabase.from('otp_verifications').upsert({ 
+        email, 
+        otp: otpCode, 
+        created_at: new Date().toISOString() 
+      });
+
+      // 3. E-mail "Luxury Boutique"
+      await resend.emails.send({
+        from: 'S.Art Atelier <seguranca@s.art-full.pt>',
+        to: email,
+        subject: 'Código de Recuperação S.Art',
+        html: `
+          <div style="font-family: 'Georgia', serif; background-color: #000; color: #fff; padding: 60px 20px; text-align: center; border: 1px solid #333;">
+            <h1 style="color: #D4AF37; letter-spacing: 8px; text-transform: uppercase; font-size: 20px; margin-bottom: 40px;">S.ART</h1>
+            <p style="font-size: 16px; color: #aaa; margin-bottom: 30px;">Recuperação de Acesso à Boutique Digital</p>
+            <div style="font-size: 56px; color: #D4AF37; margin: 40px 0; font-weight: 700; letter-spacing: 12px; border: 1px solid #D4AF37; padding: 20px;">${otpCode}</div>
+            <p style="font-size: 14px; color: #666; margin-top: 30px;">Este código é pessoal e confidencial.<br>Expira em 5 minutos.</p>
+            <div style="margin-top: 50px; font-size: 10px; color: #333; text-transform: uppercase; letter-spacing: 2px;">Boutique Digital S.Art © 2026</div>
+          </div>
+        `
+      });
+      return res.json({ success: true });
+    }
+
+    if (action === 'verify_and_reset') {
+      const { data: record, error: recordError } = await supabase.from('otp_verifications').select('*').eq('email', email).single();
+      
+      if (!record || record.otp !== otp) return res.status(401).json({ error: 'Código inválido.' });
+
+      // Verificar tempo (5 min)
+      if (new Date().getTime() - new Date(record.created_at).getTime() > 300000) {
+        return res.status(400).json({ error: 'Código expirado.' });
+      }
+
+      // Alterar Senha (Admin API)
+      const { data: usersData } = await supabase.auth.admin.listUsers();
+      const user = usersData.users.find(u => u.email === email);
+      await supabase.auth.admin.updateUserById(user!.id, { password });
+
+      // Limpar código
+      await supabase.from('otp_verifications').delete().eq('email', email);
+      
+      return res.json({ success: true });
+    }
+  } catch (err: any) {
+    console.error('[RESET ERROR]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Get Session Status
 apiRouter.get('/session-status', async (req, res) => {
   try {
@@ -327,6 +393,13 @@ apiRouter.get('/verify-session', async (req, res) => {
     if (session.payment_status === 'paid') {
       const productId = session.metadata?.productId;
       const orderId = session.metadata?.orderId;
+      
+      // Update order status to completed
+      await supabase
+        .from('orders')
+        .update({ status: 'completed' })
+        .eq('id', orderId);
+
       const { data: product } = await supabase
         .from('products')
         .select('*')

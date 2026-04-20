@@ -321,21 +321,12 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
         toast.success('Conta criada. Verifique o seu email.');
         onClose();
       } else if (mode === 'forgot') {
-        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/reset-password-confirm`,
+        });
         if (error) throw error;
-        toast.success('Código de recuperação enviado.');
-        setMode('otp');
-      } else if (mode === 'otp') {
-        const { error } = await supabase.auth.verifyOtp({ email, token: otp, type: 'recovery' });
-        if (error) throw error;
-        toast.success('Código validado. Defina a nova password.');
-        setMode('reset');
-      } else if (mode === 'reset') {
-        if (password !== confirmPassword) throw new Error('As passwords não coincidem.');
-        const { error } = await supabase.auth.updateUser({ password });
-        if (error) throw error;
-        toast.success('Password atualizada com sucesso.');
-        setMode('login');
+        toast.success('Link de recuperação enviado para o seu e-mail.');
+        onClose();
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -674,6 +665,11 @@ export default function App() {
       
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         fetchProducts();
+      }
+
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsAuthOpen(true);
+        setMode('reset');
       }
     });
 
