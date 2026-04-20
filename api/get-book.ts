@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSupabase, resolveStoragePath } from './server-utils';
+import { getSupabase, resolveStoragePath } from './server-utils.js';
 
 /**
  * S.ART Atelier - Get Book Access Link
@@ -59,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, storageError);
       return res.status(404).json({ 
         error: `Obra não encontrada: ${storageError.message}`,
-        path: sanitizedPath,
+        path: baseName,
         bucket: 'assets'
       });
     }

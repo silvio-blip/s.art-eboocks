@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 // @ts-ignore
-import { getSupabase, resolveStoragePath } from '../../server-utils';
+import { getSupabase, resolveStoragePath } from '../../server-utils.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -71,13 +71,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (storageError) {
-      console.error(`[DOWNLOAD ERROR] Storage fail for "${sanitizedPath}":`, storageError);
+      console.error(`[DOWNLOAD ERROR] Storage fail for "${baseName}":`, storageError);
       
       const errorMessage = storageError.message === 'Object not found' 
-        ? `Ficheiro "${sanitizedPath}" não encontrado no armazenamento (Bucket assets).`
+        ? `Ficheiro "${baseName}" não encontrado no armazenamento (Bucket assets).`
         : `Erro no servidor de ficheiros: ${storageError.message}`;
 
-      return res.status(404).json({ error: errorMessage, path: sanitizedPath });
+      return res.status(404).json({ error: errorMessage, path: baseName });
     }
 
     console.log(`[DOWNLOAD SUCCESS] Signed URL generated for order ${orderId}`);

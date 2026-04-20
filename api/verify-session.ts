@@ -1,10 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+import { getStripe, getSupabase } from './server-utils.js';
 
 /**
  * S.ART Atelier - Session Verification API
- * Standardized with WHATWG URL API to avoid url.parse deprecation.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -12,7 +10,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Standard URL parsing to satisfy security requirements
     const protocol = req.headers['x-forwarded-proto'] || 'http';
     const host = req.headers.host || 'localhost';
     const fullUrl = new URL(req.url!, `${protocol}://${host}`);
@@ -22,14 +19,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'ID de sessão não fornecido.' });
     }
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-      apiVersion: '2024-12-18.acacia' as any,
-    });
-
-    const supabase = createClient(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    );
+    const stripe = getStripe();
+    const supabase = getSupabase();
+    
+    if (!supabase) {
+      return res.status(500).json({ error: 'Erro de configuração do servidor (Supabase Keys em falta).' });
+    }
 
     console.log(`[S.ART VERIFY] Checking Session: ${sessionId}`);
     const session = await stripe.checkout.sessions.retrieve(sessionId);

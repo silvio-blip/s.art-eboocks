@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from './server-utils.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -12,14 +12,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing userId or bookId' });
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
+  const supabase = getSupabase();
+  if (!supabase) {
     return res.status(500).json({ error: 'Supabase credentials missing' });
   }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     const upsertData: any = {
