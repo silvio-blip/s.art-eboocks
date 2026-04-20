@@ -216,7 +216,6 @@ apiRouter.post('/create-checkout', async (req, res) => {
     console.log(`[S.ART] Using origin: ${clientOrigin}`);
 
     const session = await stripe.checkout.sessions.create({
-      automatic_payment_methods: { enabled: true },
       billing_address_collection: 'required',
       customer_email: email,
       line_items: [{
@@ -448,7 +447,7 @@ adminRouter.post('/products', async (req, res) => {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
-      .insert({ title, description, price, image_url, file_url, category, is_active: true })
+      .insert({ title, description, price, image_url, file_url, category })
       .select()
       .single();
 
@@ -484,7 +483,7 @@ adminRouter.delete('/products/:id', async (req, res) => {
     const supabase = getSupabase();
     const { error } = await supabase
       .from('products')
-      .update({ is_active: false })
+      .delete()
       .eq('id', id);
 
     if (error) throw error;

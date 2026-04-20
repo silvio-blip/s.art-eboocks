@@ -13,7 +13,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
-      .insert({ title, description, price, image_url, file_url, category, is_active: true })
+      .insert({ title, description, price, image_url, file_url, category })
       .select()
       .single();
 

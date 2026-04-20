@@ -113,8 +113,8 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   };
 
   const handleSaveProduct = async () => {
-    if (!editingProduct?.title || !editingProduct?.price) {
-      toast.error('Preencha os campos obrigatórios.');
+    if (!editingProduct?.title) {
+      toast.error('O Título é obrigatório.');
       return;
     }
 
@@ -126,13 +126,15 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
         body: JSON.stringify({ ...editingProduct, userId: user.id })
       });
 
-      if (!res.ok) throw new Error('Erro ao salvar produto.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao salvar produto.');
       
       toast.success(isNew ? 'E-book adicionado à boutique.' : 'Ativo atualizado.');
       setEditingProduct(null);
       fetchProducts();
     } catch (e: any) {
       toast.error(e.message);
+      console.error('Save product error:', e);
     }
   };
 
@@ -144,18 +146,19 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-      const bucketName = type === 'image' ? 'covers' : 'assets';
+      
+      const bucketName = 'assets'; 
+      const folderPath = type === 'image' ? `covers/${fileName}` : `ebook/${fileName}`;
 
       const { error } = await supabase.storage
         .from(bucketName)
-        .upload(fileName, file);
+        .upload(folderPath, file);
 
       if (error) throw error;
 
-      // Update state with just the fileName (as we'll resolve full URLs later)
       setEditingProduct(prev => ({
         ...prev!,
-        [type === 'image' ? 'image_url' : 'file_url']: fileName
+        [type === 'image' ? 'image_url' : 'file_url']: folderPath
       }));
       
       toast.success(`${type === 'image' ? 'Capa' : 'PDF'} carregado com sucesso.`);
@@ -504,30 +507,27 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {products.map(p => (
                 <Card key={p.id} className="bg-luxury-dark border-white/5 rounded-none group overflow-hidden">
                   <div className="aspect-[3/4] relative overflow-hidden">
                     <img 
-                      src={p.image_url} 
+                      src={getImageUrl(p.image_url)} 
                       alt={p.title} 
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
                     />
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                      <Button variant="outline" className="border-white/20 rounded-none h-10 px-4 text-[9px] uppercase tracking-widest hover:bg-white hover:text-black" onClick={() => setEditingProduct(p)}>
-                        <Edit size={14} className="mr-2" /> Editar
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                       <Button variant="outline" className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest hover:bg-white hover:text-black" onClick={() => setEditingProduct(p)}>
+                        <Edit size={12} />
                       </Button>
-                      <Button variant="outline" className="border-white/20 rounded-none h-10 px-4 text-[9px] uppercase tracking-widest text-red-500 hover:bg-red-500 hover:text-white" onClick={() => handleDeleteProduct(p.id)}>
-                        <Trash2 size={14} />
+                      <Button variant="outline" className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest text-red-500 hover:bg-red-500 hover:text-white" onClick={() => handleDeleteProduct(p.id)}>
+                        <Trash2 size={12} />
                       </Button>
                     </div>
                   </div>
-                  <CardContent className="p-6 space-y-2">
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-serif text-lg">{p.title}</h3>
-                      <span className="text-luxury-gold font-medium">€{p.price}</span>
-                    </div>
-                    <p className="text-white/40 text-[10px] uppercase tracking-widest">Digital E-Book</p>
+                  <CardContent className="p-3 space-y-1">
+                    <h3 className="font-serif text-sm truncate">{p.title}</h3>
+                    <p className="text-luxury-gold text-xs">€{p.price}</p>
                   </CardContent>
                 </Card>
               ))}
@@ -559,8 +559,11 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">Preço (€)</label>
                         <input 
                           type="number"
-                          value={editingProduct.price}
-                          onChange={e => setEditingProduct({ ...editingProduct, price: parseFloat(e.target.value) })}
+                          value={isNaN(editingProduct.price) || editingProduct.price === undefined ? "" : editingProduct.price}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setEditingProduct({ ...editingProduct, price: val === "" ? 0 : parseFloat(val) });
+                          }}
                           className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
                           placeholder="0.00"
                         />
@@ -593,12 +596,12 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                        <div className="grid grid-cols-2 gap-4 md:gap-6">
                         <div className="space-y-3">
                           <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">Capa (JPG/PNG)</label>
-                          <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer group transition-all overflow-hidden bg-white/5">
+                          <label htmlFor="image-upload" className="relative block aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer transition-all overflow-hidden bg-white/5">
                             {editingProduct.image_url ? (
                               <img 
                                 src={editingProduct.image_url.startsWith('http') 
                                   ? editingProduct.image_url 
-                                  : supabase.storage.from('covers').getPublicUrl(editingProduct.image_url).data.publicUrl} 
+                                  : supabase.storage.from('assets').getPublicUrl(editingProduct.image_url).data.publicUrl} 
                                 className="w-full h-full object-cover" 
                                 referrerPolicy="no-referrer"
                               />
@@ -609,13 +612,20 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                               </div>
                             )}
                             <input 
+                              id="image-upload"
                               type="file" 
                               accept="image/*"
                               onChange={(e) => handleFileUpload(e, 'image')}
-                              className="absolute inset-0 opacity-0 cursor-pointer" 
+                              className="hidden" 
                             />
                             {uploading && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Loader2 className="animate-spin text-luxury-gold" /></div>}
-                          </div>
+                          </label>
+                          <input 
+                            value={editingProduct.image_url || ''}
+                            onChange={e => setEditingProduct({ ...editingProduct, image_url: e.target.value })}
+                            className="w-full bg-transparent border-b border-white/10 py-2 text-[10px] outline-none focus:border-luxury-gold transition-colors"
+                            placeholder="Ou cole o link da imagem aqui..."
+                          />
                         </div>
 
                         <div className="space-y-3">
@@ -623,7 +633,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                           <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-blue-500 cursor-pointer group transition-all bg-white/5">
                             {editingProduct.file_url ? (
                               <div className="w-full h-full flex flex-col items-center justify-center text-blue-400 bg-blue-500/5">
-                                <FileText size={32} md:size={48} strokeWidth={1} />
+                                <FileText size={48} strokeWidth={1} />
                                 <span className="text-[7px] md:text-[8px] uppercase mt-2">PDF Pronto</span>
                               </div>
                             ) : (

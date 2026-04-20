@@ -30,6 +30,14 @@ import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
 import { supabase } from './lib/supabase';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+
+const getImageUrl = (url: string) => {
+  if (!url) return 'https://picsum.photos/seed/ebook/600/800';
+  if (url.startsWith('http')) return url;
+  const { data } = supabase.storage.from('assets').getPublicUrl(url);
+  return data.publicUrl;
+};
+
 import AdminDashboard from './components/AdminDashboard';
 import EReader from './components/EReader';
 import {
@@ -208,13 +216,6 @@ const Navbar = ({ user, theme, onThemeToggle, onAuthClick, onLogoutClick, onDash
 };
 
 function ProductCard({ product, onBuy, onRead, isOwned, isProcessing }: { product: Product, onBuy: (p: Product) => any, onRead?: (p: Product) => any, isOwned?: boolean, isProcessing?: boolean }) {
-  const getImageUrl = (url: string) => {
-    if (!url) return 'https://picsum.photos/seed/ebook/600/800';
-    if (url.startsWith('http')) return url;
-    const { data } = supabase.storage.from('covers').getPublicUrl(url);
-    return data.publicUrl;
-  };
-
   return (
     <motion.div 
       layout
@@ -276,8 +277,9 @@ const ADMIN_IDS = [
 ];
 
 const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'otp' | 'reset'>('login');
   const [email, setEmail] = useState('');
+  const [otp, setOtp] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -298,11 +300,6 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
   };
 
   const handleSubmit = async () => {
-    if (mode === 'register' && password !== confirmPassword) {
-      toast.error('As passwords não coincidem.');
-      return;
-    }
-
     setLoading(true);
     try {
       if (mode === 'login') {
@@ -310,27 +307,35 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
         if (error) throw error;
         toast.success('Bem-vindo de volta.');
         onClose();
-      } else {
+      } else if (mode === 'register') {
+        if (password !== confirmPassword) throw new Error('As passwords não coincidem.');
         const { data, error } = await supabase.auth.signUp({ 
           email, 
           password,
-          options: {
-            data: { full_name: fullName }
-          }
+          options: { data: { full_name: fullName } }
         });
         if (error) throw error;
-        
-        // Create profile record
         if (data.user) {
-          await supabase.from('profiles').upsert({
-            id: data.user.id,
-            email: email,
-            full_name: fullName
-          });
+          await supabase.from('profiles').upsert({ id: data.user.id, email, full_name: fullName });
         }
-
-        toast.success('Conta criada. Verifique o seu email se necessário.');
+        toast.success('Conta criada. Verifique o seu email.');
         onClose();
+      } else if (mode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email);
+        if (error) throw error;
+        toast.success('Código de recuperação enviado.');
+        setMode('otp');
+      } else if (mode === 'otp') {
+        const { error } = await supabase.auth.verifyOtp({ email, token: otp, type: 'recovery' });
+        if (error) throw error;
+        toast.success('Código validado. Defina a nova password.');
+        setMode('reset');
+      } else if (mode === 'reset') {
+        if (password !== confirmPassword) throw new Error('As passwords não coincidem.');
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        toast.success('Password atualizada com sucesso.');
+        setMode('login');
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -345,76 +350,67 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
         <DialogHeader className="items-center text-center">
           <DialogTitle className="font-serif text-3xl mb-2 dark:text-white">S.Art Atelier</DialogTitle>
           <p className="text-[10px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">
-            {mode === 'login' ? 'Entrar na Boutique Digital' : 'Criar Conta Exclusiva'}
+            {mode === 'login' ? 'Entrar na Boutique Digital' : 
+             mode === 'register' ? 'Criar Conta Exclusiva' :
+             mode === 'forgot' ? 'Recuperar Acesso' :
+             mode === 'otp' ? 'Validar Identidade' : 'Nova Password'}
           </p>
         </DialogHeader>
         
         <div className="space-y-6 mt-8">
-          <Button 
-            onClick={handleGoogleLogin}
-            variant="outline"
-            className="w-full flex items-center justify-center gap-3 rounded-none h-12 border-black/10 dark:border-white/10 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black dark:text-white transition-all cursor-pointer"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Entrar com Google
-          </Button>
+          {(mode === 'login' || mode === 'register') && (
+            <>
+              <Button 
+                onClick={handleGoogleLogin}
+                variant="outline"
+                className="w-full flex items-center justify-center gap-3 rounded-none h-12 border-black/10 dark:border-white/10 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black dark:text-white transition-all cursor-pointer"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Entrar com Google
+              </Button>
 
-          <div className="relative flex items-center py-2">
-            <div className="flex-grow border-t border-black/5 dark:border-white/5"></div>
-            <span className="flex-shrink mx-4 text-[9px] uppercase tracking-widest text-black/30 dark:text-white/30">ou usar email</span>
-            <div className="flex-grow border-t border-black/5 dark:border-white/5"></div>
-          </div>
+              <div className="relative flex items-center py-2">
+                <div className="flex-grow border-t border-black/5 dark:border-white/5"></div>
+                <span className="flex-shrink mx-4 text-[9px] uppercase tracking-widest text-black/30 dark:text-white/30">ou usar email</span>
+                <div className="flex-grow border-t border-black/5 dark:border-white/5"></div>
+              </div>
+            </>
+          )}
 
           {mode === 'register' && (
             <div className="space-y-2">
               <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Nome Completo</label>
-              <input 
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
-                placeholder="Ex: Maria Antonieta"
-              />
+              <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white" placeholder="Ex: Maria Antonieta" />
             </div>
           )}
 
-          <div className="space-y-2">
-            <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Endereço de Email</label>
-            <input 
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
-              placeholder="vogue@sart.com"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Palavra-passe</label>
-            <input 
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
-              placeholder="••••••••"
-            />
-          </div>
-
-          {mode === 'register' && (
+          {(mode === 'login' || mode === 'register' || mode === 'forgot' || mode === 'otp') && (
             <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Confirmar Palavra-passe</label>
-              <input 
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
-                placeholder="••••••••"
-              />
+              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Endereço de Email</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={mode === 'otp'} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white disabled:opacity-50" placeholder="vogue@sart.com" />
+            </div>
+          )}
+
+          {mode === 'otp' && (
+            <div className="space-y-2">
+              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Código de 6 Dígitos</label>
+              <input type="text" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value)} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-2xl tracking-[0.5em] text-center outline-none focus:border-luxury-gold transition-colors dark:text-white font-mono" placeholder="000000" />
+            </div>
+          )}
+
+          {(mode === 'login' || mode === 'register' || mode === 'reset') && (
+            <div className="space-y-2">
+              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+                {mode === 'reset' ? 'Nova Password' : 'Palavra-passe'}
+              </label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white" placeholder="••••••••" />
+            </div>
+          )}
+
+          {(mode === 'register' || mode === 'reset') && (
+            <div className="space-y-2">
+              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Confirmar Password</label>
+              <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white" placeholder="••••••••" />
             </div>
           )}
 
@@ -423,14 +419,28 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
             disabled={loading}
             className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-none h-14 uppercase tracking-widest text-[10px] cursor-pointer"
           >
-            {loading ? 'A processar...' : (mode === 'login' ? 'Entrar na Boutique' : 'Criar Conta')}
+            {loading ? 'A processar...' : 
+             mode === 'login' ? 'Entrar na Boutique' : 
+             mode === 'register' ? 'Criar Conta' :
+             mode === 'forgot' ? 'Enviar Código' :
+             mode === 'otp' ? 'Validar Código' : 'Redefinir Password'}
           </Button>
+
+          {mode === 'login' && (
+            <button 
+              onClick={() => setMode('forgot')}
+              className="w-full text-center text-[9px] text-black/30 dark:text-white/30 uppercase tracking-[0.1em] hover:text-luxury-gold transition-colors"
+            >
+              Esqueceu a sua password?
+            </button>
+          )}
 
           <button 
             onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
             className="w-full text-center text-[9px] text-black/40 dark:text-white/40 uppercase tracking-widest hover:text-black dark:hover:text-white transition-colors"
           >
-            {mode === 'login' ? 'Não tem conta? Registe-se' : 'Já tem conta? Inicie sessão'}
+            {mode === 'login' ? 'Não tem conta? Registe-se' : 
+             mode === 'register' ? 'Já tem conta? Inicie sessão' : 'Voltar ao Login'}
           </button>
         </div>
       </DialogContent>
@@ -462,7 +472,7 @@ const CheckoutModal = ({
           <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">Confirmar Aquisição</DialogTitle>
           <div className="flex gap-4 items-center p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5">
             <div className="w-14 h-20 bg-neutral-200 dark:bg-zinc-700 flex-shrink-0 overflow-hidden shadow-md">
-               <img src={product.image_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+               <img src={getImageUrl(product.image_url)} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
             </div>
             <div className="space-y-1">
               <p className="text-[9px] uppercase tracking-[0.3em] text-black/30 dark:text-white/30 font-bold">Investimento Digital</p>
@@ -606,12 +616,6 @@ export default function App() {
     }
   };
 
-  const getImageUrl = (url: string) => {
-    if (!url) return 'https://picsum.photos/seed/ebook/600/800';
-    if (url.startsWith('http')) return url;
-    const { data } = supabase.storage.from('covers').getPublicUrl(url);
-    return data.publicUrl;
-  };
 
   useEffect(() => {
     if (window.location.pathname === '/admin') {

@@ -54,7 +54,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const clientOrigin = req.headers.origin || `https://${req.headers.host}`;
 
     const session = await stripe.checkout.sessions.create({
-      automatic_payment_methods: { enabled: true },
       billing_address_collection: 'required',
       customer_email: email,
       line_items: [{
