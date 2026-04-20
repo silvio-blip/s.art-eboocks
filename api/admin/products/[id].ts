@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 // @ts-ignore
-import { getSupabase, ADMIN_IDS } from '../server-utils.js';
+import { getSupabase, ADMIN_IDS } from '../../server-utils.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
