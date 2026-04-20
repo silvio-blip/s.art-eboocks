@@ -715,6 +715,9 @@ export default function App() {
     }
 
     if (sessionId) {
+      // Clear ID from URL to prevent reactivation on refresh
+      window.history.replaceState({}, '', window.location.pathname);
+
       setView('success');
       try {
         console.log(`[S.ART DEBUG] Verifying Stripe session: ${sessionId}`);
