@@ -67,9 +67,22 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
     const initializeReader = async () => {
       try {
         setLoading(true);
-        console.log(`[READER DATA] Fetching book data for order: ${orderId}`);
+        console.log(`[READER DATA] Fetching book record for ID: ${bookId}`);
         
-        const res = await fetch(`/api/orders/${orderId}/download`);
+        // 1. Get Product Details to find filePath
+        const { data: product, error: productError } = await supabase
+          .from('products')
+          .select('file_url')
+          .eq('id', bookId)
+          .single();
+
+        if (productError || !product) {
+          throw new Error('Não foi possível localizar o ficheiro deste e-book.');
+        }
+
+        // 2. Get Signed URL from the new API
+        const fetchUrl = `/api/get-book?filePath=${encodeURIComponent(product.file_url)}`;
+        const res = await fetch(fetchUrl);
         const responseText = await res.text();
         
         let data;
@@ -77,11 +90,11 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
           data = JSON.parse(responseText);
         } catch (e) {
           console.error('[READER FATAL] Server response is not JSON:', responseText.substring(0, 300));
-          throw new Error('Resposta inválida do servidor (não JSON).');
+          throw new Error('Resposta inválida do servidor (Assets Bucket).');
         }
         
         if (!res.ok || !data.url) {
-          throw new Error(data.error || 'Não foi possível carregar o livro.');
+          throw new Error(data.error || 'Não foi possível autorizar o acesso à obra.');
         }
         
         setSignedUrl(data.url);
@@ -213,6 +226,7 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
             <div className="flex items-center gap-3">
               <Button variant="ghost" onClick={onBack} className="p-2 h-auto text-black dark:text-white hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <ArrowLeft size={18} />
+                <span className="ml-2 text-[10px] uppercase tracking-widest font-bold hidden sm:inline">Voltar</span>
               </Button>
               <div className="overflow-hidden">
                 <h3 className="font-serif text-sm dark:text-white truncate max-w-[150px] sm:max-w-md">{bookTitle}</h3>
@@ -222,6 +236,12 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button 
+                onClick={onBack} 
+                className="bg-black dark:bg-white text-white dark:text-black h-8 px-4 rounded-none text-[8px] uppercase tracking-widest font-bold sm:hidden"
+              >
+                FECHAR
+              </Button>
               <span className="text-[9px] uppercase tracking-widest font-bold text-luxury-gold mr-2">{progressPercent}%</span>
               <Button 
                 variant="ghost" 
@@ -235,17 +255,14 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
                   </span>
                 )}
               </Button>
-              <Button variant="ghost" className="p-0 h-auto text-black/40 dark:text-white/40 hidden sm:flex">
-                <Maximize size={16} />
-              </Button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Main Viewport */}
+      {/* Main Viewport - 92vh height context */}
       <div 
-        className="flex-1 mt-0 bg-neutral-50 dark:bg-zinc-950 overflow-hidden relative cursor-crosshair" 
+        className="flex-1 mt-0 bg-neutral-50 dark:bg-zinc-950 overflow-hidden relative cursor-crosshair h-[92vh]" 
         onClick={() => setShowControls(!showControls)}
       >
         <Worker workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}>

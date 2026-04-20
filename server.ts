@@ -103,12 +103,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       .single();
 
     if (product && email) {
-      // 3. Generate Signed URL (Secure)
+      // 4. Generate Signed URL (Secure)
       const sanitizedPath = (product.file_url || '').replace(/^\/+/, '');
       console.log(`[S.ART] Delivery - Generating signed URL for: ${sanitizedPath}`);
       
       const { data: signedData, error: signedError } = await supabase.storage
-        .from('ebooks')
+        .from('assets')
         .createSignedUrl(sanitizedPath, 3600); // 1 hour
 
       if (signedError) {
@@ -342,6 +342,30 @@ apiRouter.get('/verify-session', async (req, res) => {
     }
 
     res.json({ status: session.payment_status });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Book Signed URL (assets bucket)
+apiRouter.get('/get-book', async (req, res) => {
+  try {
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const fullUrl = new URL(req.url, `${protocol}://${host}`);
+    const filePath = fullUrl.searchParams.get('filePath');
+
+    if (!filePath) return res.status(400).json({ error: 'filePath matching products.file_url is required' });
+
+    const supabase = getSupabase();
+    const sanitizedPath = filePath.replace(/^\/+/, '');
+    
+    const { data: signedData, error: storageError } = await supabase.storage
+      .from('assets')
+      .createSignedUrl(sanitizedPath, 3600);
+
+    if (storageError) throw storageError;
+    res.json({ url: signedData.signedUrl });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
