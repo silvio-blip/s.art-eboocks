@@ -429,19 +429,16 @@ apiRouter.get('/get-book', async (req, res) => {
 
     const supabase = getSupabase();
     
-    // Lista de caminhos para tentar, em ordem:
-    // 1. O caminho exacto (do banco de dados)
-    // 2. Prefixo 'ebook/' (conforme pedido pelo utilizador)
-    // 3. Prefixo 'ebooks/'
-    const pathsToTry = [
+    // Lista de caminhos para tentar
+    const pathsToTry = new Set([
       filePath, 
-      `ebook/${filePath}`,
-      `ebooks/${filePath}`
-    ];
+      `ebook/${filePath.replace(/^ebook\//i, '').replace(/^ebooks\//i, '')}`,
+      `ebooks/${filePath.replace(/^ebook\//i, '').replace(/^ebooks\//i, '')}`
+    ]);
 
     let signedData = null;
     let storageError = null;
-    let lastTriedPath = filePath;
+    let lastTriedPath = '';
 
     for (const path of pathsToTry) {
         lastTriedPath = path;
