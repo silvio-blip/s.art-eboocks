@@ -36,17 +36,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'O ficheiro para este e-book ainda não foi carregado.' });
     }
 
-    const { data, error: storageError } = await supabase.storage
+    // Se for um URL externo completo, devolvemos diretamente
+    if (order.product.file_url.startsWith('http')) {
+      console.log(`[DOWNLOAD] External URL detected: ${order.product.file_url}`);
+      return res.json({ url: order.product.file_url });
+    }
+
+    // Limpar o caminho de barras iniciais
+    const sanitizedPath = order.product.file_url.replace(/^\/+/, '');
+
+    console.log(`[DOWNLOAD] Final path for Storage: "${sanitizedPath}" in bucket "ebooks"`);
+
+    const { data: signedUrlData, error: storageError } = await supabase.storage
       .from('ebooks')
-      .createSignedUrl(order.product.file_url, 3600);
+      .createSignedUrl(sanitizedPath, 3600);
 
     if (storageError) {
-      console.error(`[DOWNLOAD ERROR] Storage signed URL generation failed:`, storageError);
-      throw storageError;
+      console.error(`[DOWNLOAD ERROR] Storage fail for "${sanitizedPath}":`, storageError);
+      
+      // Se não encontrou no 'ebooks', vamos tentar uma mensagem mais útil
+      const errorMessage = storageError.message === 'Object not found' 
+        ? `Ficheiro "${sanitizedPath}" não encontrado no armazenamento (bucket: ebooks).`
+        : storageError.message;
+
+      return res.status(500).json({ error: errorMessage });
     }
 
     console.log(`[DOWNLOAD SUCCESS] Signed URL generated for order ${orderId}`);
-    res.json({ url: data.signedUrl });
+    res.json({ url: signedUrlData.signedUrl });
   } catch (error: any) {
     console.error(`[DOWNLOAD FATAL ERROR]:`, error.message);
     res.status(500).json({ error: error.message });

@@ -25,6 +25,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
+    // Gerar URL pública da imagem para o Stripe
+    let stripeImage = product.image_url;
+    if (stripeImage && !stripeImage.startsWith('http')) {
+      const { data } = supabase.storage.from('covers').getPublicUrl(stripeImage);
+      stripeImage = data.publicUrl;
+    }
+
     let orderId = '';
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -56,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           product_data: {
             name: product.title,
             description: product.description,
-            images: product.image_url ? [product.image_url] : [],
+            images: stripeImage ? [stripeImage] : [],
           },
           unit_amount: Math.round(Number(product.price) * 100),
         },

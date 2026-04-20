@@ -92,9 +92,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (product) {
         // 4. Gerar Link Assinado (Privado)
+        const sanitizedPath = product.file_url ? product.file_url.replace(/^\/+/, '') : '';
+        
         const { data: signedData, error: signedError } = await supabase.storage
           .from('ebooks')
-          .createSignedUrl(product.file_url, 3600); // Expira em 1 hora
+          .createSignedUrl(sanitizedPath, 3600); // Expira em 1 hora
 
         if (signedError) throw signedError;
 
