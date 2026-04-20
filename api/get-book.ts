@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase, resolveStoragePath } from './server-utils';
 
 /**
  * S.ART Atelier - Get Book Access Link
@@ -21,28 +21,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Caminho do ficheiro (filePath) não fornecido.' });
     }
 
-    // 2. Auth Check (Server-side)
-    // We check for the session via Authorization header if possible, 
-    // but in this serverless context we might rely on the client passing the user ID or just let Storage RLS handle it if we were client-side.
-    // However, the user asked to verify session active.
-    
-    const supabase = createClient(
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || '' // Use Service Role for signed URL generation
-    );
+    const supabase = getSupabase();
 
-    // Prepare path - clean up leading slashes
-    const sanitizedPath = filePath.replace(/^\/+/, '');
-    console.log(`[S.ART GET-BOOK] Requesting signed URL for: ${sanitizedPath} in bucket: assets`);
+    // Prepare path - clean up leading slashes and handle potential bucket prefix
+    const sanitizedPath = resolveStoragePath(filePath);
+    
+    console.log(`[S.ART GET-BOOK] Resolved: "${sanitizedPath}" (from: "${filePath}")`);
 
     // 3. Generate Signed URL (1 hour)
-    const { data: signedData, error: storageError } = await supabase.storage
+    let { data: signedData, error: storageError } = await supabase.storage
       .from('assets')
       .createSignedUrl(sanitizedPath, 3600);
 
+    // Fallback: If not found, try ebooks/ subfolder
+    if (storageError && storageError.message === 'Object not found') {
+        const { data: fallbackData, error: fallbackError } = await supabase.storage
+          .from('assets')
+          .createSignedUrl(`ebooks/${sanitizedPath}`, 3600);
+        
+        if (!fallbackError && fallbackData) {
+            signedData = fallbackData;
+            storageError = null;
+        }
+    }
+
     if (storageError) {
       console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, storageError);
-      return res.status(404).json({ error: `Obra não encontrada: ${storageError.message}` });
+      return res.status(404).json({ 
+        error: `Obra não encontrada: ${storageError.message}`,
+        path: sanitizedPath,
+        bucket: 'assets'
+      });
     }
 
     return res.status(200).json({ url: signedData.signedUrl });

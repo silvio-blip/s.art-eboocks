@@ -63,14 +63,14 @@ CREATE POLICY "Users can view their own orders" ON orders
 -- Create 'covers' bucket (Public for images)
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('covers', 'covers', true) ON CONFLICT (id) DO NOTHING;
 
--- Create 'ebooks' bucket (Private for PDF delivery)
--- INSERT INTO storage.buckets (id, name, public) VALUES ('ebooks', 'ebooks', false) ON CONFLICT (id) DO NOTHING;
+-- Create 'assets' bucket (Private for PDF delivery)
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('assets', 'assets', false) ON CONFLICT (id) DO NOTHING;
 
 -- Policy: Public Access for covers
 -- CREATE POLICY "Public Covers" ON storage.objects FOR SELECT USING (bucket_id = 'covers');
 
 -- Policy: Admin Upload for both (Uids: 3d596215-583e-498f-9fd5-36b83d8bccf5, 00d44feb-0b51-405e-86f7-31b67edfb7b6)
 -- CREATE POLICY "Admin Storage Manage" ON storage.objects FOR ALL WITH CHECK (
---   bucket_id IN ('covers', 'ebooks') AND 
+--   bucket_id IN ('covers', 'assets') AND 
 --   auth.uid() IN ('3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6')
 -- );

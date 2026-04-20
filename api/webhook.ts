@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { resolveStoragePath } from './server-utils';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-12-18.acacia' as any,
@@ -92,11 +93,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (product) {
         // 4. Gerar Link Assinado (Privado)
-        const sanitizedPath = product.file_url ? product.file_url.replace(/^\/+/, '') : '';
+        const sanitizedPath = resolveStoragePath(product.file_url || '');
         
-        const { data: signedData, error: signedError } = await supabase.storage
-          .from('ebooks')
+        let { data: signedData, error: signedError } = await supabase.storage
+          .from('assets')
           .createSignedUrl(sanitizedPath, 3600); // Expira em 1 hora
+
+        // Fallback para subpasta ebooks/
+        if (signedError && signedError.message === 'Object not found') {
+          const { data: fallbackData, error: fallbackError } = await supabase.storage
+            .from('assets')
+            .createSignedUrl(`ebooks/${sanitizedPath}`, 3600);
+          if (!fallbackError && fallbackData) {
+            signedData = fallbackData;
+            signedError = null;
+          }
+        }
 
         if (signedError) throw signedError;
 

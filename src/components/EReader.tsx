@@ -42,9 +42,10 @@ interface EReaderProps {
 const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack }) => {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<{ path?: string, bucket?: string } | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const [totalPages, setTotalPages] = useState<number>(0);
-  const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   
   // Annotation State
@@ -94,6 +95,7 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
         }
         
         if (!res.ok || !data.url) {
+          if (data.path) setDiagnostics({ path: data.path, bucket: data.bucket });
           throw new Error(data.error || 'Não foi possível autorizar o acesso à obra.');
         }
         
@@ -201,6 +203,14 @@ const EReader: React.FC<EReaderProps> = ({ orderId, bookId, bookTitle, onBack })
         </div>
         <h2 className="font-serif text-2xl dark:text-white italic">Pedimos Desculpa</h2>
         <p className="text-neutral-500 dark:text-neutral-400 text-sm max-w-xs">{error}</p>
+        
+        {diagnostics && (
+          <div className="bg-neutral-50 dark:bg-zinc-900 border border-black/5 dark:border-white/5 p-4 text-[8px] font-mono text-left max-w-xs opacity-50 uppercase tracking-tighter">
+            <p>Debug Info:</p>
+            <p>Path: {diagnostics.path}</p>
+            <p>Bucket: {diagnostics.bucket}</p>
+          </div>
+        )}
         <Button onClick={onBack} variant="outline" className="rounded-none border-black/10 dark:border-white/10 uppercase tracking-widest text-[9px] h-12 px-10">
           Voltar à Biblioteca
         </Button>

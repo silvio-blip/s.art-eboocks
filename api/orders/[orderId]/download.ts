@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 // @ts-ignore
-import { getSupabase } from '../../server-utils.js';
+import { getSupabase, resolveStoragePath } from '../../server-utils.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -42,28 +42,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.json({ url: order.product.file_url });
     }
 
-    // Limpar o caminho de barras iniciais
-    const sanitizedPath = order.product.file_url.replace(/^\/+/, '');
+    // Limpar o caminho de barras iniciais e tratar prefixo de bucket redundante usando o helper comum
+    const sanitizedPath = resolveStoragePath(order.product.file_url);
 
-    console.log(`[DOWNLOAD] Final path for Storage: "${sanitizedPath}" in bucket "ebooks"`);
+    console.log(`[DOWNLOAD] Attempting signed URL. Path: "${sanitizedPath}" (raw: "${order.product.file_url}") in bucket "assets"`);
 
     if (!sanitizedPath || sanitizedPath === 'undefined' || sanitizedPath === 'null') {
       console.error(`[DOWNLOAD ERROR] Invalid path resolved: "${sanitizedPath}"`);
       return res.status(400).json({ error: 'Caminho do ficheiro inválido para este e-book.' });
     }
 
-    const { data: signedUrlData, error: storageError } = await supabase.storage
-      .from('ebooks')
+    let { data: signedUrlData, error: storageError } = await supabase.storage
+      .from('assets')
       .createSignedUrl(sanitizedPath, 3600);
+
+    // Fallback: Tentar subpasta ebooks/ se falhar na raiz
+    if (storageError && storageError.message === 'Object not found') {
+      console.log(`[DOWNLOAD] Not found in root of "assets". Trying "ebooks/" subfolder...`);
+      const { data: fallbackData, error: fallbackError } = await supabase.storage
+        .from('assets')
+        .createSignedUrl(`ebooks/${sanitizedPath}`, 3600);
+      
+      if (!fallbackError && fallbackData) {
+        signedUrlData = fallbackData;
+        storageError = null;
+      }
+    }
 
     if (storageError) {
       console.error(`[DOWNLOAD ERROR] Storage fail for "${sanitizedPath}":`, storageError);
       
       const errorMessage = storageError.message === 'Object not found' 
-        ? `Ficheiro "${sanitizedPath}" não encontrado no armazenamento.`
+        ? `Ficheiro "${sanitizedPath}" não encontrado no armazenamento (Bucket assets).`
         : `Erro no servidor de ficheiros: ${storageError.message}`;
 
-      return res.status(500).json({ error: errorMessage });
+      return res.status(404).json({ error: errorMessage, path: sanitizedPath });
     }
 
     console.log(`[DOWNLOAD SUCCESS] Signed URL generated for order ${orderId}`);

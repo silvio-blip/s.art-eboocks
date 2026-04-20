@@ -143,7 +143,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-      const bucketName = type === 'image' ? 'covers' : 'ebooks';
+      const bucketName = type === 'image' ? 'covers' : 'assets';
 
       const { error } = await supabase.storage
         .from(bucketName)

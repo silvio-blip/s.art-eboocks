@@ -358,13 +358,72 @@ apiRouter.get('/get-book', async (req, res) => {
     if (!filePath) return res.status(400).json({ error: 'filePath matching products.file_url is required' });
 
     const supabase = getSupabase();
-    const sanitizedPath = filePath.replace(/^\/+/, '');
     
-    const { data: signedData, error: storageError } = await supabase.storage
+    // Smart Path Resolver
+    const resolveStoragePath = (input: string) => {
+      let path = input.replace(/^\/+/, '');
+      
+      // If it's a full URL, try to extract the core path
+      if (path.startsWith('http')) {
+        try {
+          const urlObj = new URL(path);
+          // Standard Supabase storage URL: .../storage/v1/object/public/bucketName/path/to/file
+          if (urlObj.pathname.includes('/storage/v1/object/')) {
+            const parts = urlObj.pathname.split('/');
+            const bucketIndex = parts.findIndex(p => p === 'assets' || p === 'ebooks' || p === 'covers');
+            if (bucketIndex !== -1 && bucketIndex < parts.length - 1) {
+              return parts.slice(bucketIndex + 1).join('/');
+            }
+          }
+          // Generic fallback for any other URL format - take the last parts
+          const parts = urlObj.pathname.split('/');
+          return parts[parts.length - 1];
+        } catch (e) {
+          console.warn('[STORAGE RESOLVER] Failed to parse URL:', path);
+        }
+      }
+
+      // Handle common bucket prefixes that shouldn't be in the path
+      const prefixesToRemove = ['assets/', 'ebooks/', 'ebook/'];
+      for (const prefix of prefixesToRemove) {
+        if (path.toLowerCase().startsWith(prefix)) {
+          return path.substring(prefix.length);
+        }
+      }
+      
+      return path;
+    };
+
+    const sanitizedPath = resolveStoragePath(filePath);
+    console.log(`[S.ART GET-BOOK] Attempting signed URL. Raw: "${filePath}" -> Resolved: "${sanitizedPath}"`);
+
+    // Try primary path
+    let { data: signedData, error: storageError } = await supabase.storage
       .from('assets')
       .createSignedUrl(sanitizedPath, 3600);
 
-    if (storageError) throw storageError;
+    // Fallback: If it fails and look like it might be in a legacy folder
+    if (storageError && storageError.message === 'Object not found') {
+      console.log(`[S.ART GET-BOOK] Not found in root of "assets". Trying "ebooks/" subfolder...`);
+      const fallbackPath = `ebooks/${sanitizedPath}`;
+      const { data: fallbackData, error: fallbackError } = await supabase.storage
+        .from('assets')
+        .createSignedUrl(fallbackPath, 3600);
+      
+      if (!fallbackError && fallbackData) {
+        signedData = fallbackData;
+        storageError = null;
+      }
+    }
+
+    if (storageError) {
+      console.error(`[S.ART GET-BOOK STORAGE ERROR] Path: "${sanitizedPath}"`, storageError);
+      return res.status(404).json({ 
+        error: `Obra não encontrada no servidor: ${storageError.message}`,
+        triedPath: sanitizedPath,
+        bucket: 'assets'
+      });
+    }
     res.json({ url: signedData.signedUrl });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -465,11 +524,15 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
       return res.json({ url: originalPath });
     }
 
-    const sanitizedPath = originalPath.replace(/^\/+/, '');
-    console.log(`[DOWNLOAD] Sanitized Path: "${sanitizedPath}" in bucket "ebooks"`);
+    let sanitizedPath = originalPath.replace(/^\/+/, '');
+    if (sanitizedPath.startsWith('assets/')) {
+      sanitizedPath = sanitizedPath.replace('assets/', '');
+    }
+    
+    console.log(`[DOWNLOAD] Sanitized Path: "${sanitizedPath}" (raw: "${originalPath}") in bucket "assets"`);
 
     const { data, error: storageError } = await supabase.storage
-      .from('ebooks')
+      .from('assets')
       .createSignedUrl(sanitizedPath, 3600);
 
     if (storageError) {
