@@ -736,11 +736,7 @@ export default function App() {
         if (data.status === 'paid') {
           setSuccessProduct(data.product);
           setSuccessOrderId(data.orderId);
-          toast.success('Compra validada com sucesso! Obra desbloqueada.');
-          
-          if (data.orderId) {
-            handleDownload(data.orderId);
-          }
+          toast.success('Compra aprovada! Desfrute da sua nova obra.');
 
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.user) {
