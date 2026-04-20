@@ -469,14 +469,27 @@ apiRouter.get('/get-book', async (req, res) => {
     const sanitizedPath = resolveStoragePath(filePath);
     console.log(`[S.ART GET-BOOK] Attempting signed URL. Raw: "${filePath}" -> Resolved: "${sanitizedPath}"`);
 
-    // Try primary path
+    // Try primary path in 'assets' bucket
     let { data: signedData, error: storageError } = await supabase.storage
       .from('assets')
       .createSignedUrl(sanitizedPath, 3600);
 
-    // Fallback: If it fails and look like it might be in a legacy folder
+    // Fallback: Try 'ebooks' bucket
     if (storageError && storageError.message === 'Object not found') {
-      console.log(`[S.ART GET-BOOK] Not found in root of "assets". Trying "ebooks/" subfolder...`);
+       console.log(`[S.ART GET-BOOK] Not found in "assets". Trying "ebooks" bucket...`);
+       const { data: fallbackData, error: fallbackError } = await supabase.storage
+        .from('ebooks')
+        .createSignedUrl(sanitizedPath, 3600);
+       
+       if (!fallbackError && fallbackData) {
+         signedData = fallbackData;
+         storageError = null;
+       }
+    }
+
+    // Fallback: If still fails, try 'ebooks/' subfolder in 'assets'
+    if (storageError && storageError.message === 'Object not found') {
+      console.log(`[S.ART GET-BOOK] Not found in "ebooks" bucket. Trying "ebooks/" subfolder in "assets"...`);
       const fallbackPath = `ebooks/${sanitizedPath}`;
       const { data: fallbackData, error: fallbackError } = await supabase.storage
         .from('assets')
