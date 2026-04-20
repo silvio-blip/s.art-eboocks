@@ -782,17 +782,22 @@ export default function App() {
   const fetchDashboardData = async (userId: string) => {
     console.log("[DEBUG] Fetching dashboard data for:", userId);
     
-    // Check if status=completed is causing 400 errors by loosening the query
+    // Conforme pedido: Usando a nova relação products()
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
-      .select('*, product:products(*)')
+      .select('*, products(*)')
       .eq('user_id', userId);
     
     if (ordersError) {
       console.error("[DEBUG] Error fetching orders:", ordersError);
     } else {
       console.log("[DEBUG] Orders fetched successfully:", orders);
-      setPurchasedProducts(orders || []);
+      // Mapeamos para manter compatibilidade com o resto do código que usa .product
+      const mappedOrders = (orders || []).map((o: any) => ({
+        ...o,
+        product: o.products // O Supabase devolve o objecto da relação como 'products'
+      }));
+      setPurchasedProducts(mappedOrders);
     }
 
     // Fetch Reading Progress

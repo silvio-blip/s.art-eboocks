@@ -423,48 +423,33 @@ apiRouter.get('/verify-session', async (req, res) => {
 apiRouter.get('/get-book', async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
-    const filePath = url.searchParams.get('filePath');
+    const fileName = url.searchParams.get('fileName') || url.searchParams.get('filePath'); // Suporta ambos para compatibilidade
 
-    if (!filePath) return res.status(400).json({ error: 'filePath matching products.file_url is required' });
+    if (!fileName) return res.status(400).json({ error: 'fileName ou filePath é necessário' });
 
     const supabase = getSupabase();
     
-    // Lista de caminhos para tentar
-    const pathsToTry = new Set([
-      filePath, 
-      `ebook/${filePath.replace(/^ebook\//i, '').replace(/^ebooks\//i, '')}`,
-      `ebooks/${filePath.replace(/^ebook\//i, '').replace(/^ebooks\//i, '')}`
-    ]);
+    // Conforme pedido: Pasta 'ebook/' (singular) dentro do bucket 'assets'
+    // Removemos qualquer prefixo que venha no fileName para garantir o path ebook/nome.pdf
+    const pureFileName = fileName.split('/').pop();
+    const finalPath = `ebook/${pureFileName}`;
 
-    let signedData = null;
-    let storageError = null;
-    let lastTriedPath = '';
+    console.log("[DEBUG] Solicitando ficheiro no bucket 'assets' com o path:", finalPath);
 
-    for (const path of pathsToTry) {
-        lastTriedPath = path;
-        console.log("[DEBUG] Solicitando ficheiro no bucket 'assets' com o path:", path);
-        const { data, error } = await supabase.storage
-            .from('assets')
-            .createSignedUrl(path, 3600);
-        
-        if (!error && data) {
-            signedData = data;
-            storageError = null;
-            break;
-        }
-        storageError = error;
-    }
+    const { data, error } = await supabase.storage
+        .from('assets')
+        .createSignedUrl(finalPath, 3600);
 
-    if (storageError || !signedData) {
-      console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, storageError);
+    if (error || !data) {
+      console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, error);
       return res.status(404).json({ 
-        error: `Obra não encontrada: ${storageError?.message || 'Object not found'}`,
-        triedPath: lastTriedPath,
+        error: `Obra não encontrada: ${error?.message || 'Object not found'}`,
+        triedPath: finalPath,
         bucket: 'assets'
       });
     }
     
-    res.json({ url: signedData.signedUrl });
+    res.json({ url: data.signedUrl });
   } catch (error: any) {
     console.error('[S.ART GET-BOOK SERVER ERROR]', error);
     res.status(500).json({ error: error.message });
