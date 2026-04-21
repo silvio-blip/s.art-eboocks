@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import { 
   ShoppingBag, 
   User, 
@@ -39,7 +41,7 @@ const getImageUrl = (url: string) => {
 };
 
 import AdminDashboard from './components/AdminDashboard';
-import EReader from './components/EReader';
+import PDFReader from './components/PDFReader';
 import {
   Dialog,
   DialogContent,
@@ -1222,7 +1224,7 @@ export default function App() {
 
           {view === 'reader' && activeReading && (
             <div className="max-w-6xl mx-auto">
-              <EReader 
+              <PDFReader 
                 orderId={activeReading.orderId}
                 bookId={activeReading.product.id}
                 bookTitle={activeReading.product.title}

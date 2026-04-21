@@ -20,6 +20,79 @@
   --color-luxury-white: #FFFFFF;
 }
 
+/* PDF Reader Fixes - Native Feel */
+.text-layer,
+.react-pdf__Page__textContent {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  mix-blend-mode: multiply;
+  pointer-events: none; /* Default to none, but children (text) have events */
+}
+
+.text-layer span,
+.react-pdf__Page__textContent span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  pointer-events: auto;
+}
+
+::selection {
+  background: rgba(212, 175, 55, 0.3); /* Luxury Gold Selection */
+  color: inherit;
+}
+
+.react-pdf__Page__annotations.annotationLayer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.annotationLayer section {
+  position: absolute;
+}
+
+.annotationLayer a {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Luxury Slider Thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #D4AF37;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  background: #D4AF37;
+  cursor: pointer;
+  border-radius: 50%;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.4);
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {

@@ -172,7 +172,15 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     setUploading(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+      const slug = editingProduct?.title 
+        ? editingProduct.title.toLowerCase().trim()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove accents
+            .replace(/[^a-z0-9]/g, '-')
+            .replace(/-+/g, '-')
+            .substring(0, 50)
+        : 'arquivo';
+      
+      const fileName = `${slug}-${Date.now()}.${fileExt}`;
       
       const bucketName = 'assets'; 
       const folderPath = type === 'image' ? `covers/${fileName}` : `ebook/${fileName}`;

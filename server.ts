@@ -257,7 +257,7 @@ apiRouter.post('/auth/reset-password', async (req, res) => {
     if (action === 'request') {
       // 1. Verificar se usuário existe
       const { data: usersData } = await supabase.auth.admin.listUsers();
-      if (!usersData.users.find(u => u.email === email)) 
+      if (!usersData.users.find((u: any) => u.email === email)) 
         return res.status(404).json({ error: 'E-mail não encontrado.' });
 
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -299,7 +299,7 @@ apiRouter.post('/auth/reset-password', async (req, res) => {
 
       // Alterar Senha (Admin API)
       const { data: usersData } = await supabase.auth.admin.listUsers();
-      const user = usersData.users.find(u => u.email === email);
+      const user = usersData.users.find((u: any) => u.email === email);
       await supabase.auth.admin.updateUserById(user!.id, { password });
 
       // Limpar código
@@ -316,12 +316,12 @@ apiRouter.post('/auth/reset-password', async (req, res) => {
 // Get Session Status
 apiRouter.get('/session-status', async (req, res) => {
   try {
-    const { session_id } = req.query;
-    if (!session_id) return res.status(400).json({ error: 'Session ID required' });
+    const sessionId = req.query.session_id as string;
+    if (!sessionId) return res.status(400).json({ error: 'Session ID required' });
 
     const stripe = getStripe();
     const supabase = getSupabase();
-    const session = await stripe.checkout.sessions.retrieve(session_id as string);
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (session.payment_status === 'paid') {
       const productId = session.metadata?.productId;
@@ -341,6 +341,7 @@ apiRouter.get('/session-status', async (req, res) => {
 
     res.json({ status: session.payment_status });
   } catch (error: any) {
+    console.error('[SESSION STATUS ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -372,23 +373,21 @@ apiRouter.post('/save-reading-state', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error: any) {
+    console.error('[SAVE STATE ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Verify Session (Updated with WHATWG URL)
+// Verify Session
 apiRouter.get('/verify-session', async (req, res) => {
   try {
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const fullUrl = new URL(req.url, `${protocol}://${host}`);
-    const session_id = fullUrl.searchParams.get('session_id');
+    const sessionId = req.query.session_id as string;
 
-    if (!session_id) return res.status(400).json({ error: 'Session ID required' });
+    if (!sessionId) return res.status(400).json({ error: 'Session ID required' });
 
     const stripe = getStripe();
     const supabase = getSupabase();
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (session.payment_status === 'paid') {
       const productId = session.metadata?.productId;
@@ -415,6 +414,7 @@ apiRouter.get('/verify-session', async (req, res) => {
 
     res.json({ status: session.payment_status });
   } catch (error: any) {
+    console.error('[VERIFY SESSION ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -422,17 +422,12 @@ apiRouter.get('/verify-session', async (req, res) => {
 // Get Book Signed URL (assets bucket)
 apiRouter.get('/get-book', async (req, res) => {
   try {
-    const url = new URL(req.url, 'http://localhost');
-    const filePath = url.searchParams.get('fileName') || url.searchParams.get('filePath');
+    const filePath = (req.query.fileName || req.query.filePath) as string;
 
     if (!filePath) return res.status(400).json({ error: 'filePath is required' });
 
     // Instanciar supabase com Service Role Key para permissão total
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!serviceRoleKey) {
-        return res.status(500).json({ error: "SERVICE_ROLE_KEY_MISSING" });
-    }
-    const supabase = createClient(process.env.VITE_SUPABASE_URL!, serviceRoleKey);
+    const supabase = getSupabase();
     
     // Caminho forçado: assegurar prefixo 'ebook/'
     const finalPath = filePath.startsWith('ebook/') ? filePath : `ebook/${filePath}`;

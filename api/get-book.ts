@@ -16,6 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     // Suporta ambos os nomes para máxima compatibilidade
     const filePath = fullUrl.searchParams.get('fileName') || fullUrl.searchParams.get('filePath');
+    const bookTitle = fullUrl.searchParams.get('bookTitle') || 'ebook';
 
     if (!filePath) {
       return res.status(400).json({ error: 'filePath is required' });
@@ -34,9 +35,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     console.log("[S.ART FINAL CHECK] Path solicitado: ", finalPath);
 
+    // Slugify book title for the download filename
+    const safeTitle = bookTitle.toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-') + '.pdf';
+
     const { data, error } = await supabase.storage
         .from('assets')
-        .createSignedUrl(finalPath, 3600);
+        .createSignedUrl(finalPath, 3600, {
+          download: safeTitle
+        });
 
     if (error) {
       console.error(`[S.ART GET-BOOK ERROR] Storage fail:`, error);
