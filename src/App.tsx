@@ -400,9 +400,20 @@ const AuthDialog = ({ isOpen, onClose, onViewTerms }: { isOpen: boolean, onClose
 
           {(mode === 'login' || mode === 'register' || mode === 'reset') && (
             <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
-                {mode === 'reset' ? 'Nova Password' : 'Palavra-passe'}
-              </label>
+              <div className="flex justify-between items-end">
+                <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+                  {mode === 'reset' ? 'Nova Password' : 'Palavra-passe'}
+                </label>
+                {mode === 'login' && (
+                  <button 
+                    type="button"
+                    onClick={() => setMode('forgot')}
+                    className="text-[9px] text-black/40 dark:text-white/40 uppercase tracking-[0.1em] hover:text-luxury-gold transition-colors"
+                  >
+                    Esqueceu a sua password?
+                  </button>
+                )}
+              </div>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white" placeholder="••••••••" />
             </div>
           )}
@@ -452,18 +463,9 @@ const AuthDialog = ({ isOpen, onClose, onViewTerms }: { isOpen: boolean, onClose
              mode === 'otp' ? 'Validar Código' : 'Redefinir Password'}
           </Button>
 
-          {mode === 'login' && (
-            <button 
-              onClick={() => setMode('forgot')}
-              className="w-full text-center text-[9px] text-black/30 dark:text-white/30 uppercase tracking-[0.1em] hover:text-luxury-gold transition-colors"
-            >
-              Esqueceu a sua password?
-            </button>
-          )}
-
           <button 
             onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-            className="w-full text-center text-[9px] text-black/40 dark:text-white/40 uppercase tracking-widest hover:text-black dark:hover:text-white transition-colors"
+            className="w-full text-center text-[9px] text-black/40 dark:text-white/40 uppercase tracking-widest hover:text-black dark:hover:text-white transition-colors pt-2"
           >
             {mode === 'login' ? 'Não tem conta? Registe-se' : 
              mode === 'register' ? 'Já tem conta? Inicie sessão' : 'Voltar ao Login'}
