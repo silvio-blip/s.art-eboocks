@@ -581,7 +581,7 @@ export default function App() {
   const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin' | 'reader' | 'reset-password'>('home');
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [readingProgress, setReadingProgress] = useState<Record<string, ReadingProgress>>({});
-  const [activeReading, setActiveReading] = useState<{orderId: string, product: Product} | null>(null);
+  const [activeReading, setActiveReading] = useState<{orderId: string, product: Product, purchasedAt: string} | null>(null);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
@@ -899,10 +899,43 @@ export default function App() {
     }
   };
 
-  const handleOpenReader = (product: Product, orderId: string) => {
-    setActiveReading({ orderId, product });
+  const handleOpenReader = (product: Product, orderId: string, purchasedAt: string) => {
+    setActiveReading({ orderId, product, purchasedAt });
     setView('reader');
   };
+
+  const [refundBookName, setRefundBookName] = useState('');
+  const [refundOrder, setRefundOrder] = useState<Order | null>(null);
+  const [isRefunding, setIsRefunding] = useState(false);
+
+  const handleRefund = async () => {
+    if (!refundOrder || !user) return;
+    if (refundBookName !== refundOrder.product?.title) {
+      toast.error('O título digitado não corresponde à obra selecionada.');
+      return;
+    }
+    
+    setIsRefunding(true);
+    try {
+      const res = await fetch('/api/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: refundOrder.id, userId: user.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao solicitar reembolso.');
+      
+      toast.success('Reembolso efetuado com sucesso.');
+      setRefundOrder(null);
+      setRefundBookName('');
+      fetchDashboardData(user.id);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsRefunding(false);
+    }
+  };
+
 
   const handleBuy = async (product: Product) => {
     if (!user) {
@@ -1122,7 +1155,7 @@ export default function App() {
                         onBuy={handleBuy} 
                         onRead={(p) => {
                           const order = purchasedProducts.find(o => o.product_id === p.id);
-                          if (order) handleOpenReader(p, order.id);
+                          if (order) handleOpenReader(p, order.id, order.created_at);
                         }}
                         isOwned={purchasedProducts.some(p => p.product_id === product.id)}
                         isProcessing={checkoutLoading === product.id}
@@ -1170,11 +1203,14 @@ export default function App() {
                     const progressPercent = progress && progress.total_pages > 0 
                       ? Math.round((progress.last_page_read / progress.total_pages) * 100) 
                       : 0;
+                      
+                    const daysSincePurchase = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 3600 * 24);
+                    const canRefund = daysSincePurchase <= 14;
 
                     return order.product && (
-                      <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group shadow-sm">
-                        <CardContent className="p-0">
-                          <div className="aspect-[3/4] overflow-hidden relative cursor-pointer" onClick={() => handleOpenReader(order.product, order.id)}>
+                      <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group shadow-sm flex flex-col">
+                        <CardContent className="p-0 flex flex-col h-full">
+                          <div className="aspect-[3/4] overflow-hidden relative cursor-pointer" onClick={() => handleOpenReader(order.product!, order.id, order.created_at)}>
                             <img 
                               src={getImageUrl(order.product.image_url)} 
                               alt={order.product.title} 
@@ -1193,7 +1229,7 @@ export default function App() {
                               <BookOpen className="text-white" size={24} />
                             </div>
                           </div>
-                          <div className="p-3 sm:p-5 space-y-3">
+                          <div className="p-3 sm:p-5 space-y-3 flex-1 flex flex-col justify-between">
                             <div className="space-y-1">
                               <h3 className="font-serif text-sm sm:text-base dark:text-white truncate" title={order.product.title}>{order.product.title}</h3>
                               <div className="flex justify-between items-center">
@@ -1203,14 +1239,23 @@ export default function App() {
                                 )}
                               </div>
                             </div>
-                            <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 gap-2 mt-4">
                               <Button 
-                                onClick={() => handleOpenReader(order.product, order.id)}
+                                onClick={() => handleOpenReader(order.product!, order.id, order.created_at)}
                                 className="bg-luxury-gold text-white hover:bg-luxury-gold/80 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest w-full"
                               >
                                 <BookOpen size={12} className="hidden sm:block" />
                                 Ler Obra
                               </Button>
+                              {canRefund && (
+                                <Button 
+                                  variant="outline"
+                                  onClick={() => setRefundOrder(order)}
+                                  className="text-red-500 hover:text-white hover:bg-red-500 border-red-500/20 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest w-full"
+                                >
+                                  Solicitar Reembolso
+                                </Button>
+                              )}
                             </div>
                           </div>
                         </CardContent>
@@ -1222,12 +1267,51 @@ export default function App() {
             </motion.div>
           )}
 
+          {refundOrder && (
+            <Dialog open={!!refundOrder} onOpenChange={(open) => !open && setRefundOrder(null)}>
+              <DialogContent className="max-w-md rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8">
+                <DialogHeader className="space-y-4">
+                  <DialogTitle className="text-center font-serif text-2xl text-red-500">Solicitar Reembolso</DialogTitle>
+                  <p className="text-center text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60 leading-relaxed">
+                    Você está dentro do período de garantia de 14 dias para a obra <strong className="text-black dark:text-white">{refundOrder.product?.title}</strong>.
+                  </p>
+                  <p className="text-center text-sm text-black/80 dark:text-white/80 leading-relaxed bg-red-50 dark:bg-red-950/20 p-4 border border-red-100 dark:border-red-900/50">
+                    Atenção: Ao processar este reembolso, <strong>perderá imediatamente o acesso</strong> ao livro.
+                  </p>
+                </DialogHeader>
+                <div className="flex flex-col gap-4 pt-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 text-center block mb-2">
+                      Digite o nome exato da obra para confirmar:
+                    </label>
+                    <input 
+                      type="text" 
+                      placeholder={refundOrder.product?.title}
+                      value={refundBookName}
+                      onChange={(e) => setRefundBookName(e.target.value)}
+                      className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 text-center dark:text-white transition-colors"
+                    />
+                  </div>
+                  <Button 
+                    onClick={handleRefund}
+                    disabled={isRefunding || refundBookName !== refundOrder.product?.title}
+                    className="rounded-none bg-red-500 hover:bg-red-600 text-white h-12 uppercase tracking-[0.2em] text-[9px] font-bold mt-2 transition-all disabled:opacity-50"
+                  >
+                    {isRefunding ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Reembolso'}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+
           {view === 'reader' && activeReading && (
             <div className="max-w-6xl mx-auto">
               <PDFReader 
                 orderId={activeReading.orderId}
                 bookId={activeReading.product.id}
                 bookTitle={activeReading.product.title}
+                purchasedAt={activeReading.purchasedAt}
+
                 onBack={() => {
                   setView('dashboard');
                   fetchDashboardData(user!.id);
@@ -1291,7 +1375,7 @@ export default function App() {
               <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
                 {successProduct && successOrderId && (
                   <Button 
-                    onClick={() => handleOpenReader(successProduct, successOrderId)} 
+                    onClick={() => handleOpenReader(successProduct, successOrderId, new Date().toISOString())} 
                     className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
                   >
                     Começar a Ler Agora <ArrowRight size={14} className="ml-2 animate-pulse" />

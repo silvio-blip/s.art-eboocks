@@ -221,8 +221,14 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
     }
   };
 
-  // Only consider completed orders for actual revenue and charts
-  const completedOrders = orders.filter(o => o.status === 'completed');
+  // Consider completed and refunded orders for financial calculations
+  const grossOrders = orders.filter(o => o.status === 'completed' || o.status === 'refunded');
+  const refundedOrders = orders.filter(o => o.status === 'refunded');
+  
+  const totalGrossRevenue = grossOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+  const totalRefunded = refundedOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+  const netProfit = totalGrossRevenue - totalRefunded;
+  const completedSales = grossOrders.length; // Including refunds in total transaction count
 
   // Processing chart data with safety for NaN
   const getChartData = () => {
@@ -230,7 +236,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
       const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
       const data = days.map(day => ({ name: day, value: 0, sales: 0 }));
       
-      completedOrders.forEach(order => {
+      grossOrders.forEach(order => {
         const date = new Date(order.created_at);
         const dayIndex = (date.getDay() + 6) % 7; // Convert 0-6 (Sun-Sat) to 0-6 (Mon-Sun)
         data[dayIndex].value += Number(order.total_amount) || 0;
@@ -244,7 +250,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
       const currentYear = new Date().getFullYear();
       const data = months.map(month => ({ name: month, value: 0, sales: 0 }));
 
-      completedOrders.forEach(order => {
+      grossOrders.forEach(order => {
         const date = new Date(order.created_at);
         if (date.getFullYear() === currentYear) {
           const monthIndex = date.getMonth();
@@ -261,7 +267,7 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
       const years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
       const data = years.map(year => ({ name: year.toString(), value: 0, sales: 0 }));
 
-      completedOrders.forEach(order => {
+      grossOrders.forEach(order => {
         const date = new Date(order.created_at);
         const year = date.getFullYear();
         const yearData = data.find(d => d.name === year.toString());
@@ -277,9 +283,6 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
   };
 
   const displayData = getChartData();
-
-  const totalRevenue = completedOrders.reduce((acc, o) => acc + Number(o.total_amount), 0);
-  const completedSales = completedOrders.length;
 
   if (loading) {
     return (
@@ -339,10 +342,10 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8">
                 <CardHeader className="p-0 pb-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Faturamento Bruto</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Vendas Brutas</p>
                 </CardHeader>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-4xl font-serif">€{totalRevenue.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</h3>
+                  <h3 className="text-3xl md:text-4xl font-serif">€{totalGrossRevenue.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</h3>
                   <div className="p-2 md:p-3 bg-emerald-500/10 text-emerald-500 rounded-full">
                     <TrendingUp size={18} />
                   </div>
@@ -351,23 +354,23 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
               
               <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8">
                 <CardHeader className="p-0 pb-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Vendas Concluídas</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-red-400">Total Reembolsado</p>
                 </CardHeader>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-4xl font-serif">{completedSales}</h3>
-                  <div className="p-2 md:p-3 bg-luxury-gold/10 text-luxury-gold rounded-full">
-                    <ShoppingBag size={18} />
+                  <h3 className="text-3xl md:text-4xl font-serif text-red-500">€{totalRefunded.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</h3>
+                  <div className="p-2 md:p-3 bg-red-500/10 text-red-500 rounded-full">
+                    <XCircle size={18} />
                   </div>
                 </div>
               </Card>
  
               <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-2 lg:col-span-1">
                 <CardHeader className="p-0 pb-4">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Valor Médio</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/30">Lucro Líquido</p>
                 </CardHeader>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-4xl font-serif">€{(totalRevenue / (completedSales || 1)).toFixed(2)}</h3>
-                  <div className="p-2 md:p-3 bg-blue-500/10 text-blue-500 rounded-full">
+                  <h3 className="text-3xl md:text-4xl font-serif text-luxury-gold">€{netProfit.toLocaleString('pt-PT', { minimumFractionDigits: 2 })}</h3>
+                  <div className="p-2 md:p-3 bg-luxury-gold/10 text-luxury-gold rounded-full">
                     <DollarSign size={18} />
                   </div>
                 </div>
@@ -509,10 +512,14 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                         <td className="px-6 py-4 font-medium">€{order.total_amount}</td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-widest font-bold ${
-                            order.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
+                            order.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 
+                            order.status === 'refunded' ? 'bg-red-500/10 text-red-500' :
+                            'bg-amber-500/10 text-amber-500'
                           }`}>
                             {order.status === 'completed' ? (
                               <><CheckCircle size={8} className="mr-1" /> Liquidado</>
+                            ) : order.status === 'refunded' ? (
+                              <><XCircle size={8} className="mr-1" /> Reembolsado</>
                             ) : (
                               <><Clock size={8} className="mr-1" /> Aguardando</>
                             )}

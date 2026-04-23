@@ -57,10 +57,38 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
     await handleCheckoutCompleted(session);
+  } else if (event.type === 'charge.refunded') {
+    const charge = event.data.object as Stripe.Charge;
+    await handleChargeRefunded(charge);
   }
 
   res.json({ received: true });
 });
+
+async function handleChargeRefunded(charge: Stripe.Charge) {
+  const supabase = getSupabase();
+  const stripe = getStripe();
+  try {
+    if (!charge.payment_intent) return;
+    
+    // Find checkout sessions that used this payment intent
+    const sessions = await stripe.checkout.sessions.list({ 
+      payment_intent: charge.payment_intent as string 
+    });
+
+    if (sessions.data.length > 0) {
+      const sessionId = sessions.data[0].id;
+      
+      // Remove access by changing the order status to 'refunded'
+      // Note: In our data model, this functionally deletes it from the user_library.
+      await supabase.from('orders').update({ status: 'refunded' }).eq('stripe_session_id', sessionId);
+      
+      console.log(`[S.ART WEBHOOK] Order updated to refunded for session: ${sessionId}`);
+    }
+  } catch (error) {
+    console.error('[S.ART WEBHOOK ERROR during refund handling]', error);
+  }
+}
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const supabase = getSupabase();
@@ -615,6 +643,66 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
   } catch (error: any) {
     console.error(`[DOWNLOAD FATAL]:`, error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Refund Route
+apiRouter.post('/refund', async (req, res) => {
+  const { orderId, userId } = req.body;
+  if (!orderId || !userId) return res.status(400).json({ error: 'Missing parameters' });
+
+  const supabase = getSupabase();
+  const stripe = getStripe();
+
+  try {
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*, product:products(*)')
+      .eq('id', orderId)
+      .eq('user_id', userId)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    if (order.status !== 'completed') {
+      return res.status(400).json({ error: 'Ordem não é elegível para reembolso' });
+    }
+
+    // Check 14-day rule
+    const daysSincePurchase = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 3600 * 24);
+    if (daysSincePurchase > 14) {
+      return res.status(400).json({ error: 'O período da garantia de 14 dias já expirou.' });
+    }
+
+    if (!order.stripe_session_id) {
+      return res.status(400).json({ error: 'Ordem não contém uma transação na Stripe válida.' });
+    }
+
+    // Retrieve the checkout session to get the PaymentIntent
+    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+    if (!session.payment_intent) {
+      return res.status(400).json({ error: 'Payment Intent não encontrado nesta checkout session.' });
+    }
+
+    // Issue Refund
+    await stripe.refunds.create({
+      payment_intent: session.payment_intent as string,
+    });
+
+    // Update the Order
+    // In our simplified workflow, updating the order entirely blocks access
+    // Since we do not have a dedicated `user_library` table, `orders.status='refunded'` simulates deletion
+    await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
+
+    // Optional: We can delete reading progress so they start fresh if they buy again
+    await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', userId);
+
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[REFUND ERROR]', err);
+    return res.status(500).json({ error: err.message || 'Erro ao processar o reembolso.' });
   }
 });
 

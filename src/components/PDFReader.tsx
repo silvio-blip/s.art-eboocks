@@ -58,6 +58,7 @@ interface PDFReaderProps {
   orderId: string;
   bookId: string;
   bookTitle: string;
+  purchasedAt: string;
   onBack: () => void;
 }
 
@@ -155,7 +156,7 @@ const ReaderPage = React.memo(({
   );
 });
 
-const PDFReader: React.FC<PDFReaderProps> = ({ orderId, bookId, bookTitle, onBack }) => {
+const PDFReader: React.FC<PDFReaderProps> = ({ orderId, bookId, bookTitle, purchasedAt, onBack }) => {
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.0);
@@ -402,7 +403,14 @@ const PDFReader: React.FC<PDFReaderProps> = ({ orderId, bookId, bookTitle, onBac
     }
   };
 
+  const daysSincePurchase = (new Date().getTime() - new Date(purchasedAt).getTime()) / (1000 * 3600 * 24);
+  const isDownloadLocked = daysSincePurchase <= 14;
+
   const downloadBook = useCallback(async () => {
+    if (isDownloadLocked) {
+      toast.error('Download indisponível durante o período de garantia (14 dias).');
+      return;
+    }
     if (!pdfUrl) {
       toast.error('O PDF ainda não está carregado.');
       return;
@@ -496,8 +504,9 @@ const PDFReader: React.FC<PDFReaderProps> = ({ orderId, bookId, bookTitle, onBac
           <Button 
             variant="ghost" 
             onClick={downloadBook}
-            className="p-2 h-auto text-black dark:text-white hover:text-luxury-gold transition-colors"
-            title="Descarregar Livro"
+            disabled={isDownloadLocked}
+            className={`p-2 h-auto transition-colors ${isDownloadLocked ? 'opacity-50 cursor-not-allowed text-black/30 dark:text-white/30' : 'text-black dark:text-white hover:text-luxury-gold'}`}
+            title={isDownloadLocked ? "Download disponível após período de garantia (14 dias)" : "Descarregar Livro"}
           >
             <Download size={20} />
           </Button>
