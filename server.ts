@@ -79,11 +79,17 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     if (sessions.data.length > 0) {
       const sessionId = sessions.data[0].id;
       
+      const { data: order } = await supabase.from('orders').select('product_id, user_id').eq('stripe_session_id', sessionId).single();
+      
       // Remove access by changing the order status to 'refunded'
-      // Note: In our data model, this functionally deletes it from the user_library.
       await supabase.from('orders').update({ status: 'refunded' }).eq('stripe_session_id', sessionId);
       
-      console.log(`[S.ART WEBHOOK] Order updated to refunded for session: ${sessionId}`);
+      // Also delete reading progress to fully break access/cache for this user
+      if (order) {
+        await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+      }
+      
+      console.log(`[S.ART WEBHOOK] Order updated to refunded and access removed fully for session: ${sessionId}`);
     }
   } catch (error) {
     console.error('[S.ART WEBHOOK ERROR during refund handling]', error);
@@ -657,12 +663,13 @@ apiRouter.post('/refund', async (req, res) => {
   try {
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, product:products(*)')
+      .select('*')
       .eq('id', orderId)
       .eq('user_id', userId)
       .single();
 
     if (orderError || !order) {
+      console.error('[REFUND ERROR] Order not found:', orderError, 'for inputs:', { orderId, userId });
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
@@ -687,19 +694,20 @@ apiRouter.post('/refund', async (req, res) => {
     }
 
     // Issue Refund
-    await stripe.refunds.create({
+    const refund = await stripe.refunds.create({
       payment_intent: session.payment_intent as string,
     });
 
-    // Update the Order
-    // In our simplified workflow, updating the order entirely blocks access
-    // Since we do not have a dedicated `user_library` table, `orders.status='refunded'` simulates deletion
-    await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
+    if (refund.status === 'succeeded') {
+      // Completed synchronously
+      await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
+      await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', userId);
+    } else {
+      // Pending asynchronous completion via webhook
+      await supabase.from('orders').update({ status: 'refund_pending' }).eq('id', orderId);
+    }
 
-    // Optional: We can delete reading progress so they start fresh if they buy again
-    await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', userId);
-
-    return res.json({ success: true });
+    return res.json({ success: true, status: refund.status });
   } catch (err: any) {
     console.error('[REFUND ERROR]', err);
     return res.status(500).json({ error: err.message || 'Erro ao processar o reembolso.' });

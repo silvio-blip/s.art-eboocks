@@ -514,12 +514,15 @@ export default function AdminDashboard({ user, onBack }: { user: SupabaseUser, o
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-widest font-bold ${
                             order.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 
                             order.status === 'refunded' ? 'bg-red-500/10 text-red-500' :
+                            order.status === 'refund_pending' ? 'bg-amber-500/10 text-amber-500' :
                             'bg-amber-500/10 text-amber-500'
                           }`}>
                             {order.status === 'completed' ? (
                               <><CheckCircle size={8} className="mr-1" /> Liquidado</>
                             ) : order.status === 'refunded' ? (
                               <><XCircle size={8} className="mr-1" /> Reembolsado</>
+                            ) : order.status === 'refund_pending' ? (
+                              <><Clock size={8} className="mr-1" /> Reembolso Solicitado</>
                             ) : (
                               <><Clock size={8} className="mr-1" /> Aguardando</>
                             )}

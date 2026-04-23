@@ -42,6 +42,7 @@ const getImageUrl = (url: string) => {
 
 import AdminDashboard from './components/AdminDashboard';
 import PDFReader from './components/PDFReader';
+import TermsAndPrivacy from './components/TermsAndPrivacy';
 import {
   Dialog,
   DialogContent,
@@ -278,7 +279,7 @@ const ADMIN_IDS = [
   '00d44feb-0b51-405e-86f7-31b67edfb7b6'
 ];
 
-const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
+const AuthDialog = ({ isOpen, onClose, onViewTerms }: { isOpen: boolean, onClose: () => void, onViewTerms: () => void }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'otp' | 'reset'>('login');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -286,9 +287,14 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   const handleGoogleLogin = async () => {
     try {
+      if (mode === 'register' && !acceptedTerms) {
+        toast.error('Tem de aceitar os Termos e Privacidade.');
+        return;
+      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -310,6 +316,7 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
         toast.success('Bem-vindo de volta.');
         onClose();
       } else if (mode === 'register') {
+        if (!acceptedTerms) throw new Error('Tem de aceitar os Termos e Privacidade para criar conta.');
         if (password !== confirmPassword) throw new Error('As passwords não coincidem.');
         const { data, error } = await supabase.auth.signUp({ 
           email, 
@@ -404,6 +411,32 @@ const AuthDialog = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void 
             <div className="space-y-2">
               <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Confirmar Password</label>
               <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white" placeholder="••••••••" />
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <div className="flex items-start gap-3 py-2">
+              <input 
+                type="checkbox" 
+                id="terms" 
+                checked={acceptedTerms} 
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded-none border-black/20 text-black focus:ring-0 cursor-pointer"
+              />
+              <label htmlFor="terms" className="text-[10px] text-black/60 dark:text-white/60 leading-relaxed cursor-pointer">
+                Eu entendi e aceito os{' '}
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    onClose();
+                    onViewTerms();
+                  }}
+                  className="text-luxury-gold underline hover:text-black dark:hover:text-white transition-colors"
+                >
+                  Termos de Serviço e Política de Privacidade
+                </button>
+                , e declaro que as minhas ações estão sob minha responsabilidade.
+              </label>
             </div>
           )}
 
@@ -578,7 +611,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin' | 'reader' | 'reset-password'>('home');
+  const [view, setView] = useState<'home' | 'dashboard' | 'success' | 'admin' | 'reader' | 'reset-password' | 'terms'>('home');
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [readingProgress, setReadingProgress] = useState<Record<string, ReadingProgress>>({});
   const [activeReading, setActiveReading] = useState<{orderId: string, product: Product, purchasedAt: string} | null>(null);
@@ -853,7 +886,7 @@ export default function App() {
       .from('orders')
       .select('*')
       .eq('user_id', userId)
-      .eq('status', 'completed'); // CRÍTICO: Mostrar APENAS encomendas pagas
+      .in('status', ['completed', 'refund_pending']); // CRÍTICO: Mostrar encomendas pagas e em processo de reembolso
     
     if (ordersError) {
       console.error("[DEBUG] Error fetching orders:", ordersError);
@@ -946,7 +979,7 @@ export default function App() {
     // Check if user already owns the product
     const order = purchasedProducts.find(o => o.product_id === product.id);
     if (order) {
-      handleOpenReader(product, order.id);
+      handleOpenReader(product, order.id, order.created_at);
       return;
     }
     
@@ -1206,10 +1239,16 @@ export default function App() {
                       
                     const daysSincePurchase = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 3600 * 24);
                     const canRefund = daysSincePurchase <= 14;
+                    const isRefundPending = order.status === 'refund_pending';
 
                     return order.product && (
-                      <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group shadow-sm flex flex-col">
-                        <CardContent className="p-0 flex flex-col h-full">
+                      <Card key={order.id} className="rounded-none border-none bg-neutral-50 dark:bg-zinc-900 overflow-hidden group shadow-sm flex flex-col relative">
+                        {isRefundPending && (
+                          <div className="absolute top-3 right-3 bg-amber-500 text-white text-[7px] uppercase tracking-widest px-2 py-1 font-bold z-10 shadow-lg hidden sm:block">
+                            Reembolso Pendente
+                          </div>
+                        )}
+                        <CardContent className="p-0 flex flex-col h-full opacity-100 transition-opacity">
                           <div className="aspect-[3/4] overflow-hidden relative cursor-pointer" onClick={() => handleOpenReader(order.product!, order.id, order.created_at)}>
                             <img 
                               src={getImageUrl(order.product.image_url)} 
@@ -1232,8 +1271,8 @@ export default function App() {
                           <div className="p-3 sm:p-5 space-y-3 flex-1 flex flex-col justify-between">
                             <div className="space-y-1">
                               <h3 className="font-serif text-sm sm:text-base dark:text-white truncate" title={order.product.title}>{order.product.title}</h3>
-                              <div className="flex justify-between items-center">
-                                <span className="text-[7px] sm:text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40">Guia Digital</span>
+                              <div className="flex justify-between items-center mt-1">
+                                <span className="text-[7px] sm:text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40">Guia Digital {isRefundPending && <span className="text-amber-500 ml-1 sm:hidden">- Pendente</span>}</span>
                                 {progressPercent > 0 && (
                                   <span className="text-[7px] sm:text-[8px] uppercase tracking-widest text-luxury-gold font-bold">{progressPercent}% Lido</span>
                                 )}
@@ -1245,9 +1284,9 @@ export default function App() {
                                 className="bg-luxury-gold text-white hover:bg-luxury-gold/80 rounded-none h-8 sm:h-10 text-[8px] sm:text-[9px] uppercase tracking-widest w-full"
                               >
                                 <BookOpen size={12} className="hidden sm:block" />
-                                Ler Obra
+                                {isRefundPending ? 'Ler (Acesso Provisório)' : 'Ler Obra'}
                               </Button>
-                              {canRefund && (
+                              {canRefund && !isRefundPending && (
                                 <Button 
                                   variant="outline"
                                   onClick={() => setRefundOrder(order)}
@@ -1267,43 +1306,6 @@ export default function App() {
             </motion.div>
           )}
 
-          {refundOrder && (
-            <Dialog open={!!refundOrder} onOpenChange={(open) => !open && setRefundOrder(null)}>
-              <DialogContent className="max-w-md rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8">
-                <DialogHeader className="space-y-4">
-                  <DialogTitle className="text-center font-serif text-2xl text-red-500">Solicitar Reembolso</DialogTitle>
-                  <p className="text-center text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60 leading-relaxed">
-                    Você está dentro do período de garantia de 14 dias para a obra <strong className="text-black dark:text-white">{refundOrder.product?.title}</strong>.
-                  </p>
-                  <p className="text-center text-sm text-black/80 dark:text-white/80 leading-relaxed bg-red-50 dark:bg-red-950/20 p-4 border border-red-100 dark:border-red-900/50">
-                    Atenção: Ao processar este reembolso, <strong>perderá imediatamente o acesso</strong> ao livro.
-                  </p>
-                </DialogHeader>
-                <div className="flex flex-col gap-4 pt-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 text-center block mb-2">
-                      Digite o nome exato da obra para confirmar:
-                    </label>
-                    <input 
-                      type="text" 
-                      placeholder={refundOrder.product?.title}
-                      value={refundBookName}
-                      onChange={(e) => setRefundBookName(e.target.value)}
-                      className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 text-center dark:text-white transition-colors"
-                    />
-                  </div>
-                  <Button 
-                    onClick={handleRefund}
-                    disabled={isRefunding || refundBookName !== refundOrder.product?.title}
-                    className="rounded-none bg-red-500 hover:bg-red-600 text-white h-12 uppercase tracking-[0.2em] text-[9px] font-bold mt-2 transition-all disabled:opacity-50"
-                  >
-                    {isRefunding ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Reembolso'}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
-
           {view === 'reader' && activeReading && (
             <div className="max-w-6xl mx-auto">
               <PDFReader 
@@ -1318,6 +1320,16 @@ export default function App() {
                 }}
               />
             </div>
+          )}
+
+          {view === 'terms' && (
+            <motion.div 
+              key="terms"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <TermsAndPrivacy />
+            </motion.div>
           )}
 
           {view === 'success' && (
@@ -1394,6 +1406,43 @@ export default function App() {
         </AnimatePresence>
       </main>
 
+      {refundOrder && (
+        <Dialog open={!!refundOrder} onOpenChange={(open) => !open && setRefundOrder(null)}>
+          <DialogContent className="max-w-md rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8 z-[200]">
+            <DialogHeader className="space-y-4">
+              <DialogTitle className="text-center font-serif text-2xl text-red-500">Solicitar Reembolso</DialogTitle>
+              <p className="text-center text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60 leading-relaxed">
+                Você está dentro do período de garantia de 14 dias para a obra <strong className="text-black dark:text-white">{refundOrder.product?.title}</strong>.
+              </p>
+              <p className="text-center text-sm text-black/80 dark:text-white/80 leading-relaxed bg-red-50 dark:bg-red-950/20 p-4 border border-red-100 dark:border-red-900/50">
+                Atenção: Ao processar este reembolso, <strong>perderá imediatamente o acesso</strong> ao livro.
+              </p>
+            </DialogHeader>
+            <div className="flex flex-col gap-4 pt-4">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 text-center block mb-2">
+                  Digite o nome exato da obra para confirmar:
+                </label>
+                <input 
+                  type="text" 
+                  placeholder={refundOrder.product?.title}
+                  value={refundBookName}
+                  onChange={(e) => setRefundBookName(e.target.value)}
+                  className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 text-center dark:text-white transition-colors"
+                />
+              </div>
+              <Button 
+                onClick={handleRefund}
+                disabled={isRefunding || refundBookName !== refundOrder.product?.title}
+                className="rounded-none bg-red-500 hover:bg-red-600 text-white h-12 uppercase tracking-[0.2em] text-[9px] font-bold mt-2 transition-all disabled:opacity-50"
+              >
+                {isRefunding ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar Reembolso'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       <footer className="border-t border-black/5 dark:border-white/5 py-20 px-6 bg-white dark:bg-black transition-colors duration-500">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-12 text-center md:text-left">
           <div className="space-y-4">
@@ -1402,13 +1451,21 @@ export default function App() {
           </div>
           <div className="flex gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60">
             <a href="#" className="hover:text-black dark:hover:text-white transition-colors">Instagram</a>
-            <a href="#" className="hover:text-black dark:hover:text-white transition-colors">Privacidade</a>
-            <a href="#" className="hover:text-black dark:hover:text-white transition-colors">Termos</a>
+            <button onClick={() => setView('terms')} className="hover:text-black dark:hover:text-white transition-colors text-left uppercase">
+              Termos e Privacidade
+            </button>
           </div>
         </div>
       </footer>
 
-      <AuthDialog isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
+      <AuthDialog 
+        isOpen={isAuthOpen} 
+        onClose={() => setIsAuthOpen(false)} 
+        onViewTerms={() => {
+          setIsAuthOpen(false);
+          setView('terms');
+        }}
+      />
       <Toaster position="bottom-center" toastOptions={{
         style: { borderRadius: 0, fontFamily: 'serif', padding: '1.5rem' }
       }} />
