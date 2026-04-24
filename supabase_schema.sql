@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS profiles (
   id UUID REFERENCES auth.users(id) PRIMARY KEY,
   email TEXT NOT NULL,
   full_name TEXT,
+  description TEXT,
+  avatar_url TEXT,
+  custom_id TEXT UNIQUE,
   theme TEXT DEFAULT 'light',
   is_admin BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
@@ -25,6 +28,13 @@ CREATE TABLE IF NOT EXISTS products (
   file_url TEXT, -- Link para o PDF no Storage/CDN
   is_active BOOLEAN DEFAULT true,
   category TEXT DEFAULT 'Geral',
+  product_type TEXT DEFAULT 'digital', -- digital, physical
+  sizes TEXT, -- comma separated sizes
+  colors TEXT, -- comma separated colors
+  sizes_enabled BOOLEAN DEFAULT false,
+  colors_enabled BOOLEAN DEFAULT false,
+  admin_link TEXT, -- private management link
+  extra_images TEXT, -- comma separated image URLs
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
@@ -33,10 +43,12 @@ CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users(id),
   product_id UUID REFERENCES products(id), -- Direct link since it's "compra direta"
-  status TEXT DEFAULT 'pending', -- pending, completed, failed
+  status TEXT DEFAULT 'pending', -- pending, completed, failed, refunded, refund_pending
+  shipping_status TEXT DEFAULT 'pending', -- pending, sent, delivered
   total_amount DECIMAL(10,2) NOT NULL,
   stripe_session_id TEXT,
   customer_email TEXT, -- For guest checkouts or verification
+  selected_options JSONB DEFAULT '{}'::jsonb, -- Store size, color, etc.
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 

@@ -197,8 +197,8 @@ apiRouter.get('/health', (req, res) => {
 // Create Stripe Checkout Session
 apiRouter.post('/create-checkout', async (req, res) => {
   try {
-    const { productId, userId, email } = req.body;
-    console.log(`[S.ART] Create Checkout Request - Product: ${productId}, User: ${userId}, Email: ${email}`);
+    const { productId, userId, email, options, shippingInfo } = req.body;
+    console.log(`[S.ART] Create Checkout Request - Product: ${productId}, User: ${userId}, Email: ${email}`, options, shippingInfo);
     
     const stripe = getStripe();
     const supabase = getSupabase();
@@ -225,14 +225,22 @@ apiRouter.post('/create-checkout', async (req, res) => {
     // Create Order Record in Pending State
     let orderId = '';
     try {
+      const orderPayload: any = {
+        user_id: userId || null,
+        product_id: productId,
+        total_amount: product.price,
+        status: 'pending',
+        selected_options: options || {}
+      };
+
+      // Tenta incluir shipping_details se estiver presente no payload
+      if (shippingInfo) {
+        orderPayload.shipping_details = shippingInfo;
+      }
+
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .insert({
-          user_id: userId || null,
-          product_id: productId,
-          total_amount: product.price,
-          status: 'pending'
-        })
+        .insert(orderPayload)
         .select()
         .single();
         
@@ -240,6 +248,21 @@ apiRouter.post('/create-checkout', async (req, res) => {
         orderId = order.id;
       } else {
         console.warn("[S.ART] DB Sync Warning: Could not create initial order record.", orderError);
+        // Fallback without shipping_details if the column doesn't exist yet
+        if (orderError?.code === 'PGRST204' || orderError?.message?.includes('shipping_details')) {
+           const { data: fallbackOrder } = await supabase
+            .from('orders')
+            .insert({
+              user_id: userId || null,
+              product_id: productId,
+              total_amount: product.price,
+              status: 'pending',
+              selected_options: options || {}
+            })
+            .select()
+            .single();
+           if (fallbackOrder) orderId = fallbackOrder.id;
+        }
       }
     } catch (dbErr) {
       console.warn("[S.ART] DB Exception: Failed to insert order.", dbErr);
@@ -257,7 +280,7 @@ apiRouter.post('/create-checkout', async (req, res) => {
           currency: 'eur',
           product_data: {
             name: product.title,
-            description: product.description,
+            description: product.description || undefined,
             images: stripeImage ? [stripeImage] : [],
           },
           unit_amount: Math.round(parseFloat(product.price.toString()) * 100),
@@ -270,7 +293,15 @@ apiRouter.post('/create-checkout', async (req, res) => {
       metadata: {
         userId: userId || '',
         productId: productId,
-        orderId: orderId
+        orderId: orderId,
+        size: options?.size || '',
+        color: options?.color || '',
+        shipping_name: shippingInfo?.fullName || '',
+        shipping_address: shippingInfo?.address || '',
+        shipping_city: shippingInfo?.city || '',
+        shipping_postal_code: shippingInfo?.postalCode || '',
+        shipping_country: shippingInfo?.country || '',
+        shipping_phone: shippingInfo?.phone || ''
       }
     } as any);
 
@@ -501,11 +532,17 @@ adminRouter.use((req, res, next) => {
 
 adminRouter.post('/products', async (req, res) => {
   try {
-    const { title, description, price, image_url, file_url, category } = req.body;
+    const { 
+      title, description, price, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+    } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
-      .insert({ title, description, price, image_url, file_url, category })
+      .insert({ 
+        title, description, price, image_url, file_url, category,
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+      })
       .select()
       .single();
 
@@ -519,11 +556,17 @@ adminRouter.post('/products', async (req, res) => {
 adminRouter.put('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, image_url, file_url, category } = req.body;
+    const { 
+      title, description, price, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+    } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
-      .update({ title, description, price, image_url, file_url, category })
+      .update({ 
+        title, description, price, image_url, file_url, category,
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+      })
       .eq('id', id)
       .select()
       .single();
@@ -538,11 +581,17 @@ adminRouter.put('/products/:id', async (req, res) => {
 adminRouter.patch('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, image_url, file_url, category } = req.body;
+    const { 
+      title, description, price, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+    } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
-      .update({ title, description, price, image_url, file_url, category })
+      .update({ 
+        title, description, price, image_url, file_url, category,
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+      })
       .eq('id', id)
       .select()
       .single();
@@ -565,6 +614,90 @@ adminRouter.delete('/products/:id', async (req, res) => {
 
     if (error) throw error;
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.put('/orders/:id/shipping', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { shipping_status } = req.body;
+    const supabase = getSupabase();
+    const stripe = getStripe();
+
+    // Fetch the order
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    // Force Stripe sync if order is still pending locally
+    if (order.status === 'pending' && order.stripe_session_id) {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+      if (session.payment_status === 'paid') {
+        // Was paid, sync our local DB!
+        await supabase
+          .from('orders')
+          .update({ status: 'completed' })
+          .eq('id', id);
+          
+        order.status = 'completed'; // update local variable for upcoming logic
+      }
+    }
+
+    // Now update shipping_status
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ shipping_status })
+      .eq('id', id);
+
+    if (updateError) throw updateError;
+    
+    // Respond with updated final status and shipping
+    res.json({ success: true, status: order.status, shipping_status });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+    const stripe = getStripe();
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    if (order.stripe_session_id) {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+      if (session.payment_status === 'paid') {
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ status: 'completed' })
+          .eq('id', id);
+        
+        if (updateError) throw updateError;
+        return res.json({ success: true, status: 'completed' });
+      } else {
+        return res.json({ success: true, status: order.status, message: 'Ainda não pago no Stripe' });
+      }
+    } else {
+      return res.status(400).json({ error: 'Nenhum ID de sessão Stripe encontrado nesta ordem' });
+    }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
