@@ -97,9 +97,11 @@ interface Order {
 export default function AdminDashboard({
   user,
   onBack,
+  theme,
 }: {
   user: SupabaseUser;
   onBack: () => void;
+  theme: "light" | "dark";
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -140,8 +142,20 @@ export default function AdminDashboard({
       })
       .subscribe();
 
+    const productsChannel = supabase
+      .channel("products-admin-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "products" },
+        () => {
+          fetchProducts();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(productsChannel);
     };
   }, [user.id]);
 
@@ -438,7 +452,11 @@ export default function AdminDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-luxury-black text-luxury-white font-sans selection:bg-luxury-gold selection:text-black">
+    <div className={`min-h-screen font-sans selection:bg-luxury-gold selection:text-black ${
+      theme === "dark" 
+        ? "bg-black text-white" 
+        : "bg-white text-black"
+    }`}>
       {/* Admin Sidebar/Toprail */}
       <div className="border-b border-white/5 bg-luxury-dark/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">

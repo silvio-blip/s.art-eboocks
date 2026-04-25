@@ -1343,7 +1343,8 @@ export default function App() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'products' },
-        () => {
+        (payload) => {
+          console.log('[REALTIME] Product change:', payload);
           fetchProducts();
         }
       )
@@ -1764,6 +1765,7 @@ export default function App() {
           {view === "admin" && user && ADMIN_IDS.includes(user.id) && (
             <AdminDashboard
               user={user}
+              theme={theme}
               onBack={() => {
                 setView("home");
                 fetchProducts();
