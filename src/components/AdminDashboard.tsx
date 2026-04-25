@@ -1448,7 +1448,7 @@ export default function AdminDashboard({
                         SART-{order.id.split('-')[0].toUpperCase()}
                       </td>
                       <td className="px-8 py-6">
-                        <div className="font-serif text-base flex items-center gap-2">
+                        <div className="font-serif text-base flex items-center gap-2 truncate max-w-[150px] md:max-w-[250px]" title={order.product?.title}>
                           {order.product?.title || "Expurgado"}
                           {order.product?.admin_link && (
                             <a href={order.product.admin_link} target="_blank" rel="noopener noreferrer" className="text-luxury-gold hover:text-white transition-colors" title="Acessar link do produto (Fornecedor)">
