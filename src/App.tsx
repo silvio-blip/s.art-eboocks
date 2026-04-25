@@ -327,26 +327,26 @@ function ProductCard({
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500 flex items-center justify-center opacity-0 group-hover:opacity-100 p-4 text-center backdrop-blur-[1px]">
           <div className="flex flex-col gap-2 w-full max-w-[140px]">
             <Button
-              disabled={isProcessing}
+              disabled={isProcessing || (product.product_type === 'physical' && !product.is_active)}
               onClick={(e) => {
                 e.stopPropagation();
-                if (isOwned && onRead) {
+                if (isOwned && product.product_type !== 'physical' && onRead) {
                   onRead(product);
                 } else {
                   onBuy(product);
                 }
               }}
-              className={`bg-white text-black hover:bg-luxury-gold hover:text-white rounded-none w-full py-4 text-[10px] font-bold uppercase tracking-[0.25em] transition-all duration-500 transform ${isProcessing ? "translate-y-0 opacity-100" : "translate-y-8"} group-hover:translate-y-0 shadow-2xl border-none`}
+              className={`bg-white text-black hover:bg-luxury-gold hover:text-white rounded-none w-full py-4 text-[10px] font-bold uppercase tracking-[0.25em] transition-all duration-500 transform ${isProcessing ? "translate-y-0 opacity-100" : "translate-y-8"} group-hover:translate-y-0 shadow-2xl border-none disabled:opacity-50`}
             >
               {isProcessing ? (
                 <span className="flex items-center gap-2">
                   <Loader2 size={12} className="animate-spin" />
                   ...
                 </span>
-              ) : isOwned ? (
+              ) : isOwned && product.product_type !== 'physical' ? (
                 "Ler Obra"
               ) : product.product_type === "physical" ? (
-                "Ver Detalhes"
+                product.is_active ? "Ver Detalhes" : "Esgotado"
               ) : (
                 "Adquirir"
               )}
@@ -356,6 +356,11 @@ function ProductCard({
         <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-md text-[8px] text-white px-2 py-1 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
           S.Art Boutique
         </div>
+        {product.product_type === 'physical' && (
+          <div className={`absolute top-2 left-2 backdrop-blur-md px-2 py-1 text-[8px] uppercase tracking-widest ${product.is_active ? 'bg-emerald-500/80 text-white' : 'bg-red-500/80 text-white'}`}>
+            {product.is_active ? 'Em Estoque' : 'Esgotado'}
+          </div>
+        )}
       </div>
       <div className="mt-5 px-1 pb-2 space-y-1.5 flex-grow flex flex-col justify-end">
         <div className="flex justify-between items-start gap-2">
@@ -1272,13 +1277,20 @@ export default function App() {
         (payload: any) => {
           if (payload.new.status === "completed") {
             fetchDashboardData(user.id);
-            toast.success(
-              "Pagamento confirmado! O seu e-book já está na biblioteca.",
-              {
-                duration: 5000,
-                icon: <CheckCircle2 className="text-emerald-500" size={18} />,
-              },
-            );
+            if (payload.old && payload.old.status !== "completed") {
+              toast.success(
+                "Pagamento confirmado! O pedido foi efetuado com sucesso.",
+                {
+                  duration: 5000,
+                  icon: <CheckCircle2 className="text-emerald-500" size={18} />,
+                },
+              );
+            } else if (payload.new.shipping_status !== payload.old?.shipping_status) {
+              toast.info(
+                "Atualização no estado de envio do seu produto S.Art.",
+                { duration: 4000 }
+              );
+            }
           }
         },
       )

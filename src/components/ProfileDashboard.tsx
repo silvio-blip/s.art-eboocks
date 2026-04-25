@@ -466,6 +466,9 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                             </div>
                           )}
                           <p className="text-[10px] font-black text-luxury-gold mt-1">€{order.total_amount}</p>
+                          <p className="text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 mt-2 font-mono select-all" title="Utilize este ID caso precise de suporte.">
+                            ID: {order.id}
+                          </p>
                         </div>
                         
                         <div>
@@ -485,19 +488,25 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                             </span>
                           )}
                           {order.status === 'completed' && (() => {
-                            const isDigital = order.product?.category === 'E-books' || !!order.product?.file_url;
-                            const effectiveStatus = (isDigital && order.status === 'completed') ? 'delivered' : order.shipping_status;
+                            const isDigital = order.product?.product_type === 'digital' || (!order.product?.product_type && order.product?.category === 'E-books');
+                            const effectiveStatus = isDigital ? 'delivered' : (order.shipping_status || 'pending');
                             
                             return (
                               <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold shadow-sm ${
                                 effectiveStatus === 'delivered' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 shadow-emerald-500/5' :
                                 effectiveStatus === 'sent' ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-blue-500/5' :
-                                'bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-amber-500/5'
+                                effectiveStatus === 'processing' ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-amber-500/5' :
+                                effectiveStatus === 'pago' ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-950/20 shadow-emerald-500/5' :
+                                'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
                               }`}>
                                 {effectiveStatus === 'delivered' ? <CheckCircle2 size={10} /> : 
-                                 effectiveStatus === 'sent' ? <Truck size={10} /> : <Clock size={10} />}
+                                 effectiveStatus === 'sent' ? <Truck size={10} /> : 
+                                 effectiveStatus === 'pago' ? <CheckCircle2 size={10} /> :
+                                 <Clock size={10} />}
                                 {effectiveStatus === 'delivered' ? 'Concluído' : 
-                                 effectiveStatus === 'sent' ? 'Enviado' : 'Pendente'}
+                                 effectiveStatus === 'sent' ? 'Em Trânsito' : 
+                                 effectiveStatus === 'processing' ? 'Armazém / Processando' :
+                                 effectiveStatus === 'pago' ? 'Pago' : 'Pendente'}
                               </span>
                             );
                           })()}

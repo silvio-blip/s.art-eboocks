@@ -116,6 +116,7 @@ export default function AdminDashboard({
   const [orderDateFilter, setOrderDateFilter] = useState<
     "all" | "today" | "week" | "month"
   >("all");
+  const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
 
   useEffect(() => {
     if (!ADMIN_IDS.includes(user.id)) {
@@ -743,7 +744,7 @@ export default function AdminDashboard({
                         Cliente
                       </th>
                       <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
-                        Morada
+                        Detalhes
                       </th>
                       <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
                         Data
@@ -772,14 +773,13 @@ export default function AdminDashboard({
                           {order.customer_email}
                         </td>
                         <td className="px-6 py-4 text-white/40">
-                          {order.shipping_details ? (
-                            <div className="text-[9px] truncate max-w-[100px]">
-                              {order.shipping_details.city},{" "}
-                              {order.shipping_details.country}
-                            </div>
-                          ) : (
-                            "-"
-                          )}
+                          <Button 
+                            variant="ghost" 
+                            onClick={() => setViewingOrder(order)}
+                            className="h-6 px-3 text-[8px] uppercase tracking-widest text-luxury-gold hover:bg-luxury-gold/10 hover:text-white border border-luxury-gold/20"
+                          >
+                            Ver Detalhes
+                          </Button>
                         </td>
                         <td className="px-6 py-4 text-white/40">
                           {new Date(order.created_at).toLocaleDateString()}
@@ -857,6 +857,7 @@ export default function AdminDashboard({
                     colors: "",
                     admin_link: "",
                     extra_images: "",
+                    is_active: true,
                   })
                 }
                 className="w-full sm:w-auto bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold"
@@ -924,6 +925,75 @@ export default function AdminDashboard({
             </div>
 
             {/* Product Editor Inline (Full Screen/Wide Overlap) */}
+            {viewingOrder && (
+              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-4">
+                <Card className="max-w-2xl w-full bg-luxury-dark border-white/10 rounded-sm p-8 space-y-6 animate-in zoom-in-95 duration-500 max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center pb-4 border-b border-white/10">
+                    <h3 className="text-xl font-serif text-luxury-gold">Detalhes do Pedido</h3>
+                    <Button variant="ghost" onClick={() => setViewingOrder(null)} className="text-white/40 hover:text-white">
+                      <X size={20} />
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Cliente</p>
+                      <div className="text-base text-white">{viewingOrder.customer_email}</div>
+                      {viewingOrder.shipping_details && (
+                        <div className="text-sm text-white/80 mt-1">{viewingOrder.shipping_details.fullName}</div>
+                      )}
+                    </div>
+
+                    {viewingOrder.shipping_details ? (
+                      <div className="p-4 border border-white/10 bg-white/5 space-y-3">
+                        <div className="text-[10px] uppercase tracking-widest text-luxury-gold flex items-center gap-2">
+                          <Truck size={14} /> Morada de Envio Completa
+                        </div>
+                        <div className="text-sm space-y-1 text-white/80">
+                          <p><span className="text-white/40">Morada:</span> {viewingOrder.shipping_details.address}</p>
+                          <p><span className="text-white/40">Código Postal:</span> {viewingOrder.shipping_details.postalCode}</p>
+                          <p><span className="text-white/40">Localidade:</span> {viewingOrder.shipping_details.city}</p>
+                          <p><span className="text-white/40">País:</span> {viewingOrder.shipping_details.country}</p>
+                          <p><span className="text-white/40">Telemóvel:</span> {viewingOrder.shipping_details.phone}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 border border-white/10 bg-white/5 space-y-3">
+                        <div className="text-[10px] uppercase tracking-widest text-emerald-500 flex items-center gap-2">
+                          <FileText size={14} /> Produto Digital
+                        </div>
+                        <div className="text-sm text-white/60">
+                          Nenhuma morada associada a este pedido.
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Identificadores do Sistema</p>
+                      <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-2">
+                        <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> {viewingOrder.id}</div>
+                        <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
+                        <div className="select-all block"><span className="text-white/40 select-none">Stripe Session:</span> {viewingOrder.stripe_session_id || "N/A"}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Items e Configurações</p>
+                      <div className="p-4 border border-white/10 bg-black/20 text-sm">
+                        <p className="font-bold text-luxury-gold">{viewingOrder.product?.title}</p>
+                        {viewingOrder.selected_options && (
+                          <p className="text-white/60 mt-1 uppercase text-[10px] tracking-widest">
+                            {viewingOrder.selected_options.size && `Tamanho: ${viewingOrder.selected_options.size} `}
+                            {viewingOrder.selected_options.color && `Cor: ${viewingOrder.selected_options.color}`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            )}
+
             {editingProduct && (
               <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
                 <Card className="max-w-4xl w-full bg-luxury-dark border-white/10 rounded-none p-6 md:p-12 my-8 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500">
@@ -1038,6 +1108,23 @@ export default function AdminDashboard({
                           className="w-full bg-transparent border border-white/10 p-4 text-sm min-h-[120px] md:min-h-[150px] outline-none focus:border-luxury-gold transition-colors"
                           placeholder="Descreva a exclusividade deste conteúdo..."
                         />
+                      </div>
+
+                      <div className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-sm">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
+                            Disponível para Compra?
+                          </label>
+                          <p className="text-[8px] text-white/40 uppercase tracking-widest">
+                            Se inativo, será exibido como Esgotado ou oculto.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setEditingProduct({ ...editingProduct, is_active: !editingProduct.is_active })}
+                          className={`w-10 h-5 relative rounded-full transition-colors ${editingProduct.is_active ? "bg-emerald-500" : "bg-white/10"}`}
+                        >
+                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${editingProduct.is_active ? "left-6" : "left-1"}`} />
+                        </button>
                       </div>
 
                       {editingProduct.product_type === "physical" && (
@@ -1382,7 +1469,7 @@ export default function AdminDashboard({
                       Email do Cliente
                     </th>
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
-                      Morada de Envio
+                      Detalhes
                     </th>
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
                       Data de Venda
@@ -1408,8 +1495,13 @@ export default function AdminDashboard({
                         {order.id}
                       </td>
                       <td className="px-8 py-6">
-                        <div className="font-serif text-base">
+                        <div className="font-serif text-base flex items-center gap-2">
                           {order.product?.title || "Expurgado"}
+                          {order.product?.admin_link && (
+                            <a href={order.product.admin_link} target="_blank" rel="noopener noreferrer" className="text-luxury-gold hover:text-white transition-colors" title="Acessar link do produto (Fornecedor)">
+                              <ExternalLink size={14} />
+                            </a>
+                          )}
                         </div>
                         {order.selected_options &&
                           (order.selected_options.size ||
@@ -1431,31 +1523,14 @@ export default function AdminDashboard({
                       <td className="px-8 py-6 text-luxury-gold/80">
                         {order.customer_email}
                       </td>
-                      <td className="px-8 py-6 text-white/50 max-w-xs">
-                        {order.shipping_details ? (
-                          <div className="space-y-1">
-                            <div className="font-bold text-[10px] text-white/80">
-                              {order.shipping_details.fullName}
-                            </div>
-                            <div className="text-[10px]">
-                              {order.shipping_details.address}
-                            </div>
-                            <div className="text-[10px]">
-                              {order.shipping_details.city},{" "}
-                              {order.shipping_details.postalCode}
-                            </div>
-                            <div className="text-[10px]">
-                              {order.shipping_details.country}
-                            </div>
-                            <div className="text-[9px] text-luxury-gold/60">
-                              {order.shipping_details.phone}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="italic text-white/20">
-                            Produto Digital
-                          </span>
-                        )}
+                      <td className="px-8 py-6">
+                        <Button 
+                          variant="ghost" 
+                          onClick={() => setViewingOrder(order)}
+                          className="h-8 px-4 text-[9px] uppercase tracking-widest text-luxury-gold hover:bg-luxury-gold/10 hover:text-white border border-luxury-gold/20"
+                        >
+                          Ver Detalhes
+                        </Button>
                       </td>
                       <td className="px-8 py-6 text-white/40">
                         {new Date(order.created_at).toLocaleString()}
