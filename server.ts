@@ -257,7 +257,7 @@ apiRouter.post('/create-checkout', async (req, res) => {
               product_id: productId,
               total_amount: product.price,
               status: 'pending',
-              selected_options: options || {}
+              selected_options: { ...(options || {}), shipping_details: shippingInfo || null }
             })
             .select()
             .single();
@@ -534,14 +534,14 @@ adminRouter.post('/products', async (req, res) => {
   try {
     const { 
       title, description, price, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
     } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
       .insert({ 
         title, description, price, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
       })
       .select()
       .single();
@@ -558,14 +558,14 @@ adminRouter.put('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
     } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
       .update({ 
         title, description, price, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
       })
       .eq('id', id)
       .select()
@@ -583,14 +583,14 @@ adminRouter.patch('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active 
     } = req.body;
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
       .update({ 
         title, description, price, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images 
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
       })
       .eq('id', id)
       .select()

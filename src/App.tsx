@@ -353,23 +353,19 @@ function ProductCard({
             </Button>
           </div>
         </div>
-        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-md text-[8px] text-white px-2 py-1 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-          S.Art Boutique
-        </div>
-        {product.product_type === 'physical' && (
-          <div className={`absolute top-2 left-2 backdrop-blur-md px-2 py-1 text-[8px] uppercase tracking-widest ${product.is_active ? 'bg-emerald-500/80 text-white' : 'bg-red-500/80 text-white'}`}>
-            {product.is_active ? 'Em Estoque' : 'Esgotado'}
-          </div>
-        )}
       </div>
       <div className="mt-5 px-1 pb-2 space-y-1.5 flex-grow flex flex-col justify-end">
         <div className="flex justify-between items-start gap-2">
-          <h3 className="font-serif text-[13px] leading-tight line-clamp-2 group-hover:text-luxury-gold transition-colors duration-300 dark:text-zinc-100">
+          <h3 className="font-serif text-[13px] leading-tight line-clamp-2 group-hover:text-luxury-gold transition-colors duration-300 dark:text-zinc-100 flex-1">
             {product.title}
           </h3>
           <span className="text-[11px] font-black tracking-tight dark:text-luxury-gold">
             €{product.price}
           </span>
+        </div>
+        <div className="text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 font-mono flex items-center justify-between">
+          <span>Ref: {product.id.split('-')[0].toUpperCase()}</span>
+          {product.product_type === 'digital' && <span className="text-[#D4AF37]">Digital</span>}
         </div>
         <div className="h-[1px] w-0 group-hover:w-full bg-expensive-gold transition-all duration-700 opacity-40 bg-luxury-gold" />
         <div className="text-[10px] text-black/50 dark:text-zinc-400 line-clamp-3 leading-snug pt-1">
@@ -900,7 +896,7 @@ const ProductDetailsPage = ({
 
       <div className="flex flex-col lg:flex-row gap-12 lg:gap-16 items-start">
         {/* Gallery */}
-        <div className="w-full lg:w-3/5 flex flex-col-reverse lg:flex-row gap-4">
+        <div className="w-full lg:w-1/2 flex flex-col-reverse lg:flex-row gap-4">
           {/* Thumbnails */}
           {allImages.length > 1 && (
             <div className="flex lg:flex-col gap-3 overflow-x-auto lg:overflow-y-auto lg:max-h-[600px] scrollbar-hide snap-x p-1">
@@ -943,10 +939,6 @@ const ProductDetailsPage = ({
               />
             </AnimatePresence>
 
-            <div className="absolute top-4 right-4 bg-black/40 backdrop-blur-md px-3 py-1 text-[8px] text-white uppercase tracking-[0.3em] font-medium z-10">
-              S.Art Exclusive
-            </div>
-
             {/* Navigation Buttons for PC */}
             {allImages.length > 1 && (
               <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex justify-between px-4 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex z-10">
@@ -986,12 +978,18 @@ const ProductDetailsPage = ({
         </div>
 
         {/* Info */}
-        <div className="w-full lg:w-2/5 space-y-10">
+        <div className="w-full lg:w-1/2 space-y-8">
           <div className="space-y-4">
-            <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold">
-              Atelier de Alta Estirpe
-            </p>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-serif leading-tight dark:text-white">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold">
+                S.Art Exclusive
+              </p>
+              <span className="text-black/20 dark:text-white/20">|</span>
+              <p className="text-[10px] uppercase tracking-[0.2em] font-mono text-black/50 dark:text-white/50">
+                Ref: {product.id.split('-')[0].toUpperCase()}
+              </p>
+            </div>
+            <h1 className={`font-serif leading-tight dark:text-white text-balance ${product.title.length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
               {product.title}
             </h1>
             <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
@@ -1339,6 +1337,18 @@ export default function App() {
       }
     });
 
+    // Real-time products subscription
+    const productsChannel = supabase
+      .channel('products-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => {
+          fetchProducts();
+        }
+      )
+      .subscribe();
+
     fetchProducts();
     checkUrlParams();
 
@@ -1349,6 +1359,7 @@ export default function App() {
 
     return () => {
       authSub.unsubscribe();
+      supabase.removeChannel(productsChannel);
       clearTimeout(loadingTimeout);
     };
   }, []);
@@ -2129,13 +2140,25 @@ export default function App() {
 
               <div className="space-y-6 md:space-y-8">
                 <h2 className="text-4xl md:text-6xl font-serif dark:text-white leading-[1.1] px-4">
-                  Aquisição <br />
-                  Concluída.
+                  {successProduct?.product_type === 'physical' ? (
+                    <>
+                      Pedido <br />
+                      Confirmado.
+                    </>
+                  ) : (
+                    <>
+                      Aquisição <br />
+                      Concluída.
+                    </>
+                  )}
                 </h2>
                 <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
                 <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed px-6">
-                  A sua obra já está disponível para download imediato na sua
-                  biblioteca e foi enviada para o seu destino digital.
+                  {successProduct?.product_type === 'physical' ? (
+                    "O seu pedido foi processado com sucesso. A sua morada e dados de envio foram registados e receberá em breve informações sobre a entrega."
+                  ) : (
+                    "A sua obra já está disponível para download imediato na sua biblioteca e foi enviada para o seu destino digital."
+                  )}
                 </p>
               </div>
 
@@ -2155,7 +2178,7 @@ export default function App() {
                     </div>
                     <div className="space-y-2">
                       <p className="text-[9px] uppercase tracking-[0.3em] font-bold text-luxury-gold">
-                        Novo Ativo
+                        {successProduct.product_type === 'physical' ? 'Novo Pedido' : 'Novo Ativo'}
                       </p>
                       <h4 className="font-serif text-xl dark:text-white leading-tight">
                         {successProduct.title}
@@ -2166,7 +2189,7 @@ export default function App() {
                           variant="ghost"
                           className="p-0 h-auto text-[10px] uppercase tracking-[0.2em] font-bold text-black/60 dark:text-white/60 hover:text-luxury-gold dark:hover:text-luxury-gold transition-all"
                         >
-                          Ir para Biblioteca Privada{" "}
+                          {successProduct.product_type === 'physical' ? 'Ir para Encomendas' : 'Ir para Biblioteca Privada'}{" "}
                           <ArrowRight size={12} className="ml-2" />
                         </Button>
                       </div>
@@ -2176,7 +2199,7 @@ export default function App() {
               )}
 
               <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
-                {successProduct && successOrderId && (
+                {successProduct && successOrderId && successProduct.product_type !== 'physical' && (
                   <Button
                     onClick={() =>
                       handleOpenReader(
@@ -2189,6 +2212,15 @@ export default function App() {
                   >
                     Começar a Ler Agora{" "}
                     <ArrowRight size={14} className="ml-2 animate-pulse" />
+                  </Button>
+                )}
+                {successProduct && successOrderId && successProduct.product_type === 'physical' && (
+                  <Button
+                    onClick={() => setView("dashboard")}
+                    className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
+                  >
+                    Acompanhar Pedido{" "}
+                    <ArrowRight size={14} className="ml-2" />
                   </Button>
                 )}
                 <Button

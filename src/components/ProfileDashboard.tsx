@@ -467,7 +467,7 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                           )}
                           <p className="text-[10px] font-black text-luxury-gold mt-1">€{order.total_amount}</p>
                           <p className="text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 mt-2 font-mono select-all" title="Utilize este ID caso precise de suporte.">
-                            ID: {order.id}
+                            ID: SART-{order.id.split('-')[0].toUpperCase()}
                           </p>
                         </div>
                         

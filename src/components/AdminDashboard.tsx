@@ -28,6 +28,8 @@ import {
   Loader2,
   ExternalLink,
   RefreshCw,
+  Truck,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -113,6 +115,8 @@ export default function AdminDashboard({
   );
   const [uploading, setUploading] = useState(false);
   const [orderSearch, setOrderSearch] = useState("");
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const [orderDateFilter, setOrderDateFilter] = useState<
     "all" | "today" | "week" | "month"
   >("all");
@@ -266,10 +270,20 @@ export default function AdminDashboard({
     }
   };
 
-  const handleDeleteProduct = async (id: string) => {
-    if (!confirm("Esta ação desativará o e-book. Continuar?")) return;
+  const handleDeleteProduct = (product: Product) => {
+    setProductToDelete(product);
+    setDeleteConfirmName("");
+  };
+
+  const confirmDeleteProduct = async () => {
+    if (!productToDelete) return;
+    if (deleteConfirmName !== productToDelete.title) {
+      toast.error(`Ação cancelada: nome incorreto.`);
+      return;
+    }
+    
     try {
-      const res = await fetch(`/api/admin/products/${id}`, {
+      const res = await fetch(`/api/admin/products/${productToDelete.id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
@@ -277,9 +291,14 @@ export default function AdminDashboard({
       if (res.ok) {
         toast.success("Produto desativado.");
         fetchProducts();
+      } else {
+        toast.error("Erro ao eliminar o produto.");
       }
     } catch (e) {
       toast.error("Erro ao eliminar.");
+    } finally {
+      setProductToDelete(null);
+      setDeleteConfirmName("");
     }
   };
 
@@ -381,8 +400,10 @@ export default function AdminDashboard({
 
   const filteredOrders = orders.filter((order) => {
     const searchLower = orderSearch.toLowerCase();
+    const formattedOrderId = `SART-${order.id.split("-")[0].toUpperCase()}`;
     const matchSearch =
       order.id.toLowerCase().includes(searchLower) ||
+      formattedOrderId.toLowerCase().includes(searchLower) ||
       order.customer_email?.toLowerCase().includes(searchLower) ||
       (order.shipping_details?.fullName &&
         order.shipping_details.fullName.toLowerCase().includes(searchLower));
@@ -764,7 +785,7 @@ export default function AdminDashboard({
                         className="hover:bg-white/5 transition-colors"
                       >
                         <td className="px-6 py-4 font-mono text-[10px] text-white/50">
-                          {order.id.slice(0, 8)}...
+                          SART-{order.id.split('-')[0].toUpperCase()}
                         </td>
                         <td className="px-6 py-4 font-serif">
                           {order.product?.title || "Produto Removido"}
@@ -889,7 +910,7 @@ export default function AdminDashboard({
                       <Button
                         variant="outline"
                         className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest text-red-500 hover:bg-red-500 hover:text-white"
-                        onClick={() => handleDeleteProduct(p.id)}
+                        onClick={() => handleDeleteProduct(p)}
                       >
                         <Trash2 size={12} />
                       </Button>
@@ -925,74 +946,6 @@ export default function AdminDashboard({
             </div>
 
             {/* Product Editor Inline (Full Screen/Wide Overlap) */}
-            {viewingOrder && (
-              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-4">
-                <Card className="max-w-2xl w-full bg-luxury-dark border-white/10 rounded-sm p-8 space-y-6 animate-in zoom-in-95 duration-500 max-h-[90vh] overflow-y-auto">
-                  <div className="flex justify-between items-center pb-4 border-b border-white/10">
-                    <h3 className="text-xl font-serif text-luxury-gold">Detalhes do Pedido</h3>
-                    <Button variant="ghost" onClick={() => setViewingOrder(null)} className="text-white/40 hover:text-white">
-                      <X size={20} />
-                    </Button>
-                  </div>
-                  
-                  <div className="space-y-6">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Cliente</p>
-                      <div className="text-base text-white">{viewingOrder.customer_email}</div>
-                      {viewingOrder.shipping_details && (
-                        <div className="text-sm text-white/80 mt-1">{viewingOrder.shipping_details.fullName}</div>
-                      )}
-                    </div>
-
-                    {viewingOrder.shipping_details ? (
-                      <div className="p-4 border border-white/10 bg-white/5 space-y-3">
-                        <div className="text-[10px] uppercase tracking-widest text-luxury-gold flex items-center gap-2">
-                          <Truck size={14} /> Morada de Envio Completa
-                        </div>
-                        <div className="text-sm space-y-1 text-white/80">
-                          <p><span className="text-white/40">Morada:</span> {viewingOrder.shipping_details.address}</p>
-                          <p><span className="text-white/40">Código Postal:</span> {viewingOrder.shipping_details.postalCode}</p>
-                          <p><span className="text-white/40">Localidade:</span> {viewingOrder.shipping_details.city}</p>
-                          <p><span className="text-white/40">País:</span> {viewingOrder.shipping_details.country}</p>
-                          <p><span className="text-white/40">Telemóvel:</span> {viewingOrder.shipping_details.phone}</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="p-4 border border-white/10 bg-white/5 space-y-3">
-                        <div className="text-[10px] uppercase tracking-widest text-emerald-500 flex items-center gap-2">
-                          <FileText size={14} /> Produto Digital
-                        </div>
-                        <div className="text-sm text-white/60">
-                          Nenhuma morada associada a este pedido.
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Identificadores do Sistema</p>
-                      <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-2">
-                        <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> {viewingOrder.id}</div>
-                        <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
-                        <div className="select-all block"><span className="text-white/40 select-none">Stripe Session:</span> {viewingOrder.stripe_session_id || "N/A"}</div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Items e Configurações</p>
-                      <div className="p-4 border border-white/10 bg-black/20 text-sm">
-                        <p className="font-bold text-luxury-gold">{viewingOrder.product?.title}</p>
-                        {viewingOrder.selected_options && (
-                          <p className="text-white/60 mt-1 uppercase text-[10px] tracking-widest">
-                            {viewingOrder.selected_options.size && `Tamanho: ${viewingOrder.selected_options.size} `}
-                            {viewingOrder.selected_options.color && `Cor: ${viewingOrder.selected_options.color}`}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            )}
 
             {editingProduct && (
               <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
@@ -1492,7 +1445,7 @@ export default function AdminDashboard({
                       className="hover:bg-white/5 transition-colors"
                     >
                       <td className="px-8 py-6 font-mono text-[10px] text-white/40">
-                        {order.id}
+                        SART-{order.id.split('-')[0].toUpperCase()}
                       </td>
                       <td className="px-8 py-6">
                         <div className="font-serif text-base flex items-center gap-2">
@@ -1681,6 +1634,138 @@ export default function AdminDashboard({
           </div>
         )}
       </div>
+
+      {viewingOrder && (() => {
+        const shippingData = viewingOrder.shipping_details || viewingOrder.selected_options?.shipping_details;
+        return (
+        <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-4">
+          <Card className="max-w-2xl w-full bg-luxury-dark border-white/10 rounded-sm p-8 space-y-6 animate-in zoom-in-95 duration-500 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center pb-4 border-b border-white/10">
+              <h3 className="text-xl font-serif text-luxury-gold">Detalhes do Pedido</h3>
+              <Button variant="ghost" onClick={() => setViewingOrder(null)} className="text-white/40 hover:text-white">
+                <X size={20} />
+              </Button>
+            </div>
+            
+            <div className="space-y-6">
+              <div className="flex gap-4 items-start pb-4 border-b border-white/10">
+                {viewingOrder.product?.image_url && (
+                  <div className="w-20 h-24 bg-white/5 border border-white/10 flex-shrink-0">
+                    <img src={getImageUrl(viewingOrder.product.image_url)} alt="Produto" className="w-full h-full object-cover" />
+                  </div>
+                )}
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Produto Adquirido</p>
+                  <h4 className="font-serif text-lg text-white">{viewingOrder.product?.title || "Produto Removido"}</h4>
+                  {viewingOrder.selected_options && (
+                    <p className="text-white/60 mt-1 uppercase text-[10px] tracking-widest">
+                      {viewingOrder.selected_options.size && `Tamanho: ${viewingOrder.selected_options.size} `}
+                      {viewingOrder.selected_options.color && `| Cor: ${viewingOrder.selected_options.color}`}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Cliente</p>
+                <div className="text-base text-white">{viewingOrder.customer_email}</div>
+                {shippingData && (
+                  <div className="text-sm text-white/80 mt-1">{shippingData.fullName}</div>
+                )}
+              </div>
+
+              {shippingData ? (
+                <div className="p-4 border border-white/10 bg-white/5 space-y-3">
+                  <div className="text-[10px] uppercase tracking-widest text-luxury-gold flex items-center gap-2">
+                    <Truck size={14} /> Morada de Envio Completa
+                  </div>
+                  <div className="text-sm space-y-1 text-white/80">
+                    <p><span className="text-white/40">Morada:</span> {shippingData.address}</p>
+                    <p><span className="text-white/40">Código Postal:</span> {shippingData.postalCode}</p>
+                    <p><span className="text-white/40">Localidade:</span> {shippingData.city}</p>
+                    <p><span className="text-white/40">País:</span> {shippingData.country}</p>
+                    <p><span className="text-white/40">Telemóvel:</span> {shippingData.phone}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 border border-white/10 bg-white/5 space-y-3">
+                  <div className="text-[10px] uppercase tracking-widest text-emerald-500 flex items-center gap-2">
+                    <FileText size={14} /> Produto Digital
+                  </div>
+                  <div className="text-sm text-white/60">
+                    Nenhuma morada associada a este pedido.
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Identificadores do Sistema</p>
+                <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-2">
+                  <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
+                  <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
+                  <div className="select-all block"><span className="text-white/40 select-none">Stripe Session:</span> {viewingOrder.stripe_session_id || "N/A"}</div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+        );
+      })()}
+
+      {productToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setProductToDelete(null)} />
+          <div className="bg-[#1A1A1A] border border-white/10 w-full max-w-md p-6 relative z-10 space-y-6 shadow-2xl">
+            <div className="space-y-2 text-center">
+              <h3 className="text-xl font-serif text-red-500">Excluir Produto</h3>
+              <p className="text-xs text-white/60">
+                Esta ação irá desativar e excluir permanentemente este ativo.
+                Para prosseguir, digite exatamente o nome abaixo.
+              </p>
+            </div>
+            
+            <div className="p-3 bg-red-500/10 border border-red-500/20 text-center font-serif text-sm">
+              {productToDelete.title}
+            </div>
+
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                autoFocus
+                placeholder="Insira o nome exacto"
+                className="w-full bg-black/50 border border-white/20 p-3 text-sm focus:border-red-500 focus:outline-none transition-colors"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (deleteConfirmName === productToDelete.title) {
+                      confirmDeleteProduct();
+                    }
+                  }
+                }}
+              />
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  onClick={() => setProductToDelete(null)}
+                  variant="outline"
+                  className="flex-1 border-white/20 hover:border-white/40 rounded-none h-12 uppercase tracking-widest text-[10px]"
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={confirmDeleteProduct}
+                  className="flex-1 bg-red-500 text-white hover:bg-red-600 rounded-none h-12 uppercase tracking-widest text-[10px] font-bold"
+                  disabled={deleteConfirmName !== productToDelete.title}
+                >
+                  Excluir Ativo
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
