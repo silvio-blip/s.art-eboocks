@@ -948,8 +948,8 @@ export default function AdminDashboard({
             {/* Product Editor Inline (Full Screen/Wide Overlap) */}
 
             {editingProduct && (
-              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
-                <Card className="max-w-4xl w-full bg-luxury-dark border-white/10 rounded-none p-6 md:p-12 my-8 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500">
+              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+                <Card className="max-w-4xl w-full bg-luxury-dark border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto">
                   <div className="flex justify-between items-center">
                     <h3 className="text-2xl md:text-3xl font-serif">
                       {editingProduct.id ? "Editar Produto" : "Novo Produto"}
