@@ -1348,7 +1348,9 @@ export default function App() {
           fetchProducts();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('[REALTIME] Subscription status:', status);
+      });
 
     fetchProducts();
     checkUrlParams();
