@@ -16,13 +16,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'PUT' || req.method === 'PATCH') {
     try {
-      const { title, description, price, image_url, file_url, category, userId } = req.body;
+      const { title, description, price, image_url, file_url, category, is_active, userId } = req.body;
       if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
 
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from('products')
-        .update({ title, description, price, image_url, file_url, category })
+        .update({ title, description, price, image_url, file_url, category, is_active })
         .eq('id', id)
         .select()
         .single();

@@ -15,14 +15,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { title, description, price, image_url, file_url, category, userId } = req.body;
+    const { title, description, price, image_url, file_url, category, is_active, userId } = req.body;
     
     if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
 
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
-      .insert({ title, description, price, image_url, file_url, category })
+      .insert({ title, description, price, image_url, file_url, category, is_active })
       .select()
       .single();
 
