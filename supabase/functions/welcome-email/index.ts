@@ -32,11 +32,21 @@ Deno.serve(async (req) => {
     const smtpPass = Deno.env.get("SMTP_PASS") || "sziofpaflypbjbce";
     const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "465");
 
-    const { record } = await req.json();
+    const body = await req.json();
+    console.log("Recebido payload:", JSON.stringify(body, null, 2));
+
+    // Supabase Webhooks enviam o registro no campo 'record'
+    const { record } = body;
+    if (!record || !record.email) {
+      console.error("Payload inválido - Record em falta");
+      return new Response(JSON.stringify({ error: "Payload inválido: campo 'record' ou 'email' em falta." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const email = record.email;
-    const name = record.raw_user_meta_data?.full_name || "Membro";
+    const metadata = record.raw_user_meta_data || {};
+    const name = metadata.full_name || "Membro";
     const date = new Date().toLocaleDateString('pt-PT', { day: '2-digit', month: 'long', year: 'numeric' });
-    const siteUrl = Deno.env.get("SITE_URL") || "https://ais-dev-ofdxkoy6wmjezzmm67xzxa-96926789601.europe-west2.run.app";
+    const siteUrl = Deno.env.get("SITE_URL") || "https://sart-full.pt";
 
     const emailHtml = `
       <!DOCTYPE html>
@@ -79,8 +89,8 @@ Deno.serve(async (req) => {
                        <p style="margin: 0 0 30px 0; font-size: 14px; color: #d4af37; font-family: 'Times New Roman', serif; font-style: italic;">
                          "A arte não é o que você vê, mas o que você faz os outros verem."
                        </p>
-                       <a href="${siteUrl}" style="display: inline-block; padding: 15px 40px; background-color: transparent; border: 1px solid #d4af37; color: #d4af37; text-decoration: none; text-transform: uppercase; font-size: 10px; letter-spacing: 4px; font-family: Arial, sans-serif; transition: all 0.3s ease;">
-                         Aceder ao Atelier
+                       <a href="${siteUrl}" style="display: inline-block; padding: 15px 40px; background-color: #ffffff; border: 1px solid #ffffff; color: #000000; text-decoration: none; text-transform: uppercase; font-size: 10px; letter-spacing: 4px; font-family: Arial, sans-serif; font-weight: bold;">
+                         Explorar Coleção
                        </a>
                     </div>
                   </td>
