@@ -241,8 +241,8 @@ apiRouter.post('/recovery/verify', async (req, res) => {
     const { data, error } = await supabase
       .from('password_recovery_codes')
       .select('*')
-      .eq('email', email)
-      .eq('code', code)
+      .ilike('email', email)
+      .eq('code', code.trim())
       .eq('used', false)
       .gt('expires_at', new Date().toISOString())
       .single();
@@ -266,8 +266,8 @@ apiRouter.post('/recovery/reset', async (req, res) => {
     const { data: codeData, error: codeError } = await supabase
       .from('password_recovery_codes')
       .select('*')
-      .eq('email', email)
-      .eq('code', code)
+      .ilike('email', email)
+      .eq('code', code.trim())
       .eq('used', false)
       .gt('expires_at', new Date().toISOString())
       .single();
