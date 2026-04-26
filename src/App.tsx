@@ -469,7 +469,7 @@ const AuthDialog = ({
         console.log("Iniciando recuperação via servidor...");
         
         try {
-          const response = await fetch("/api/recovery/send", {
+          const response = await fetch("/api/recovery-send", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: normalizedEmail })
@@ -490,7 +490,7 @@ const AuthDialog = ({
       } else if (mode === "otp") {
         if (!otp || otp.length < 15) throw new Error("Insira o código completo de 15 dígitos.");
         
-        const response = await fetch("/api/recovery/verify", {
+        const response = await fetch("/api/recovery-verify", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, code: otp })
@@ -505,7 +505,7 @@ const AuthDialog = ({
         if (password !== confirmPassword) throw new Error("As passwords não coincidem.");
         if (password.length < 6) throw new Error("A senha deve ter pelo menos 6 caracteres.");
 
-        const response = await fetch("/api/recovery/reset", {
+        const response = await fetch("/api/recovery-reset", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, code: otp, password })

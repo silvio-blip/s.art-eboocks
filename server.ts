@@ -188,7 +188,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 app.use(express.json());
 const apiRouter = express.Router();
 
-apiRouter.post('/recovery/send', async (req, res) => {
+apiRouter.post('/recovery-send', async (req, res) => {
   try {
     const { email } = req.body;
     const supabase = getSupabase();
@@ -233,7 +233,7 @@ apiRouter.post('/recovery/send', async (req, res) => {
   }
 });
 
-apiRouter.post('/recovery/verify', async (req, res) => {
+apiRouter.post('/recovery-verify', async (req, res) => {
   try {
     const { email, code } = req.body;
     const supabase = getSupabase();
@@ -257,7 +257,7 @@ apiRouter.post('/recovery/verify', async (req, res) => {
   }
 });
 
-apiRouter.post('/recovery/reset', async (req, res) => {
+apiRouter.post('/recovery-reset', async (req, res) => {
   try {
     const { email, code, password } = req.body;
     const supabase = getSupabase();
