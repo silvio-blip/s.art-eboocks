@@ -415,10 +415,6 @@ const AuthDialog = ({
 
   const handleGoogleLogin = async () => {
     try {
-      if (mode === "register" && !acceptedTerms) {
-        toast.error("Tem de aceitar os Termos e Privacidade.");
-        return;
-      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -456,9 +452,15 @@ const AuthDialog = ({
         });
         if (error) throw error;
         if (data.user) {
+          const profileData = { id: data.user.id, email, full_name: fullName };
           await supabase
             .from("profiles")
-            .upsert({ id: data.user.id, email, full_name: fullName });
+            .upsert(profileData);
+            
+          // Trigger welcome email explicitly
+          supabase.functions.invoke("welcome-email", {
+             body: { record: { ...profileData, raw_user_meta_data: { full_name: fullName } } }
+          }).catch((err) => console.error("Falha ao invocar welcome-email:", err));
         }
         toast.success("Conta criada. Verifique o seu email.");
         onClose();
@@ -1470,11 +1472,38 @@ export default function App() {
   }, []);
 
   const fetchProfile = async (userObj: SupabaseUser) => {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("profiles")
       .select("theme, full_name, avatar_url")
       .eq("id", userObj.id)
       .single();
+
+    if (error && error.code === 'PGRST116') {
+      const email = userObj.email || '';
+      const full_name = userObj.user_metadata?.full_name || userObj.user_metadata?.name || '';
+      const avatar_url = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture || '';
+      
+      const { data: newProfile, error: upsertError } = await supabase
+        .from("profiles")
+        .upsert({
+          id: userObj.id,
+          email: email,
+          full_name: full_name,
+          avatar_url: avatar_url
+        })
+        .select()
+        .single();
+        
+      if (!upsertError && newProfile) {
+         data = newProfile;
+         error = null as any;
+         
+         // Trigger the welcome email for the newly created Google login profile!
+         supabase.functions.invoke("welcome-email", {
+           body: { record: { ...newProfile, raw_user_meta_data: { full_name: full_name } } }
+         }).catch((err) => console.error("Falha ao invocar welcome-email:", err));
+      }
+    }
 
     if (!error && data) {
       if (data.theme) {

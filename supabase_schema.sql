@@ -93,6 +93,14 @@ CREATE POLICY "Users manage their own progress" ON user_reading_progress
 CREATE POLICY "Users can view their own profile" ON profiles
   FOR SELECT USING (auth.uid() = id);
 
+-- Profiles: Users can insert their own profile
+CREATE POLICY "Users can insert their own profile" ON profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
+
+-- Profiles: Users can update their own profile
+CREATE POLICY "Users can update their own profile" ON profiles
+  FOR UPDATE USING (auth.uid() = id);
+
 -- Products: Everyone can see active products
 CREATE POLICY "Public can view active products" ON products
   FOR SELECT USING (is_active = true);

@@ -44,7 +44,7 @@ Deno.serve(async (req) => {
 
     const email = record.email;
     const metadata = record.raw_user_meta_data || {};
-    const name = metadata.full_name || "Membro";
+    const name = metadata.full_name || record.full_name || "Membro";
     const date = new Date().toLocaleDateString('pt-PT', { day: '2-digit', month: 'long', year: 'numeric' });
     const siteUrl = Deno.env.get("SITE_URL") || "https://sart-full.pt";
 
