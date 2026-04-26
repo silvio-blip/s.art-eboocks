@@ -233,6 +233,25 @@ apiRouter.post('/recovery/send', async (req, res) => {
   }
 });
 
+apiRouter.post('/recovery/check-exists', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .ilike('email', email)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    res.json({ exists: !!data });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 apiRouter.post('/recovery/verify', async (req, res) => {
   try {
     const { email, code } = req.body;

@@ -469,6 +469,19 @@ const AuthDialog = ({
         console.log("Iniciando recuperação via servidor...");
         
         try {
+          // 1. Check if user exists
+          const checkResponse = await fetch("/api/recovery/check-exists", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: normalizedEmail })
+          });
+          const checkData = await checkResponse.json();
+          
+          if (!checkData.exists) {
+            throw new Error("Este e-mail não está registado no nosso sistema.");
+          }
+
+          // 2. Send recovery code
           const response = await fetch("/api/recovery/send", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
