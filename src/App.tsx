@@ -1458,6 +1458,7 @@ export default function App() {
 
     fetchProducts();
     checkUrlParams();
+    supabase.auth.getSession();
 
     // Fallback: Se após 5 segundos ainda estiver a carregar, forçar a entrada na UI
     const loadingTimeout = setTimeout(() => {
@@ -1477,42 +1478,6 @@ export default function App() {
       .select("theme, full_name, avatar_url")
       .eq("id", userObj.id)
       .single();
-
-    // Verificação robusta p/ utilizadores recém-criados usando o created_at do auth.users
-    if (userObj.created_at) {
-      const createdTime = new Date(userObj.created_at).getTime();
-      const now = new Date().getTime();
-      const isNewUser = (now - createdTime) < 30000; // Conta criada há menos de 30 segundos
-
-      // Recuperar dados Google
-      const googleFullname = userObj.user_metadata?.full_name || userObj.user_metadata?.name || '';
-      const googleAvatar = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture || '';
-
-      if (isNewUser) {
-        // Enviar email se a conta for super recente
-        // Primeiro garantimos que upsert acontece (caso o trigger do DB falhe ou esteja lento)
-        if (error && error.code === 'PGRST116') {
-           const { data: newProfile } = await supabase.from("profiles").upsert({
-            id: userObj.id,
-            email: userObj.email || '',
-            full_name: googleFullname,
-            avatar_url: googleAvatar
-          }).select().single();
-          if (newProfile) data = newProfile;
-          error = null as any;
-        }
-
-        // Prevenir envio duplicado gravando state no localStorage
-        const emailSentKey = `welcome_sent_${userObj.id}`;
-        if (!localStorage.getItem(emailSentKey)) {
-          localStorage.setItem(emailSentKey, "true");
-          console.log("[BEM-VINDO] A enviar email de novo registo para:", userObj.email);
-          supabase.functions.invoke("welcome-email", {
-            body: { record: { id: userObj.id, email: userObj.email, full_name: googleFullname || data?.full_name || "Membro" } }
-          }).catch((err) => console.error("Falha ao invocar welcome-email:", err));
-        }
-      }
-    }
 
     if (!error && data) {
       if (data.theme) {
