@@ -415,6 +415,10 @@ const AuthDialog = ({
 
   const handleGoogleLogin = async () => {
     try {
+      if (mode === "register" && !acceptedTerms) {
+        toast.error("Tem de aceitar os Termos e Privacidade.");
+        return;
+      }
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -452,15 +456,9 @@ const AuthDialog = ({
         });
         if (error) throw error;
         if (data.user) {
-          const profileData = { id: data.user.id, email, full_name: fullName };
           await supabase
             .from("profiles")
-            .upsert(profileData);
-            
-          // Trigger welcome email explicitly
-          supabase.functions.invoke("welcome-email", {
-             body: { record: { ...profileData, raw_user_meta_data: { full_name: fullName } } }
-          }).catch((err) => console.error("Falha ao invocar welcome-email:", err));
+            .upsert({ id: data.user.id, email, full_name: fullName });
         }
         toast.success("Conta criada. Verifique o seu email.");
         onClose();
@@ -471,10 +469,10 @@ const AuthDialog = ({
         console.log("Iniciando recuperação via servidor...");
         
         try {
-          const response = await fetch("/api/auth-recovery", {
+          const response = await fetch("/api/recovery/send", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'send', email: normalizedEmail })
+            body: JSON.stringify({ email: normalizedEmail })
           });
 
           const data = await response.json().catch(() => ({ error: "Erro na resposta do servidor." }));
@@ -492,10 +490,10 @@ const AuthDialog = ({
       } else if (mode === "otp") {
         if (!otp || otp.length < 15) throw new Error("Insira o código completo de 15 dígitos.");
         
-        const response = await fetch("/api/auth-recovery", {
+        const response = await fetch("/api/recovery/verify", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'verify', email, code: otp })
+          body: JSON.stringify({ email, code: otp })
         });
 
         const data = await response.json();
@@ -507,10 +505,10 @@ const AuthDialog = ({
         if (password !== confirmPassword) throw new Error("As passwords não coincidem.");
         if (password.length < 6) throw new Error("A senha deve ter pelo menos 6 caracteres.");
 
-        const response = await fetch("/api/auth-recovery", {
+        const response = await fetch("/api/recovery/reset", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reset', email, code: otp, password })
+          body: JSON.stringify({ email, code: otp, password })
         });
 
         const data = await response.json();
@@ -1314,7 +1312,7 @@ export default function App() {
   const handleDownload = async (orderId: string) => {
     const downloadToast = toast.loading("A preparar o seu descarregamento...");
     try {
-      const res = await fetch(`/api/order-download?orderId=${orderId}`);
+      const res = await fetch(`/api/orders/${orderId}/download`);
       const responseContent = await res.text();
 
       let data;
@@ -1458,7 +1456,6 @@ export default function App() {
 
     fetchProducts();
     checkUrlParams();
-    supabase.auth.getSession();
 
     // Fallback: Se após 5 segundos ainda estiver a carregar, forçar a entrada na UI
     const loadingTimeout = setTimeout(() => {
@@ -1473,43 +1470,11 @@ export default function App() {
   }, []);
 
   const fetchProfile = async (userObj: SupabaseUser) => {
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .select("theme, full_name, avatar_url")
       .eq("id", userObj.id)
       .single();
-
-    // Se o perfil não existir (erro PGRST116), vamos criá-lo!
-    if (error && error.code === 'PGRST116') {
-      const email = userObj.email || '';
-      const full_name = userObj.user_metadata?.full_name || userObj.user_metadata?.name || '';
-      const avatar_url = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture || '';
-      
-      const { data: newProfile, error: upsertError } = await supabase
-        .from("profiles")
-        .upsert({
-          id: userObj.id,
-          email: email,
-          full_name: full_name,
-          avatar_url: avatar_url
-        })
-        .select()
-        .single();
-        
-      if (!upsertError && newProfile) {
-         data = newProfile;
-         error = null as any;
-         
-         // Trigger the welcome email for the newly created Google login profile!
-         const emailSentKey = `welcome_sent_${userObj.id}`;
-         if (!localStorage.getItem(emailSentKey)) {
-           localStorage.setItem(emailSentKey, "true");
-           supabase.functions.invoke("welcome-email", {
-             body: { record: { id: userObj.id, email: email, full_name: full_name || "Membro", raw_user_meta_data: { full_name: full_name } } }
-           }).catch((err) => console.error("Falha ao invocar welcome-email:", err));
-         }
-      }
-    }
 
     if (!error && data) {
       if (data.theme) {
@@ -1539,14 +1504,7 @@ export default function App() {
 
   const checkUrlParams = async () => {
     const params = new URLSearchParams(window.location.search);
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const sessionId = params.get("session_id");
-
-    const errorDesc = hashParams.get("error_description");
-    if (errorDesc) {
-      toast.error(`Falha no Login: ${decodeURIComponent(errorDesc).replace(/\+/g, ' ')}`);
-      window.history.replaceState(null, "", window.location.pathname);
-    }
 
     // Security & Redirect: If session state is active but no ID is present, kick back to library
     if (view === "success" && !sessionId) {

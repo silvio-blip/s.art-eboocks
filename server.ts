@@ -188,73 +188,118 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 app.use(express.json());
 const apiRouter = express.Router();
 
-apiRouter.post('/auth-recovery', async (req, res) => {
-  const { action, email, code, password } = req.body;
-  const supabase = getSupabase();
-
+apiRouter.post('/recovery/send', async (req, res) => {
   try {
-    if (action === 'send') {
-      console.log(`[RECOVERY PROXY] Requesting recovery for: ${email}`);
-      const { data, error } = await supabase.functions.invoke('reset-password', {
-        body: { email }
-      });
+    const { email } = req.body;
+    const supabase = getSupabase();
+    console.log(`[RECOVERY PROXY] Requesting recovery for: ${email}`);
+    
+    // Invocação interna usando o slug correto: reset-password
+    console.log(`[RECOVERY PROXY] Invocando Edge Function 'reset-password' para ${email}...`);
+    const { data, error } = await supabase.functions.invoke('reset-password', {
+      body: { email }
+    });
 
-      if (error) {
-        console.error(`[RECOVERY PROXY ERROR] Chamada falhou:`, error);
-        let errorMessage = "Erro na Edge Function de recuperação.";
-        if (error instanceof Error) errorMessage = error.message;
-        if ((error as any).context) {
-          try {
-            const bodyText = await (error as any).context.text();
-            const bodyJson = JSON.parse(bodyText);
-            errorMessage = bodyJson.error || bodyJson.message || errorMessage;
-          } catch (e) {}
-        }
-        return res.status(500).json({ error: errorMessage });
+    if (error) {
+      console.error(`[RECOVERY PROXY ERROR] Chamada falhou:`, error);
+      
+      let errorMessage = "Erro na Edge Function de recuperação.";
+      
+      // Tentar extrair a mensagem de erro do corpo da resposta (JSON)
+      if (error instanceof Error) {
+        errorMessage = error.message;
       }
-      return res.json(data);
+
+      // Se for um FunctionsHttpError, o erro está no contexto
+      if ((error as any).context) {
+        try {
+          const bodyText = await (error as any).context.text();
+          console.error(`[RECOVERY PROXY BODY]:`, bodyText);
+          const bodyJson = JSON.parse(bodyText);
+          errorMessage = bodyJson.error || bodyJson.message || errorMessage;
+        } catch (e) {
+          console.error("[RECOVERY PROXY] Falha ao parsear erro do corpo:", e);
+        }
+      }
+      
+      return res.status(500).json({ error: errorMessage });
     }
-
-    if (action === 'verify') {
-      const { data, error } = await supabase
-        .from('password_recovery_codes')
-        .select('*')
-        .eq('email', email)
-        .eq('code', code)
-        .eq('used', false)
-        .gt('expires_at', new Date().toISOString())
-        .single();
-
-      if (error || !data) return res.status(400).json({ error: 'Código inválido ou expirado.' });
-      return res.json({ success: true, message: 'Código verificado.' });
-    }
-
-    if (action === 'reset') {
-      const { data: codeData, error: codeError } = await supabase
-        .from('password_recovery_codes')
-        .select('*')
-        .eq('email', email)
-        .eq('code', code)
-        .eq('used', false)
-        .gt('expires_at', new Date().toISOString())
-        .single();
-
-      if (codeError || !codeData) return res.status(400).json({ error: 'Código inválido ou transação expirada.' });
-
-      const { data: userData, error: fetchError } = await supabase.auth.admin.listUsers();
-      const targetUser = userData?.users?.find((u: any) => u.email === email);
-      if (fetchError || !targetUser) return res.status(400).json({ error: 'Utilizador não encontrado.' });
-
-      const { error: authError } = await supabase.auth.admin.updateUserById(targetUser.id, { password });
-      if (authError) return res.status(400).json({ error: `Erro ao atualizar senha: ${authError.message}` });
-
-      await supabase.from('password_recovery_codes').update({ used: true }).eq('id', codeData.id);
-      return res.json({ success: true, message: 'Password atualizada com sucesso.' });
-    }
-
-    return res.status(400).json({ error: 'Ação inválida.' });
+    
+    console.log(`[RECOVERY PROXY SUCCESS] Resposta:`, data);
+    res.json(data);
   } catch (error: any) {
     console.error(`[RECOVERY PROXY FATAL]`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/recovery/verify', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase
+      .from('password_recovery_codes')
+      .select('*')
+      .eq('email', email)
+      .eq('code', code)
+      .eq('used', false)
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (error || !data) {
+      return res.status(400).json({ error: 'Código inválido ou expirado.' });
+    }
+
+    res.json({ success: true, message: 'Código verificado.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/recovery/reset', async (req, res) => {
+  try {
+    const { email, code, password } = req.body;
+    const supabase = getSupabase();
+
+    // 1. Verificar o código novamente por segurança
+    const { data: codeData, error: codeError } = await supabase
+      .from('password_recovery_codes')
+      .select('*')
+      .eq('email', email)
+      .eq('code', code)
+      .eq('used', false)
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (codeError || !codeData) {
+      return res.status(400).json({ error: 'Código inválido ou transação expirada.' });
+    }
+
+    // 2. Atualizar a password no Auth do Supabase (Admin)
+    const { data: userData, error: fetchError } = await supabase.auth.admin.listUsers();
+    const targetUser = userData?.users?.find((u: any) => u.email === email);
+
+    if (fetchError || !targetUser) {
+      return res.status(400).json({ error: 'Utilizador não encontrado para atualização.' });
+    }
+
+    const { error: authError } = await supabase.auth.admin.updateUserById(targetUser.id, { 
+      password: password 
+    });
+
+    if (authError) {
+      return res.status(400).json({ error: `Erro ao atualizar senha: ${authError.message}` });
+    }
+
+    // 3. Marcar código como usado
+    await supabase
+      .from('password_recovery_codes')
+      .update({ used: true })
+      .eq('id', codeData.id);
+
+    res.json({ success: true, message: 'Password atualizada com sucesso.' });
+  } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });

@@ -70,16 +70,11 @@ CREATE TABLE IF NOT EXISTS password_recovery_codes (
   email TEXT NOT NULL,
   code TEXT NOT NULL,
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-  used BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
 -- Index for fast lookup
 CREATE INDEX IF NOT EXISTS idx_recovery_email ON password_recovery_codes(email);
-
--- 6. Deprecated Trigger (Removed to prevent "Database error saving new user")
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
 
 -- SECURITY (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
@@ -96,14 +91,6 @@ CREATE POLICY "Users manage their own progress" ON user_reading_progress
 -- Profiles: Users can read their own
 CREATE POLICY "Users can view their own profile" ON profiles
   FOR SELECT USING (auth.uid() = id);
-
--- Profiles: Users can insert their own profile
-CREATE POLICY "Users can insert their own profile" ON profiles
-  FOR INSERT WITH CHECK (auth.uid() = id);
-
--- Profiles: Users can update their own profile
-CREATE POLICY "Users can update their own profile" ON profiles
-  FOR UPDATE USING (auth.uid() = id);
 
 -- Products: Everyone can see active products
 CREATE POLICY "Public can view active products" ON products

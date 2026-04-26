@@ -213,8 +213,8 @@ export default function AdminDashboard({
       const isNew = !editingProduct.id;
       const res = await fetch(
         isNew
-          ? "/api/admin-products"
-          : `/api/admin-products?id=${editingProduct.id}`,
+          ? "/api/admin/products"
+          : `/api/admin/products/${editingProduct.id}`,
         {
           method: isNew ? "POST" : "PUT",
           headers: { "Content-Type": "application/json" },
@@ -297,7 +297,7 @@ export default function AdminDashboard({
     }
     
     try {
-      const res = await fetch(`/api/admin-products?id=${productToDelete.id}`, {
+      const res = await fetch(`/api/admin/products/${productToDelete.id}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: user.id }),
