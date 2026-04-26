@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS password_recovery_codes (
   email TEXT NOT NULL,
   code TEXT NOT NULL,
   expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  used BOOLEAN DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
