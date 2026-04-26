@@ -469,10 +469,10 @@ const AuthDialog = ({
         console.log("Iniciando recuperação via servidor...");
         
         try {
-          const response = await fetch("/api/recovery-send", {
+          const response = await fetch("/api/auth-recovery", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: normalizedEmail })
+            body: JSON.stringify({ action: 'send', email: normalizedEmail })
           });
 
           const data = await response.json().catch(() => ({ error: "Erro na resposta do servidor." }));
@@ -490,10 +490,10 @@ const AuthDialog = ({
       } else if (mode === "otp") {
         if (!otp || otp.length < 15) throw new Error("Insira o código completo de 15 dígitos.");
         
-        const response = await fetch("/api/recovery-verify", {
+        const response = await fetch("/api/auth-recovery", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, code: otp })
+          body: JSON.stringify({ action: 'verify', email, code: otp })
         });
 
         const data = await response.json();
@@ -505,10 +505,10 @@ const AuthDialog = ({
         if (password !== confirmPassword) throw new Error("As passwords não coincidem.");
         if (password.length < 6) throw new Error("A senha deve ter pelo menos 6 caracteres.");
 
-        const response = await fetch("/api/recovery-reset", {
+        const response = await fetch("/api/auth-recovery", {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, code: otp, password })
+          body: JSON.stringify({ action: 'reset', email, code: otp, password })
         });
 
         const data = await response.json();
@@ -1312,7 +1312,7 @@ export default function App() {
   const handleDownload = async (orderId: string) => {
     const downloadToast = toast.loading("A preparar o seu descarregamento...");
     try {
-      const res = await fetch(`/api/orders/${orderId}/download`);
+      const res = await fetch(`/api/order-download?orderId=${orderId}`);
       const responseContent = await res.text();
 
       let data;

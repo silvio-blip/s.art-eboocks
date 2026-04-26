@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getStripe, getSupabase } from './server-utils.js';
+import { getStripe, getSupabase } from '../lib/server-utils.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {

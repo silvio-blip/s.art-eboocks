@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 // @ts-ignore
-import { getSupabase, ADMIN_IDS } from '../../server-utils.js';
+import { getSupabase, ADMIN_IDS } from '../lib/server-utils.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -8,18 +8,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, PATCH, DELETE, POST, PUT');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { id } = req.query;
+  const supabase = getSupabase();
+  const { id } = req.query; // For updates/deletes
 
-  if (req.method === 'PUT' || req.method === 'PATCH') {
-    try {
+  try {
+    if (req.method === 'POST') {
       const { title, description, price, image_url, file_url, category, is_active, userId } = req.body;
       if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
 
-      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('products')
+        .insert({ title, description, price, image_url, file_url, category, is_active })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return res.json(data);
+    }
+
+    if (req.method === 'PUT' || req.method === 'PATCH') {
+      const { title, description, price, image_url, file_url, category, is_active, userId } = req.body;
+      if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
+      if (!id) return res.status(400).json({ error: 'Product ID required' });
+
       const { data, error } = await supabase
         .from('products')
         .update({ title, description, price, image_url, file_url, category, is_active })
@@ -28,27 +41,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .single();
 
       if (error) throw error;
-      res.json(data);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      return res.json(data);
     }
-  } else if (req.method === 'DELETE') {
-    try {
+
+    if (req.method === 'DELETE') {
       const { userId } = req.body;
       if (!ADMIN_IDS.includes(userId)) return res.status(403).json({ error: 'Unauthorized' });
+      if (!id) return res.status(400).json({ error: 'Product ID required' });
 
-      const supabase = getSupabase();
       const { error } = await supabase
         .from('products')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      return res.json({ success: true });
     }
-  } else {
-    res.status(405).json({ error: 'Method not allowed' });
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 }
