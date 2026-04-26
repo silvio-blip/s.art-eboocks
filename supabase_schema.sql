@@ -77,27 +77,9 @@ CREATE TABLE IF NOT EXISTS password_recovery_codes (
 -- Index for fast lookup
 CREATE INDEX IF NOT EXISTS idx_recovery_email ON password_recovery_codes(email);
 
--- 6. Trigger for New User Profile Creation
--- Ensures Google OAuth and Email signups automatically get a profile.
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, email, full_name, avatar_url)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
-    COALESCE(NEW.raw_user_meta_data->>'avatar_url', NEW.raw_user_meta_data->>'picture', '')
-  )
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
+-- 6. Deprecated Trigger (Removed to prevent "Database error saving new user")
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+DROP FUNCTION IF EXISTS public.handle_new_user();
 
 -- SECURITY (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;

@@ -1479,6 +1479,38 @@ export default function App() {
       .eq("id", userObj.id)
       .single();
 
+    // Se o perfil não existir (erro PGRST116), vamos criá-lo!
+    if (error && error.code === 'PGRST116') {
+      const email = userObj.email || '';
+      const full_name = userObj.user_metadata?.full_name || userObj.user_metadata?.name || '';
+      const avatar_url = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture || '';
+      
+      const { data: newProfile, error: upsertError } = await supabase
+        .from("profiles")
+        .upsert({
+          id: userObj.id,
+          email: email,
+          full_name: full_name,
+          avatar_url: avatar_url
+        })
+        .select()
+        .single();
+        
+      if (!upsertError && newProfile) {
+         data = newProfile;
+         error = null as any;
+         
+         // Trigger the welcome email for the newly created Google login profile!
+         const emailSentKey = `welcome_sent_${userObj.id}`;
+         if (!localStorage.getItem(emailSentKey)) {
+           localStorage.setItem(emailSentKey, "true");
+           supabase.functions.invoke("welcome-email", {
+             body: { record: { id: userObj.id, email: email, full_name: full_name || "Membro", raw_user_meta_data: { full_name: full_name } } }
+           }).catch((err) => console.error("Falha ao invocar welcome-email:", err));
+         }
+      }
+    }
+
     if (!error && data) {
       if (data.theme) {
         setTheme(data.theme as "light" | "dark");
