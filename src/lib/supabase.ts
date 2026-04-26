@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL;
+const supabaseUrl = ((import.meta as any).env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
 
 // Early validation to avoid immediate crash on load if keys are missing

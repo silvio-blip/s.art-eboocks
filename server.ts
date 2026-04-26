@@ -184,10 +184,127 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 }
 
+// Recovery Proxy Routes
 app.use(express.json());
+const apiRouter = express.Router();
+
+apiRouter.post('/recovery/send', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const supabase = getSupabase();
+    console.log(`[RECOVERY PROXY] Requesting recovery for: ${email}`);
+    
+    // Invocação interna usando o slug correto: reset-password
+    console.log(`[RECOVERY PROXY] Invocando Edge Function 'reset-password' para ${email}...`);
+    const { data, error } = await supabase.functions.invoke('reset-password', {
+      body: { email }
+    });
+
+    if (error) {
+      console.error(`[RECOVERY PROXY ERROR] Chamada falhou:`, error);
+      
+      let errorMessage = "Erro na Edge Function de recuperação.";
+      
+      // Tentar extrair a mensagem de erro do corpo da resposta (JSON)
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      // Se for um FunctionsHttpError, o erro está no contexto
+      if ((error as any).context) {
+        try {
+          const bodyText = await (error as any).context.text();
+          console.error(`[RECOVERY PROXY BODY]:`, bodyText);
+          const bodyJson = JSON.parse(bodyText);
+          errorMessage = bodyJson.error || bodyJson.message || errorMessage;
+        } catch (e) {
+          console.error("[RECOVERY PROXY] Falha ao parsear erro do corpo:", e);
+        }
+      }
+      
+      return res.status(500).json({ error: errorMessage });
+    }
+    
+    console.log(`[RECOVERY PROXY SUCCESS] Resposta:`, data);
+    res.json(data);
+  } catch (error: any) {
+    console.error(`[RECOVERY PROXY FATAL]`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/recovery/verify', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase
+      .from('password_recovery_codes')
+      .select('*')
+      .eq('email', email)
+      .eq('code', code)
+      .eq('used', false)
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (error || !data) {
+      return res.status(400).json({ error: 'Código inválido ou expirado.' });
+    }
+
+    res.json({ success: true, message: 'Código verificado.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+apiRouter.post('/recovery/reset', async (req, res) => {
+  try {
+    const { email, code, password } = req.body;
+    const supabase = getSupabase();
+
+    // 1. Verificar o código novamente por segurança
+    const { data: codeData, error: codeError } = await supabase
+      .from('password_recovery_codes')
+      .select('*')
+      .eq('email', email)
+      .eq('code', code)
+      .eq('used', false)
+      .gt('expires_at', new Date().toISOString())
+      .single();
+
+    if (codeError || !codeData) {
+      return res.status(400).json({ error: 'Código inválido ou transação expirada.' });
+    }
+
+    // 2. Atualizar a password no Auth do Supabase (Admin)
+    const { data: userData, error: fetchError } = await supabase.auth.admin.listUsers();
+    const targetUser = userData?.users?.find((u: any) => u.email === email);
+
+    if (fetchError || !targetUser) {
+      return res.status(400).json({ error: 'Utilizador não encontrado para atualização.' });
+    }
+
+    const { error: authError } = await supabase.auth.admin.updateUserById(targetUser.id, { 
+      password: password 
+    });
+
+    if (authError) {
+      return res.status(400).json({ error: `Erro ao atualizar senha: ${authError.message}` });
+    }
+
+    // 3. Marcar código como usado
+    await supabase
+      .from('password_recovery_codes')
+      .update({ used: true })
+      .eq('id', codeData.id);
+
+    res.json({ success: true, message: 'Password atualizada com sucesso.' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // --- API ROUTES ---
-const apiRouter = express.Router();
 
 // Health check
 apiRouter.get('/health', (req, res) => {
@@ -309,72 +426,6 @@ apiRouter.post('/create-checkout', async (req, res) => {
   } catch (error: any) {
     console.error(`[S.ART CHECKOUT FATAL ERROR]`, error);
     res.status(500).json({ error: error.message || 'Erro interno no checkout do Stripe' });
-  }
-});
-
-// Reset Password
-apiRouter.post('/auth/reset-password', async (req, res) => {
-  const { action, email, otp, password } = req.body;
-  const supabase = getSupabase(); // Admin client (service_role)
-  const resend = getResend();
-
-  try {
-    if (action === 'request') {
-      // 1. Verificar se usuário existe
-      const { data: usersData } = await supabase.auth.admin.listUsers();
-      if (!usersData.users.find((u: any) => u.email === email)) 
-        return res.status(404).json({ error: 'E-mail não encontrado.' });
-
-      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-      
-      // 2. Guardar OTP
-      await supabase.from('otp_verifications').upsert({ 
-        email, 
-        otp: otpCode, 
-        created_at: new Date().toISOString() 
-      });
-
-      // 3. E-mail "Luxury Boutique"
-      await resend.emails.send({
-        from: 'S.Art Atelier <seguranca@s.art-full.pt>',
-        to: email,
-        subject: 'Código de Recuperação S.Art',
-        html: `
-          <div style="font-family: 'Georgia', serif; background-color: #000; color: #fff; padding: 60px 20px; text-align: center; border: 1px solid #333;">
-            <h1 style="color: #D4AF37; letter-spacing: 8px; text-transform: uppercase; font-size: 20px; margin-bottom: 40px;">S.ART</h1>
-            <p style="font-size: 16px; color: #aaa; margin-bottom: 30px;">Recuperação de Acesso à Boutique Digital</p>
-            <div style="font-size: 56px; color: #D4AF37; margin: 40px 0; font-weight: 700; letter-spacing: 12px; border: 1px solid #D4AF37; padding: 20px;">${otpCode}</div>
-            <p style="font-size: 14px; color: #666; margin-top: 30px;">Este código é pessoal e confidencial.<br>Expira em 5 minutos.</p>
-            <div style="margin-top: 50px; font-size: 10px; color: #333; text-transform: uppercase; letter-spacing: 2px;">Boutique Digital S.Art © 2026</div>
-          </div>
-        `
-      });
-      return res.json({ success: true });
-    }
-
-    if (action === 'verify_and_reset') {
-      const { data: record, error: recordError } = await supabase.from('otp_verifications').select('*').eq('email', email).single();
-      
-      if (!record || record.otp !== otp) return res.status(401).json({ error: 'Código inválido.' });
-
-      // Verificar tempo (5 min)
-      if (new Date().getTime() - new Date(record.created_at).getTime() > 300000) {
-        return res.status(400).json({ error: 'Código expirado.' });
-      }
-
-      // Alterar Senha (Admin API)
-      const { data: usersData } = await supabase.auth.admin.listUsers();
-      const user = usersData.users.find((u: any) => u.email === email);
-      await supabase.auth.admin.updateUserById(user!.id, { password });
-
-      // Limpar código
-      await supabase.from('otp_verifications').delete().eq('email', email);
-      
-      return res.json({ success: true });
-    }
-  } catch (err: any) {
-    console.error('[RESET ERROR]', err);
-    return res.status(500).json({ error: err.message });
   }
 });
 

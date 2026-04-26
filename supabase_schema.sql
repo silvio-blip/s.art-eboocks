@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS user_reading_progress (
   UNIQUE(user_id, book_id)
 );
 
+-- 5. Password Recovery Codes (Bypass standard Auth for custom UI)
+CREATE TABLE IF NOT EXISTS password_recovery_codes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT NOT NULL,
+  code TEXT NOT NULL,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Index for fast lookup
+CREATE INDEX IF NOT EXISTS idx_recovery_email ON password_recovery_codes(email);
+
 -- SECURITY (RLS)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;

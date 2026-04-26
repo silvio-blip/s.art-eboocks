@@ -23,6 +23,8 @@ import {
   Sun,
   Moon,
   Loader2,
+  Eye,
+  EyeOff,
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -391,7 +393,7 @@ const AuthDialog = ({
   onViewTerms: () => void;
 }) => {
   const [mode, setMode] = useState<
-    "login" | "register" | "forgot" | "otp" | "reset"
+    "login" | "register" | "forgot" | "check-email" | "otp" | "reset"
   >("login");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -400,6 +402,16 @@ const AuthDialog = ({
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const setAuthMode = (newMode: typeof mode) => {
+    setMode(newMode);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    setPassword("");
+    setConfirmPassword("");
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -451,12 +463,59 @@ const AuthDialog = ({
         toast.success("Conta criada. Verifique o seu email.");
         onClose();
       } else if (mode === "forgot") {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password-confirm`,
+        if (!email) throw new Error("Por favor, insira o seu e-mail.");
+        
+        const normalizedEmail = email.trim().toLowerCase();
+        console.log("Iniciando recuperação via servidor...");
+        
+        try {
+          const response = await fetch("/api/recovery/send", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: normalizedEmail })
+          });
+
+          const data = await response.json().catch(() => ({ error: "Erro na resposta do servidor." }));
+
+          if (!response.ok || data.error) {
+            throw new Error(data.error || `Erro: ${response.status}`);
+          }
+
+          toast.success("Um código de 15 dígitos foi enviado.");
+          setAuthMode("otp");
+        } catch (invError: any) {
+          console.error("Erro na recuperação:", invError);
+          toast.error(invError.message || "Erro ao contactar o servidor de e-mail.");
+        }
+      } else if (mode === "otp") {
+        if (!otp || otp.length < 15) throw new Error("Insira o código completo de 15 dígitos.");
+        
+        const response = await fetch("/api/recovery/verify", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code: otp })
         });
-        if (error) throw error;
-        toast.success("Link de recuperação enviado para o seu e-mail.");
-        onClose();
+
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Código inválido ou expirado.");
+
+        toast.success("Código validado. Defina a sua nova senha.");
+        setAuthMode("reset");
+      } else if (mode === "reset") {
+        if (password !== confirmPassword) throw new Error("As passwords não coincidem.");
+        if (password.length < 6) throw new Error("A senha deve ter pelo menos 6 caracteres.");
+
+        const response = await fetch("/api/recovery/reset", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code: otp, password })
+        });
+
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || "Erro ao redefinir senha.");
+
+        toast.success("Senha atualizada com sucesso. Pode entrar.");
+        setAuthMode("login");
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -478,7 +537,9 @@ const AuthDialog = ({
               : mode === "register"
                 ? "Criar Conta Exclusiva"
                 : mode === "forgot"
-                  ? "Recuperar Acesso"
+                ? "Recuperar Acesso"
+                : mode === "check-email"
+                  ? "Inbox de Segurança"
                   : mode === "otp"
                     ? "Validar Identidade"
                     : "Nova Password"}
@@ -542,6 +603,7 @@ const AuthDialog = ({
           {(mode === "login" ||
             mode === "register" ||
             mode === "forgot" ||
+            mode === "check-email" ||
             mode === "otp") && (
             <div className="space-y-2">
               <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
@@ -551,26 +613,46 @@ const AuthDialog = ({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={mode === "otp"}
+                disabled={mode === "otp" || mode === "check-email"}
                 className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white disabled:opacity-50"
                 placeholder="vogue@sart.com"
               />
             </div>
           )}
 
+          {mode === "check-email" && (
+            <div className="py-2 space-y-4 animate-in fade-in duration-500">
+              <div className="bg-luxury-gold/10 border border-luxury-gold/20 p-4 text-center">
+                <p className="text-[10px] text-luxury-gold font-medium leading-relaxed italic">
+                  "Enviámos um convite de recuperação para o seu destino digital. Siga a hiperligação no seu e-mail para definir o novo acesso."
+                </p>
+              </div>
+              <p className="text-[9px] text-center text-black/30 dark:text-white/30 uppercase tracking-widest">
+                Não recebeu? Verifique o Spam.
+              </p>
+            </div>
+          )}
+
           {mode === "otp" && (
-            <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
-                Código de 6 Dígitos
-              </label>
-              <input
-                type="text"
-                maxLength={6}
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-2xl tracking-[0.5em] text-center outline-none focus:border-luxury-gold transition-colors dark:text-white font-mono"
-                placeholder="000000"
-              />
+            <div className="space-y-4">
+              <div className="bg-luxury-gold/5 p-4 border border-luxury-gold/20 rounded-sm">
+                <p className="text-[10px] text-luxury-gold text-center italic">
+                  "Introduza o código exclusivo de 15 dígitos enviado para o seu e-mail para validar a sua identidade."
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+                  Código de 15 Dígitos
+                </label>
+                <input
+                  type="text"
+                  maxLength={15}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-lg tracking-[0.3em] text-center outline-none focus:border-luxury-gold transition-colors dark:text-white font-mono"
+                  placeholder="X1y2Z3a4B5c6D7E"
+                />
+              </div>
             </div>
           )}
 
@@ -583,20 +665,29 @@ const AuthDialog = ({
                 {mode === "login" && (
                   <button
                     type="button"
-                    onClick={() => setMode("forgot")}
+                    onClick={() => setAuthMode("forgot")}
                     className="text-[9px] text-black/40 dark:text-white/40 uppercase tracking-[0.1em] hover:text-luxury-gold transition-colors"
                   >
                     Esqueceu a sua password?
                   </button>
                 )}
               </div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
-                placeholder="••••••••"
-              />
+              <div className="relative group">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white pr-10"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-black/20 dark:text-white/20 hover:text-luxury-gold dark:hover:text-luxury-gold transition-colors"
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
           )}
 
@@ -605,13 +696,22 @@ const AuthDialog = ({
               <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
                 Confirmar Password
               </label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
-                placeholder="••••••••"
-              />
+              <div className="relative group">
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white pr-10"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-black/20 dark:text-white/20 hover:text-luxury-gold dark:hover:text-luxury-gold transition-colors"
+                >
+                  {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
           )}
 
@@ -645,26 +745,28 @@ const AuthDialog = ({
             </div>
           )}
 
-          <Button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-none h-14 uppercase tracking-widest text-[10px] cursor-pointer"
-          >
-            {loading
-              ? "A processar..."
-              : mode === "login"
-                ? "Entrar na Boutique"
-                : mode === "register"
-                  ? "Criar Conta"
-                  : mode === "forgot"
-                    ? "Enviar Código"
-                    : mode === "otp"
-                      ? "Validar Código"
-                      : "Redefinir Password"}
-          </Button>
+          {mode !== "check-email" && (
+            <Button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-none h-14 uppercase tracking-widest text-[10px] cursor-pointer"
+            >
+              {loading
+                ? "A processar..."
+                : mode === "login"
+                  ? "Entrar na Boutique"
+                  : mode === "register"
+                    ? "Criar Conta"
+                    : mode === "forgot"
+                      ? "Enviar Pedido"
+                      : mode === "otp"
+                        ? "Validar Código"
+                        : "Redefinir Password"}
+            </Button>
+          )}
 
           <button
-            onClick={() => setMode(mode === "login" ? "register" : "login")}
+            onClick={() => setAuthMode(mode === "login" ? "register" : "login")}
             className="w-full text-center text-[9px] text-black/40 dark:text-white/40 uppercase tracking-widest hover:text-black dark:hover:text-white transition-colors pt-2"
           >
             {mode === "login"
