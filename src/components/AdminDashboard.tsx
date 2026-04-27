@@ -30,18 +30,19 @@ import {
   RefreshCw,
   Truck,
   X,
+  Users,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
-
-const ADMIN_IDS = [
-  "3d596215-583e-498f-9fd5-36b83d8bccf5",
-  "00d44feb-0b51-405e-86f7-31b67edfb7b6",
-];
 
 const getImageUrl = (url: string) => {
   if (!url) return "https://picsum.photos/seed/ebook/600/800";
@@ -94,6 +95,16 @@ interface Order {
   };
 }
 
+interface Profile {
+  id: string;
+  full_name: string;
+  email: string;
+  avatar_url: string;
+  is_admin: boolean;
+  created_at: string;
+  custom_id?: string;
+}
+
 export default function AdminDashboard({
   user,
   onBack,
@@ -105,11 +116,12 @@ export default function AdminDashboard({
 }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(
     null,
   );
-  const [tab, setTab] = useState<"overview" | "products" | "orders">(
+  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users">(
     "overview",
   );
   const [timeRange, setTimeRange] = useState<"weekly" | "monthly" | "yearly">(
@@ -123,23 +135,23 @@ export default function AdminDashboard({
     "all" | "today" | "week" | "month"
   >("all");
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
+  const [userSearch, setUserSearch] = useState("");
 
   useEffect(() => {
-    if (!ADMIN_IDS.includes(user.id)) {
-      onBack();
-      return;
-    }
-
-    fetchData();
+    checkAdminAccess();
 
     // Real-time subscription for orders - unique name per admin to avoid "steal" conflict
     const channelName = `admin-updates-${user.id}`;
     const channel = supabase
       .channel(channelName)
-      .on("postgres_changes", { event: "*", table: "orders" }, () => {
-        fetchDashboardData();
-        toast.info("Novas atividades de vendas detectadas!");
-      })
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orders" },
+        () => {
+          fetchDashboardData();
+          toast.info("Novas atividades de vendas detectadas!");
+        }
+      )
       .subscribe();
 
     const productsChannel = supabase
@@ -159,10 +171,65 @@ export default function AdminDashboard({
     };
   }, [user.id]);
 
+  useEffect(() => {
+    if (tab === "users") {
+      fetchUsers();
+    }
+  }, [tab]);
+
+  const checkAdminAccess = async () => {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("is_admin")
+      .eq("id", user.id)
+      .single();
+
+    if (!profile?.is_admin) {
+      const HARDCODED_ADMINS = ["3d596215-583e-498f-9fd5-36b83d8bccf5", "00d44feb-0b51-405e-86f7-31b67edfb7b6"];
+      if (!HARDCODED_ADMINS.includes(user.id)) {
+        onBack();
+        return;
+      }
+    }
+    fetchData();
+  };
+
   const fetchData = async () => {
     setLoading(true);
-    await Promise.all([fetchProducts(), fetchDashboardData()]);
+    await Promise.all([fetchProducts(), fetchDashboardData(), fetchUsers()]);
     setLoading(false);
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch(`/api/admin/users?userId=${user.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
+    } catch (e) {
+      console.error("Error fetching users:", e);
+    }
+  };
+
+  const toggleAdminRole = async (targetUser: Profile) => {
+    try {
+      const newRole = !targetUser.is_admin;
+      const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, is_admin: newRole }),
+      });
+
+      if (res.ok) {
+        toast.success(`Permissões de ${targetUser.full_name || targetUser.email} atualizadas.`);
+        fetchUsers();
+      } else {
+        toast.error("Erro ao atualizar permissões.");
+      }
+    } catch (e) {
+      toast.error("Erro na comunicação com o servidor.");
+    }
   };
 
   const fetchProducts = async () => {
@@ -174,32 +241,48 @@ export default function AdminDashboard({
   };
 
   const fetchDashboardData = async () => {
-    const { data: ordersData } = await supabase
-      .from("orders")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      console.log("[DEBUG] Obtendo dados do painel para:", user.id);
+      const { data: ordersData, error: ordersError } = await supabase
+        .from("orders")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    if (ordersData) {
-      if (ordersData.length === 0) {
-        setOrders([]);
-        return;
+      if (ordersError) {
+        console.error("[DEBUG] Erro ao buscar pedidos:", ordersError);
+        throw ordersError;
       }
 
-      const productIds = Array.from(
-        new Set(ordersData.map((o) => o.product_id).filter(Boolean)),
-      );
+      if (ordersData) {
+        console.log(`[DEBUG] ${ordersData.length} pedidos encontrados.`);
+        if (ordersData.length === 0) {
+          setOrders([]);
+          return;
+        }
 
-      const { data: productsData } = await supabase
-        .from("products")
-        .select("*")
-        .in("id", productIds);
+        const productIds = Array.from(
+          new Set(ordersData.map((o) => o.product_id).filter(Boolean)),
+        );
 
-      const merged = ordersData.map((order) => ({
-        ...order,
-        product: productsData?.find((p) => p.id === order.product_id) || null,
-      }));
+        const { data: productsData, error: productsError } = await supabase
+          .from("products")
+          .select("*")
+          .in("id", productIds);
 
-      setOrders(merged as any);
+        if (productsError) {
+          console.error("[DEBUG] Erro ao buscar produtos dos pedidos:", productsError);
+        }
+
+        const merged = ordersData.map((order) => ({
+          ...order,
+          product: productsData?.find((p) => p.id === order.product_id) || null,
+        }));
+
+        setOrders(merged as any);
+      }
+    } catch (e: any) {
+      console.error("[DEBUG] Erro fatal no Dashboard:", e);
+      toast.error(e.message || "Erro ao carregar dados. Verifique o RLS no Supabase.");
     }
   };
 
@@ -316,45 +399,52 @@ export default function AdminDashboard({
     }
   };
 
-  // Consider completed and refunded orders for financial calculations
-  const grossOrders = orders.filter(
-    (o) => o.status === "completed" || o.status === "refunded",
-  );
-  const refundedOrders = orders.filter((o) => o.status === "refunded");
+  // Correct financial calculations
+  const completedOrders = orders.filter((o) => o.status?.toLowerCase() === "completed");
+  const refundedOrders = orders.filter((o) => o.status?.toLowerCase() === "refunded");
 
-  const totalGrossRevenue = grossOrders.reduce(
-    (sum, o) => sum + (Number(o.total_amount) || 0),
+  const totalCompleted = completedOrders.reduce(
+    (sum, o) => sum + (parseFloat(o.total_amount?.toString() || '0')),
     0,
   );
   const totalRefunded = refundedOrders.reduce(
-    (sum, o) => sum + (Number(o.total_amount) || 0),
+    (sum, o) => sum + (parseFloat(o.total_amount?.toString() || '0')),
     0,
   );
-  const netProfit = totalGrossRevenue - totalRefunded;
-  const completedSales = grossOrders.length; // Including refunds in total transaction count
 
-  // Processing chart data with safety for NaN
+  // Gross Revenue = All payments received (including those later refunded)
+  const totalGrossRevenue = totalCompleted + totalRefunded;
+  // Net Profit = What is actually in the bank (Completed)
+  const netProfit = totalCompleted;
+  const completedSales = completedOrders.length; 
+
+  // Processing chart data with safety for NaN and invalid dates
   const getChartData = () => {
-    if (timeRange === "weekly") {
-      const days = [
-        "Segunda",
-        "Terça",
-        "Quarta",
-        "Quinta",
-        "Sexta",
-        "Sábado",
-        "Domingo",
-      ];
-      const data = days.map((day) => ({ name: day, value: 0, sales: 0 }));
+    try {
+      if (timeRange === "weekly") {
+        const days = [
+          "Segunda",
+          "Terça",
+          "Quarta",
+          "Quinta",
+          "Sexta",
+          "Sábado",
+          "Domingo",
+        ];
+        const data = days.map((day) => ({ name: day, value: 0, sales: 0 }));
 
-      grossOrders.forEach((order) => {
-        const date = new Date(order.created_at);
-        const dayIndex = (date.getDay() + 6) % 7; // Convert 0-6 (Sun-Sat) to 0-6 (Mon-Sun)
-        data[dayIndex].value += Number(order.total_amount) || 0;
-        data[dayIndex].sales += 1;
-      });
-      return data;
-    }
+        completedOrders.forEach((order) => {
+          if (!order.created_at) return;
+          const date = new Date(order.created_at);
+          if (isNaN(date.getTime())) return;
+          
+          const dayIndex = (date.getDay() + 6) % 7; 
+          const amt = typeof order.total_amount === 'string' ? parseFloat(order.total_amount) : Number(order.total_amount);
+          data[dayIndex].value += amt || 0;
+          data[dayIndex].sales += 1;
+        });
+        return data;
+      }
 
     if (timeRange === "monthly") {
       const months = [
@@ -374,11 +464,15 @@ export default function AdminDashboard({
       const currentYear = new Date().getFullYear();
       const data = months.map((month) => ({ name: month, value: 0, sales: 0 }));
 
-      grossOrders.forEach((order) => {
+      completedOrders.forEach((order) => {
+        if (!order.created_at) return;
         const date = new Date(order.created_at);
+        if (isNaN(date.getTime())) return;
+
         if (date.getFullYear() === currentYear) {
           const monthIndex = date.getMonth();
-          data[monthIndex].value += Number(order.total_amount) || 0;
+          const amt = typeof order.total_amount === 'string' ? parseFloat(order.total_amount) : Number(order.total_amount);
+          data[monthIndex].value += amt || 0;
           data[monthIndex].sales += 1;
         }
       });
@@ -386,7 +480,6 @@ export default function AdminDashboard({
     }
 
     if (timeRange === "yearly") {
-      // Get last 5 years
       const currentYear = new Date().getFullYear();
       const years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
       const data = years.map((year) => ({
@@ -395,12 +488,16 @@ export default function AdminDashboard({
         sales: 0,
       }));
 
-      grossOrders.forEach((order) => {
+      completedOrders.forEach((order) => {
+        if (!order.created_at) return;
         const date = new Date(order.created_at);
+        if (isNaN(date.getTime())) return;
+
         const year = date.getFullYear();
         const yearData = data.find((d) => d.name === year.toString());
         if (yearData) {
-          yearData.value += Number(order.total_amount) || 0;
+          const amt = typeof order.total_amount === 'string' ? parseFloat(order.total_amount) : Number(order.total_amount);
+          yearData.value += amt || 0;
           yearData.sales += 1;
         }
       });
@@ -408,6 +505,10 @@ export default function AdminDashboard({
     }
 
     return [{ name: "N/A", value: 0, sales: 0 }];
+    } catch (e) {
+      console.error("Error generating chart data:", e);
+      return [{ name: "Erro", value: 0, sales: 0 }];
+    }
   };
 
   const displayData = getChartData();
@@ -473,17 +574,33 @@ export default function AdminDashboard({
           </div>
 
           <div className="hidden sm:flex bg-white/5 rounded-full p-1 border border-white/5">
-            {(["overview", "products", "orders"] as const).map((t) => (
+            {(["overview", "products", "orders", "users"] as const).map((t) => (
               <button
                 key={t}
+                id={t === "users" ? "tab-users" : undefined}
                 onClick={() => setTab(t)}
-                className={`px-4 md:px-6 py-2 rounded-full text-[9px] md:text-[10px] uppercase tracking-widest transition-all ${
+                className={`px-4 md:px-6 py-2 rounded-full text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all duration-500 relative overflow-hidden group ${
                   tab === t
-                    ? "bg-luxury-gold text-black font-semibold"
-                    : "text-white/40 hover:text-white"
+                    ? "bg-luxury-gold text-black font-semibold shadow-[0_10px_20px_rgba(212,175,55,0.2)]"
+                    : "text-white/40 hover:text-white hover:bg-white/5"
                 }`}
               >
-                {t}
+                <span className="relative z-10">
+                  {t === "overview"
+                    ? "Visão Geral"
+                    : t === "products"
+                      ? "Produtos"
+                      : t === "orders"
+                        ? "Ordens"
+                        : "Utilizadores"}
+                </span>
+                {tab === t && (
+                  <motion.div 
+                    layoutId="tab-underline"
+                    className="absolute inset-0 bg-luxury-gold z-0"
+                    transition={{ type: "linear", duration: 0.2 }}
+                  />
+                )}
               </button>
             ))}
           </div>
@@ -491,7 +608,7 @@ export default function AdminDashboard({
 
         {/* Mobile Tabs */}
         <div className="sm:hidden flex border-t border-white/5">
-          {(["overview", "products", "orders"] as const).map((t) => (
+          {(["overview", "products", "orders", "users"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -501,7 +618,13 @@ export default function AdminDashboard({
                   : "border-transparent text-white/40"
               }`}
             >
-              {t}
+              {t === "overview"
+                  ? "Geral"
+                  : t === "products"
+                    ? "Ativos"
+                    : t === "orders"
+                      ? "Vendas"
+                      : "Users"}
             </button>
           ))}
         </div>
@@ -512,59 +635,59 @@ export default function AdminDashboard({
           <div className="space-y-12 animate-in fade-in duration-700">
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-              <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8">
+              <Card id="stats-revenue" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 hover:border-luxury-gold/30 transition-all duration-500 group">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 group-hover:text-luxury-gold/50 transition-colors">
                     Vendas Brutas
                   </div>
                 </div>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-4xl font-serif">
+                  <h3 className="text-3xl md:text-5xl font-serif text-luxury-gold drop-shadow-[0_0_15px_rgba(212,175,55,0.3)]">
                     €
                     {totalGrossRevenue.toLocaleString("pt-PT", {
                       minimumFractionDigits: 2,
                     })}
                   </h3>
-                  <div className="p-2 md:p-3 bg-emerald-500/10 text-emerald-500 rounded-full">
+                  <div className="p-2 md:p-3 bg-luxury-gold/10 text-luxury-gold rounded-full border border-luxury-gold/20">
                     <TrendingUp size={18} />
                   </div>
                 </div>
               </Card>
 
-              <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8">
+              <Card id="stats-refunds" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 hover:border-red-500/30 transition-all duration-500 group">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-red-400">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-red-400 font-bold group-hover:text-red-400 transition-colors">
                     Total Reembolsado
                   </div>
                 </div>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-4xl font-serif text-red-500">
+                  <h3 className="text-3xl md:text-5xl font-serif text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.2)]">
                     €
                     {totalRefunded.toLocaleString("pt-PT", {
                       minimumFractionDigits: 2,
                     })}
                   </h3>
-                  <div className="p-2 md:p-3 bg-red-500/10 text-red-500 rounded-full">
+                  <div className="p-2 md:p-3 bg-red-500/10 text-red-500 rounded-full border border-red-500/20">
                     <XCircle size={18} />
                   </div>
                 </div>
               </Card>
 
-              <Card className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-2 lg:col-span-1">
+              <Card id="stats-profit" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-2 lg:col-span-1 hover:border-emerald-500/30 transition-all duration-500 group border-l-4 border-l-emerald-500/20">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 group-hover:text-emerald-400/50 transition-colors">
                     Lucro Líquido
                   </div>
                 </div>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-4xl font-serif text-luxury-gold">
+                  <h3 className="text-3xl md:text-5xl font-serif text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]">
                     €
                     {netProfit.toLocaleString("pt-PT", {
                       minimumFractionDigits: 2,
                     })}
                   </h3>
-                  <div className="p-2 md:p-3 bg-luxury-gold/10 text-luxury-gold rounded-full">
-                    <DollarSign size={18} />
+                  <div className="p-2 md:p-3 bg-emerald-500/10 text-emerald-500 rounded-full border border-emerald-500/20">
+                    <ShieldCheck size={18} />
                   </div>
                 </div>
               </Card>
@@ -773,25 +896,25 @@ export default function AdminDashboard({
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-white/5 border-b border-white/5">
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-orderid" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         ID Ordem
                       </th>
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-product" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Produto
                       </th>
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-client" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Cliente
                       </th>
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-details" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Detalhes
                       </th>
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-date" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Data
                       </th>
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-value" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Valor
                       </th>
-                      <th className="px-6 py-4 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                      <th id="th-status" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Status
                       </th>
                     </tr>
@@ -1504,7 +1627,7 @@ export default function AdminDashboard({
                         </Button>
                       </td>
                       <td className="px-8 py-6 text-white/40">
-                        {new Date(order.created_at).toLocaleString()}
+                        {order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "-"}
                       </td>
                       <td className="px-8 py-6 font-medium text-lg">
                         €{order.total_amount}
@@ -1589,48 +1712,70 @@ export default function AdminDashboard({
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-3">
-                          <span
-                            className={`inline-flex items-center px-4 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black ${
+                          <select
+                            value={order.status}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value;
+                              try {
+                                const response = await fetch(`/api/admin/orders/${order.id}/status`, {
+                                  method: "PUT",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    "x-user-id": user.id,
+                                  },
+                                  body: JSON.stringify({ status: newStatus }),
+                                });
+                                if (response.ok) {
+                                  toast.success("Status de pagamento atualizado.");
+                                  fetchDashboardData();
+                                } else {
+                                  toast.error("Erro ao atualizar status.");
+                                }
+                              } catch (err) {
+                                toast.error("Erro na comunicação.");
+                              }
+                            }}
+                            className={`bg-luxury-dark border border-white/10 px-3 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black outline-none cursor-pointer hover:border-luxury-gold transition-all ${
                               order.status === "completed"
-                                ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
-                                : "bg-amber-500/10 text-amber-500 border border-amber-500/20"
+                                ? "text-emerald-500 border-emerald-500/20"
+                                : order.status === "refunded"
+                                  ? "text-red-500 border-red-500/20"
+                                  : "text-amber-500 border-amber-500/20"
                             }`}
                           >
-                            {order.status === "completed" ? (
-                              <CheckCircle size={10} className="mr-2" />
-                            ) : (
-                              <Clock size={10} className="mr-2" />
-                            )}
-                            {order.status === "completed" ? "Pago" : "Pendente"}
-                          </span>
+                            <option value="pending" className="bg-luxury-black">Pendente</option>
+                            <option value="completed" className="bg-luxury-black">Pago</option>
+                            <option value="refunded" className="bg-luxury-black">Reembolsado</option>
+                            <option value="cancelled" className="bg-luxury-black">Cancelado</option>
+                          </select>
 
                           {order.status === 'pending' && (
                             <button
-                              onClick={async () => {
-                                try {
-                                  const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
-                                    method: 'POST',
-                                    headers: {
-                                      'Content-Type': 'application/json',
-                                      'x-user-id': user.id
-                                    }
-                                  });
-                                  const data = await response.json();
-                                  if (data.status === 'completed') {
-                                    toast.success('Pagamento confirmado no Stripe!');
-                                    fetchDashboardData();
-                                  } else {
-                                    toast.info(data.message || 'Ainda não pago no Stripe.');
-                                  }
-                                } catch(e) {
-                                  toast.error('Erro de sincronização.');
-                                }
-                              }}
-                              title="Forçar verificação de pagamento no Stripe"
-                              className="text-white/40 hover:text-luxury-gold p-1.5 rounded-full transition-colors flex bg-white/5 hover:bg-white/10"
-                            >
-                              <RefreshCw size={12} />
-                            </button>
+                               onClick={async () => {
+                                 try {
+                                   const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
+                                     method: 'POST',
+                                     headers: {
+                                       'Content-Type': 'application/json',
+                                       'x-user-id': user.id
+                                     }
+                                   });
+                                   const data = await response.json();
+                                   if (data.status === 'completed') {
+                                     toast.success('Pagamento confirmado no Stripe!');
+                                     fetchDashboardData();
+                                   } else {
+                                     toast.info(data.message || 'Ainda não pago no Stripe.');
+                                   }
+                                 } catch(e) {
+                                   toast.error('Erro de sincronização.');
+                                 }
+                               }}
+                               title="Forçar verificação de pagamento no Stripe"
+                               className="text-white/40 hover:text-luxury-gold p-1.5 rounded-full transition-colors flex bg-white/5 hover:bg-white/10"
+                             >
+                               <RefreshCw size={12} />
+                             </button>
                           )}
                         </div>
                       </td>
@@ -1646,6 +1791,114 @@ export default function AdminDashboard({
                       </td>
                     </tr>
                   )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab === "users" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+              <div>
+                <h2 id="title-management" className="text-3xl md:text-5xl font-serif text-white tracking-tight leading-none">
+                  Gestão de <span className="text-luxury-gold italic">Utilizadores</span>
+                </h2>
+                <p id="desc-management" className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
+                  Controle absoluto sobre os membros da boutique. Gestão de acessos, privilégios e histórico de compromisso com a excelência.
+                </p>
+              </div>
+              <div className="w-full md:max-w-xs relative group">
+                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold transition-colors" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar utilizador..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 py-3 pl-12 pr-4 text-[10px] uppercase tracking-widest text-white outline-none focus:border-luxury-gold transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-sm overflow-hidden">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.25em] text-white/30 bg-white/[0.02]">
+                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Utilizador</th>
+                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">E-mail Corporativo</th>
+                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Membro Desde</th>
+                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Estatuto</th>
+                    <th className="px-8 py-8 font-normal text-right">Ações de Controlo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {users
+                    .filter(u => {
+                      const s = userSearch.toLowerCase();
+                      return (
+                        u.full_name?.toLowerCase().includes(s) ||
+                        u.email?.toLowerCase().includes(s) ||
+                        u.id.toLowerCase().includes(s) ||
+                        u.custom_id?.toLowerCase().includes(s)
+                      );
+                    })
+                    .map((profile) => (
+                    <tr key={profile.id} className="group hover:bg-white/5 transition-colors">
+                      <td className="px-8 py-5">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 overflow-hidden flex-shrink-0">
+                            {profile.avatar_url ? (
+                              <img src={getImageUrl(profile.avatar_url)} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-luxury-gold text-xs font-bold uppercase">
+                                {profile.full_name?.substring(0, 2) || "U"}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm text-white font-medium">{profile.full_name || "Sem Nome"}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `SART-${profile.id.substring(0, 4).toUpperCase()}`}</p>
+                              <span className="text-white/10">|</span>
+                              <p className="text-[8px] text-white/20 font-mono tracking-tighter truncate max-w-[100px]">{profile.id}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-5 text-sm text-white/60">{profile.email || "N/D"}</td>
+                      <td className="px-8 py-5 text-sm text-white/60">
+                        {profile.created_at ? format(new Date(profile.created_at), "dd/MM/yyyy") : "-"}
+                      </td>
+                      <td className="px-8 py-5">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold ${
+                          profile.is_admin 
+                            ? "bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30" 
+                            : "bg-white/5 text-white/40 border border-white/10"
+                        }`}>
+                          {profile.is_admin ? <ShieldCheck size={10} /> : <Users size={10} />}
+                          {profile.is_admin ? "Administrador" : "Cliente"}
+                        </span>
+                      </td>
+                      <td className="px-8 py-5 text-right">
+                        {profile.id !== user.id && (
+                          <Button 
+                            onClick={() => toggleAdminRole(profile)}
+                            variant="outline" 
+                            size="sm"
+                            className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all ${
+                              profile.is_admin ? "hover:border-red-500 hover:text-red-500" : ""
+                            }`}
+                          >
+                            {profile.is_admin ? (
+                              <><ShieldAlert size={10} className="mr-2" /> Revogar Admin</>
+                            ) : (
+                              <><ShieldCheck size={10} className="mr-2" /> Tornar Admin</>
+                            )}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

@@ -356,29 +356,24 @@ apiRouter.post('/create-checkout', async (req, res) => {
     // Gerar URL pública da imagem para o Stripe
     let stripeImage = product.image_url;
     if (stripeImage && !stripeImage.startsWith('http')) {
-      const { data } = supabase.storage.from('covers').getPublicUrl(stripeImage);
+      const { data } = supabase.storage.from('assets').getPublicUrl(stripeImage);
       stripeImage = data.publicUrl;
     }
 
     // Create Order Record in Pending State
     let orderId = '';
     try {
-      const orderPayload: any = {
-        user_id: userId || null,
-        product_id: productId,
-        total_amount: product.price,
-        status: 'pending',
-        selected_options: options || {}
-      };
-
-      // Tenta incluir shipping_details se estiver presente no payload
-      if (shippingInfo) {
-        orderPayload.shipping_details = shippingInfo;
-      }
-
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .insert(orderPayload)
+        .insert({
+          user_id: userId || null,
+          product_id: productId,
+          total_amount: product.price,
+          status: 'pending',
+          selected_options: options || {},
+          shipping_details: shippingInfo || null,
+          customer_email: email
+        })
         .select()
         .single();
         
@@ -386,21 +381,8 @@ apiRouter.post('/create-checkout', async (req, res) => {
         orderId = order.id;
       } else {
         console.warn("[S.ART] DB Sync Warning: Could not create initial order record.", orderError);
-        // Fallback without shipping_details if the column doesn't exist yet
-        if (orderError?.code === 'PGRST204' || orderError?.message?.includes('shipping_details')) {
-           const { data: fallbackOrder } = await supabase
-            .from('orders')
-            .insert({
-              user_id: userId || null,
-              product_id: productId,
-              total_amount: product.price,
-              status: 'pending',
-              selected_options: { ...(options || {}), shipping_details: shippingInfo || null }
-            })
-            .select()
-            .single();
-           if (fallbackOrder) orderId = fallbackOrder.id;
-        }
+        // Special case: if table doesn't have shipping_details yet, we tried above and failed
+        // But the previous fallback logic was also trying selected_options mapping
       }
     } catch (dbErr) {
       console.warn("[S.ART] DB Exception: Failed to insert order.", dbErr);
@@ -442,6 +424,20 @@ apiRouter.post('/create-checkout', async (req, res) => {
         shipping_phone: shippingInfo?.phone || ''
       }
     } as any);
+
+    // Save the Stripe session ID to the order for tracking and webhooks
+    if (orderId) {
+      console.log(`[S.ART] Syncing session ${session.id} with order ${orderId}`);
+      const supabase = getSupabase();
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ stripe_session_id: session.id })
+        .eq('id', orderId);
+        
+      if (updateError) {
+        console.error('[S.ART] Error updating order with stripe_session_id:', updateError);
+      }
+    }
 
     res.json({ id: session.id, url: session.url });
   } catch (error: any) {
@@ -593,13 +589,93 @@ apiRouter.get('/get-book', async (req, res) => {
 // --- ADMIN API ---
 const adminRouter = express.Router();
 
-adminRouter.use((req, res, next) => {
+adminRouter.use(async (req, res, next) => {
   const userId = req.body.userId || req.query.userId || req.headers['x-user-id'];
-  const ADMIN_IDS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
-  if (!ADMIN_IDS.includes(userId as string)) {
-    return res.status(403).json({ error: 'Unauthorized admin access' });
+  
+  if (!userId) {
+    return res.status(401).json({ error: 'User ID missing in request' });
   }
-  next();
+
+  try {
+    const supabase = getSupabase();
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', userId)
+      .single();
+
+    if (error || !profile || !profile.is_admin) {
+      // Emergency fallback for initial setup if no admin exists yet
+      const HARDCODED_ADMINS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
+      if (HARDCODED_ADMINS.includes(userId as string)) {
+        return next();
+      }
+      return res.status(403).json({ error: 'Unauthorized admin access' });
+    }
+    
+    next();
+  } catch (err) {
+    console.error('[ADMIN AUTH ERROR]', err);
+    res.status(500).json({ error: 'Internal server error during admin validation' });
+  }
+});
+
+adminRouter.get('/users', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    
+    // Fetch all users from Auth (requires Service Role)
+    const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
+    if (authError) throw authError;
+
+    // Fetch all profiles
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('*');
+
+    if (profileError) throw profileError;
+
+    // Merge Auth users with Profiles
+    const mergedUsers = authData.users.map(authUser => {
+      const profile = profileData?.find(p => p.id === authUser.id);
+      return {
+        id: authUser.id,
+        email: authUser.email,
+        full_name: profile?.full_name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || '',
+        avatar_url: profile?.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || '',
+        is_admin: profile?.is_admin || false,
+        created_at: authUser.created_at,
+        custom_id: profile?.custom_id || `SART-${authUser.id.substring(0, 4).toUpperCase()}`
+      };
+    });
+
+    // Sort by created_at desc
+    mergedUsers.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    res.json(mergedUsers);
+  } catch (error: any) {
+    console.error("[ADMIN USERS ERROR]", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.put('/users/:id/role', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { is_admin } = req.body;
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ is_admin })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 adminRouter.post('/products', async (req, res) => {
@@ -686,6 +762,26 @@ adminRouter.delete('/products/:id', async (req, res) => {
 
     if (error) throw error;
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.put('/orders/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; // 'completed', 'refunded', 'pending', 'cancelled'
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ status })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS orders (
   stripe_session_id TEXT,
   customer_email TEXT, -- For guest checkouts or verification
   selected_options JSONB DEFAULT '{}'::jsonb, -- Store size, color, etc.
+  shipping_details JSONB DEFAULT '{}'::jsonb, -- Store address, name, phone
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
@@ -82,23 +83,37 @@ ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_reading_progress ENABLE ROW LEVEL SECURITY;
 
--- ... (outras policies)
-
 -- Reading Progress: Users manage their own
 CREATE POLICY "Users manage their own progress" ON user_reading_progress
   FOR ALL USING (auth.uid() = user_id);
 
--- Profiles: Users can read their own
-CREATE POLICY "Users can view their own profile" ON profiles
-  FOR SELECT USING (auth.uid() = id);
+-- Profiles Table Extension
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
 
--- Products: Everyone can see active products
-CREATE POLICY "Public can view active products" ON products
-  FOR SELECT USING (is_active = true);
+-- RLS POLICIES FOR ADMIN ACCESS
+-- Enable access for authenticated users with is_admin = true
 
--- Orders: Users can view their own orders
-CREATE POLICY "Users can view their own orders" ON orders
-  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Admins can view all profiles" ON profiles
+  FOR SELECT USING (auth.uid() = id OR (SELECT is_admin FROM profiles WHERE id = auth.uid()) = true);
+
+CREATE POLICY "Admins can view all orders" ON orders
+  FOR SELECT USING ((SELECT is_admin FROM profiles WHERE id = auth.uid()) = true OR auth.uid() = user_id);
+
+CREATE POLICY "Admins can update all orders" ON orders
+  FOR UPDATE USING ((SELECT is_admin FROM profiles WHERE id = auth.uid()) = true);
+
+CREATE POLICY "Anyone can insert orders" ON orders
+  FOR INSERT WITH CHECK (true);
+
+-- Ensure profiles can be created during signup
+CREATE POLICY "Users can insert their own profile" ON profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can update their own profile" ON profiles
+  FOR UPDATE USING (auth.uid() = id);
+
+-- Storage access for admins
+-- (Assuming storage policies are set up similarly in the Supabase UI)
 
 -- 4. STORAGE SETUP (Specific Buckets)
 -- Run these in the SQL Editor to create buckets and set dynamic policies
