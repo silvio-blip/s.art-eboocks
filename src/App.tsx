@@ -1764,16 +1764,20 @@ export default function App() {
 
     setIsRefunding(true);
     try {
-      const res = await fetch("/api/refund", {
+      const res = await fetch("/api/request-refund", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: refundOrder.id, userId: user.id }),
+        body: JSON.stringify({ 
+          orderId: refundOrder.id, 
+          userId: user.id,
+          reason: "Solicitado via painel do utilizador"
+        }),
       });
       const data = await res.json();
       if (!res.ok)
-        throw new Error(data.error || "Erro ao solicitar reembolso.");
+        throw new Error(data.error || "Erro ao solicitar análise de reembolso.");
 
-      toast.success("Reembolso efetuado com sucesso.");
+      toast.success("O seu pedido de reembolso foi enviado para análise administrativa.");
       setRefundOrder(null);
       setRefundBookName("");
       fetchDashboardData(user.id);
@@ -2455,18 +2459,13 @@ export default function App() {
           <DialogContent className="max-w-md rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8 z-[200]">
             <DialogHeader className="space-y-4">
               <div className="text-center font-serif text-2xl text-red-500">
-                Solicitar Reembolso
+                Solicitar Devolução
               </div>
               <div className="text-center text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60 leading-relaxed">
-                Você está dentro do período de garantia de 14 dias para a obra{" "}
-                <strong className="text-black dark:text-white">
-                  {refundOrder.product?.title}
-                </strong>
-                .
+                O seu pedido será enviado para análise administrativa pela nossa equipa de curadoria.
               </div>
               <div className="text-center text-sm text-black/80 dark:text-white/80 leading-relaxed bg-red-50 dark:bg-red-950/20 p-4 border border-red-100 dark:border-red-900/50">
-                Atenção: Ao processar este reembolso,{" "}
-                <strong>perderá imediatamente o acesso</strong> ao livro.
+                Atenção: A confirmar a devolução, o acesso à obra digital será bloqueado permanentemente após aprovação administrativa.
               </div>
             </DialogHeader>
             <div className="flex flex-col gap-4 pt-4">
@@ -2492,7 +2491,7 @@ export default function App() {
                 {isRefunding ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
-                  "Confirmar Reembolso"
+                  "Confirmar Pedido de Devolução"
                 )}
               </Button>
             </div>

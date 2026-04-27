@@ -48,54 +48,55 @@ Deno.serve(async (req) => {
           body { margin: 0; padding: 0; background-color: #000000; -webkit-text-size-adjust: 100%; }
         </style>
       </head>
-      <body style="margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: 'Playfair Display', serif;">
+      <body style="margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: 'Playfair Display', serif; -webkit-font-smoothing: antialiased;">
         <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #000000;">
           <tr>
-            <td align="center" style="padding: 100px 20px;">
-              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; border: 1px solid #1a1a1a; background-color: #000000;">
+            <td align="center" style="padding: 120px 20px;">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; border: 1px solid #1a1a1a; background-color: #000000; box-shadow: 0 40px 100px rgba(0,0,0,0.8);">
                 <tr>
-                  <td align="center" style="padding: 80px 40px 60px 40px;">
-                    <div style="border-bottom: 1px solid #d4af37; padding-bottom: 30px; width: 80%;">
-                      <h1 style="margin: 0; font-size: 45px; letter-spacing: 25px; text-transform: uppercase; color: #ffffff; font-weight: 400;">S.ART</h1>
-                      <p style="margin: 20px 0 0 0; font-size: 8px; letter-spacing: 6px; text-transform: uppercase; color: #d4af37; font-family: Arial, sans-serif;">Curadoria Digital de Elite</p>
+                  <td align="center" style="padding: 100px 40px 80px 40px;">
+                    <div style="border-bottom: 2px solid #d4af37; padding-bottom: 40px; width: 120px;">
+                      <h1 style="margin: 0; font-size: 48px; letter-spacing: 28px; text-transform: uppercase; color: #ffffff; font-weight: 400; margin-right: -28px;">S.ART</h1>
                     </div>
+                    <p style="margin: 30px 0 0 0; font-size: 9px; letter-spacing: 8px; text-transform: uppercase; color: #d4af37; font-family: 'Segoe UI', Arial, sans-serif; opacity: 0.8;">Boutique d'Élite &bullet; Paris</p>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 0 60px 60px 60px;">
-                    <p style="margin: 0; font-size: 11px; letter-spacing: 3px; color: #555555; text-transform: uppercase; font-family: Arial, sans-serif;">${date}</p>
-                    <p style="margin: 20px 0 0 0; font-size: 13px; letter-spacing: 3px; color: #555555; text-transform: uppercase; font-family: Arial, sans-serif;">bienvenue</p>
-                    <h2 style="margin: 40px 0 30px 0; font-size: 24px; color: #ffffff; font-style: italic; font-weight: 400; line-height: 1.5;">
+                  <td align="center" style="padding: 0 80px 70px 80px;">
+                    <div style="width: 30px; height: 1px; background-color: #333; margin-bottom: 40px;"></div>
+                    <p style="margin: 0; font-size: 11px; letter-spacing: 4px; color: #666666; text-transform: uppercase; font-family: 'Segoe UI', Arial, sans-serif;">${date}</p>
+                    <p style="margin: 20px 0 0 0; font-size: 13px; letter-spacing: 4px; color: #666666; text-transform: uppercase; font-family: 'Segoe UI', Arial, sans-serif;">Bienvenue</p>
+                    <h2 style="margin: 45px 0 40px 0; font-size: 32px; color: #ffffff; font-style: italic; font-weight: 400; line-height: 1.3; letter-spacing: 1px;">
                       Boas-vindas ao Atelier S.ART
                     </h2>
-                    <p style="margin: 0; font-size: 15px; line-height: 2.2; color: #999999; text-align: center; font-weight: 300;">
-                      Prezado(a) <strong>${name}</strong>, é com imenso prazer que o(a) recebemos na nossa boutique digital. A partir de agora, tem acesso exclusivo à nossa curadoria de arte e design de luxo.
+                    <p style="margin: 0; font-size: 16px; line-height: 2.4; color: #a1a1a1; text-align: center; font-weight: 300;">
+                      Prezado(a) <strong>${name}</strong>, é um privilégio recebê-lo(a) no nosso círculo restrito. A partir deste momento, o seu acesso à curadoria de arte digital e design de alta-costura está plenamente autenticado.
                     </p>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 0 60px 60px 60px;">
-                    <div style="background-color: #050505; border: 1px solid #222; padding: 40px; text-align: center;">
-                       <p style="margin: 0 0 30px 0; font-size: 14px; color: #d4af37; font-family: 'Times New Roman', serif; font-style: italic;">
+                  <td align="center" style="padding: 0 80px 70px 80px;">
+                    <div style="background-color: #080808; border: 1px solid #222; padding: 60px 40px; text-align: center; border-radius: 4px;">
+                       <p style="margin: 0 0 35px 0; font-size: 15px; color: #d4af37; font-family: 'Playfair Display', serif; font-style: italic; opacity: 0.9; line-height: 1.6;">
                          "A arte não é o que você vê, mas o que você faz os outros verem."
                        </p>
-                       <a href="${siteUrl}" style="display: inline-block; padding: 15px 40px; background-color: transparent; border: 1px solid #d4af37; color: #d4af37; text-decoration: none; text-transform: uppercase; font-size: 10px; letter-spacing: 4px; font-family: Arial, sans-serif; transition: all 0.3s ease;">
+                       <a href="${siteUrl}" style="display: inline-block; padding: 18px 45px; background-color: transparent; border: 1px solid #d4af37; color: #d4af37; text-decoration: none; text-transform: uppercase; font-size: 10px; letter-spacing: 5px; font-family: 'Segoe UI', Arial, sans-serif; font-weight: 600; transition: all 0.4s ease;">
                          Aceder ao Atelier
                        </a>
                     </div>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 0 60px 80px 60px;">
-                    <p style="margin: 0; font-size: 11px; color: #444444; line-height: 2; font-family: Arial, sans-serif;">
-                      O seu registo foi concluído com sucesso. Explore o nosso portfólio e sinta a essência do design contemporâneo diretamente do seu painel de membro.
+                  <td align="center" style="padding: 0 80px 100px 80px;">
+                    <p style="margin: 0; font-size: 12px; color: #555555; line-height: 2.2; font-family: 'Segoe UI', Arial, sans-serif;">
+                      O seu registo de membro foi processado com distinção. Convidamo-lo(a) a explorar o nosso portfólio digital e a desfrutar da exclusividade que define a essência S.ART.
                     </p>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 50px 40px; background-color: #030303; border-top: 1px solid #111;">
-                    <p style="margin: 0; font-size: 8px; letter-spacing: 4px; text-transform: uppercase; color: #222222; font-family: Arial, sans-serif;">
-                      S.ART ATELIER DIGITAL &bull; PARIS &bull; LISBOA &bull; MILÃO
+                  <td align="center" style="padding: 60px 40px; background-color: #050505; border-top: 1px solid #111;">
+                    <p style="margin: 0; font-size: 9px; letter-spacing: 6px; text-transform: uppercase; color: #222222; font-family: 'Segoe UI', Arial, sans-serif;">
+                      S.ART ATELIER &bull; PARIS &bull; LISBOA &bull; MILÃO
                     </p>
                   </td>
                 </tr>

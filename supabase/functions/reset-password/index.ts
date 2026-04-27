@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
 
     // 2. Gerar e salvar código
     const charset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Removed ambiguous chars
-    const recoveryCode = Array.from({ length: 15 }, () => charset.charAt(Math.floor(Math.random() * charset.length))).join('');
+    const recoveryCode = Array.from({ length: 16 }, () => charset.charAt(Math.floor(Math.random() * charset.length))).join('');
 
     const { error: dbError } = await supabase
       .from("password_recovery_codes")
@@ -68,51 +68,52 @@ Deno.serve(async (req) => {
           body { margin: 0; padding: 0; background-color: #000000; -webkit-text-size-adjust: 100%; }
         </style>
       </head>
-      <body style="margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: 'Playfair Display', serif;">
+      <body style="margin: 0; padding: 0; background-color: #000000; color: #ffffff; font-family: 'Playfair Display', serif; -webkit-font-smoothing: antialiased;">
         <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #000000;">
           <tr>
-            <td align="center" style="padding: 100px 20px;">
-              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; border: 1px solid #1a1a1a; background-color: #000000;">
+            <td align="center" style="padding: 120px 20px;">
+              <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; border: 1px solid #1a1a1a; background-color: #000000; box-shadow: 0 50px 100px rgba(0,0,0,0.9);">
                 <tr>
-                  <td align="center" style="padding: 80px 40px 60px 40px;">
-                    <div style="border-bottom: 1px solid #d4af37; padding-bottom: 30px; width: 80%;">
-                      <h1 style="margin: 0; font-size: 45px; letter-spacing: 25px; text-transform: uppercase; color: #ffffff; font-weight: 400;">S.ART</h1>
-                      <p style="margin: 20px 0 0 0; font-size: 8px; letter-spacing: 6px; text-transform: uppercase; color: #d4af37; font-family: Arial, sans-serif;">Boutique Digital de Excelência</p>
+                  <td align="center" style="padding: 100px 40px 80px 40px;">
+                    <div style="border-bottom: 2px solid #d4af37; padding-bottom: 40px; width: 120px;">
+                      <h1 style="margin: 0; font-size: 48px; letter-spacing: 28px; text-transform: uppercase; color: #ffffff; font-weight: 400; margin-right: -28px;">S.ART</h1>
                     </div>
+                    <p style="margin: 30px 0 0 0; font-size: 9px; letter-spacing: 8px; text-transform: uppercase; color: #d4af37; font-family: 'Segoe UI', Arial, sans-serif; opacity: 0.8;">Boutique d'Élite &bullet; Paris</p>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 0 60px 60px 60px;">
-                    <p style="margin: 0; font-size: 13px; letter-spacing: 3px; color: #555555; text-transform: uppercase; font-family: Arial, sans-serif;">notificação confidencial</p>
-                    <h2 style="margin: 40px 0 30px 0; font-size: 24px; color: #ffffff; font-style: italic; font-weight: 400; line-height: 1.5;">
-                      Verificação de Integridade de Perfil
+                  <td align="center" style="padding: 0 80px 70px 80px;">
+                    <div style="width: 30px; height: 1px; background-color: #333; margin-bottom: 40px;"></div>
+                    <p style="margin: 0; font-size: 11px; letter-spacing: 4px; color: #666666; text-transform: uppercase; font-family: 'Segoe UI', Arial, sans-serif;">Avis Confidentiel</p>
+                    <h2 style="margin: 45px 0 40px 0; font-size: 28px; color: #ffffff; font-style: italic; font-weight: 400; line-height: 1.4; letter-spacing: 1px;">
+                      Restauration de l'Accès au Profil
                     </h2>
-                    <p style="margin: 0; font-size: 15px; line-height: 2.2; color: #999999; text-align: center; font-weight: 300;">
-                      Para preservar a exclusividade da sua conta na boutique S.ART, iniciámos um procedimento de autenticação. Este código é a chave única e temporária para o restauro das suas credenciais de acesso.
+                    <p style="margin: 0; font-size: 16px; line-height: 2.4; color: #a1a1a1; text-align: center; font-weight: 300;">
+                      Para preservar a integridade da sua presença na <strong>maison S.ART</strong>, foi gerada uma nova chave de segurança. Este procedimento garante que apenas o legítimo detentor da curadoria possa aceder ao atelier.
                     </p>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 0 60px 60px 60px;">
-                    <div style="background-color: #050505; border: 1px solid #222; padding: 60px 30px;">
-                       <p style="margin: 0 0 25px 0; font-size: 9px; letter-spacing: 4px; text-transform: uppercase; color: #d4af37; font-family: Arial, sans-serif;">Chave de Recuperação Atribuída</p>
-                       <div style="font-size: 28px; font-weight: bold; letter-spacing: 12px; font-family: 'Courier New', monospace; color: #ffffff; text-shadow: 0 0 20px rgba(212,175,55,0.2);">
+                  <td align="center" style="padding: 0 80px 70px 80px;">
+                    <div style="background-color: #080808; border: 1px solid #222; padding: 70px 40px; border-radius: 4px;">
+                       <p style="margin: 0 0 35px 0; font-size: 10px; letter-spacing: 6px; text-transform: uppercase; color: #d4af37; font-family: 'Segoe UI', Arial, sans-serif; font-weight: 600;">Código de Verificação de 16 Dígitos</p>
+                       <div style="font-size: 32px; font-weight: 600; letter-spacing: 14px; font-family: 'Courier New', monospace; color: #ffffff; text-shadow: 0 0 30px rgba(212,175,55,0.3); margin-right: -14px; word-break: break-all;">
                          ${recoveryCode}
                        </div>
                     </div>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 0 60px 80px 60px;">
-                    <p style="margin: 0; font-size: 11px; color: #444444; line-height: 2; font-family: Arial, sans-serif;">
-                      Este código expira em <strong style="color: #d4af37;">15 MINUTOS</strong>. <br> Trate esta informação como estritamente privada.
+                  <td align="center" style="padding: 0 80px 100px 80px;">
+                    <p style="margin: 0; font-size: 12px; color: #555555; line-height: 2.2; font-family: 'Segoe UI', Arial, sans-serif;">
+                      Este código de uso único expira em <strong style="color: #d4af37; letter-spacing: 1px;">15 MINUTOS</strong>. <br> Caso não tenha solicitado esta chave, por favor ignore esta mensagem.
                     </p>
                   </td>
                 </tr>
                 <tr>
-                  <td align="center" style="padding: 50px 40px; background-color: #030303; border-top: 1px solid #111;">
-                    <p style="margin: 0; font-size: 8px; letter-spacing: 4px; text-transform: uppercase; color: #222222; font-family: Arial, sans-serif;">
-                      S.ART ATELIER DIGITAL &bull; PARIS &bull; LISBOA &bull; MILÃO
+                  <td align="center" style="padding: 60px 40px; background-color: #050505; border-top: 1px solid #111;">
+                    <p style="margin: 0; font-size: 9px; letter-spacing: 6px; text-transform: uppercase; color: #222222; font-family: 'Segoe UI', Arial, sans-serif;">
+                      S.ART ATELIER &bull; PARIS &bull; GENÈVE &bull; MILANO
                     </p>
                   </td>
                 </tr>

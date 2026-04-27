@@ -953,13 +953,12 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
   }
 });
 
-// Refund Route
-apiRouter.post('/refund', async (req, res) => {
-  const { orderId, userId } = req.body;
+// Request Refund Route (User initiated)
+apiRouter.post('/request-refund', async (req, res) => {
+  const { orderId, userId, reason } = req.body;
   if (!orderId || !userId) return res.status(400).json({ error: 'Missing parameters' });
 
   const supabase = getSupabase();
-  const stripe = getStripe();
 
   try {
     const { data: order, error: orderError } = await supabase
@@ -970,48 +969,90 @@ apiRouter.post('/refund', async (req, res) => {
       .single();
 
     if (orderError || !order) {
-      console.error('[REFUND ERROR] Order not found:', orderError, 'for inputs:', { orderId, userId });
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
     if (order.status !== 'completed') {
-      return res.status(400).json({ error: 'Ordem não é elegível para reembolso' });
+      return res.status(400).json({ error: 'Apenas ordens pagas podem ser reembolsadas.' });
     }
 
-    // Check 14-day rule
     const daysSincePurchase = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 3600 * 24);
     if (daysSincePurchase > 14) {
-      return res.status(400).json({ error: 'O período da garantia de 14 dias já expirou.' });
+      return res.status(400).json({ error: 'O período de garantia de 14 dias expirou.' });
+    }
+
+    // Update status to refund_pending (acting as requested)
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ 
+        status: 'refund_pending',
+        selected_options: { 
+          ...order.selected_options, 
+          refund_reason: reason || 'Não especificado',
+          refund_requested_at: new Date().toISOString()
+        } 
+      })
+      .eq('id', orderId);
+
+    if (updateError) throw updateError;
+
+    return res.json({ success: true, message: 'Pedido de reembolso enviado para análise.' });
+  } catch (err: any) {
+    console.error('[REQUEST REFUND ERROR]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin Refund Processing (Actually calls Stripe)
+adminRouter.post('/orders/:id/refund', async (req, res) => {
+  const { id } = req.params;
+  const supabase = getSupabase();
+  const stripe = getStripe();
+
+  try {
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
     if (!order.stripe_session_id) {
-      return res.status(400).json({ error: 'Ordem não contém uma transação na Stripe válida.' });
+      return res.status(400).json({ error: 'ID de sessão Stripe ausente.' });
     }
 
-    // Retrieve the checkout session to get the PaymentIntent
+    // Retrieve payment intent
     const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
     if (!session.payment_intent) {
-      return res.status(400).json({ error: 'Payment Intent não encontrado nesta checkout session.' });
+      return res.status(400).json({ error: 'Payment Intent não encontrado.' });
     }
 
-    // Issue Refund
+    // Process Stripe Refund
+    console.log(`[ADMIN REFUND] Processing Stripe refund for PI: ${session.payment_intent}`);
     const refund = await stripe.refunds.create({
       payment_intent: session.payment_intent as string,
     });
 
     if (refund.status === 'succeeded') {
-      // Completed synchronously
-      await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
-      await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', userId);
+      // Sync DB immediately if succeeded
+      await supabase.from('orders').update({ status: 'refunded' }).eq('id', id);
+      
+      // Remove reading progress if applicable
+      if (order.user_id && order.product_id) {
+        await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+      }
+      
+      return res.json({ success: true, stripe_status: 'succeeded' });
     } else {
-      // Pending asynchronous completion via webhook
-      await supabase.from('orders').update({ status: 'refund_pending' }).eq('id', orderId);
+      // It might be pending or failed
+      return res.json({ success: true, stripe_status: refund.status });
     }
-
-    return res.json({ success: true, status: refund.status });
   } catch (err: any) {
-    console.error('[REFUND ERROR]', err);
-    return res.status(500).json({ error: err.message || 'Erro ao processar o reembolso.' });
+    console.error('[ADMIN REFUND ERROR]', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

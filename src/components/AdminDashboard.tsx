@@ -31,6 +31,7 @@ import {
   Truck,
   X,
   Users,
+  Undo2,
   ShieldCheck,
   ShieldAlert,
 } from "lucide-react";
@@ -1776,6 +1777,36 @@ export default function AdminDashboard({
                                className="text-white/40 hover:text-luxury-gold p-1.5 rounded-full transition-colors flex bg-white/5 hover:bg-white/10"
                              >
                                <RefreshCw size={12} />
+                             </button>
+                          )}
+
+                          {(order.status === 'refund_pending' || order.status === 'completed') && (
+                            <button
+                               onClick={async () => {
+                                 if (!confirm("Deseja realmente processar o reembolso total desta ordem via Stripe?")) return;
+                                 try {
+                                   const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
+                                     method: 'POST',
+                                     headers: {
+                                       'Content-Type': 'application/json',
+                                       'x-user-id': user.id
+                                     }
+                                   });
+                                   const data = await response.json();
+                                   if (data.success) {
+                                     toast.success(`Reembolso Stripe processado: ${data.stripe_status}`);
+                                     fetchDashboardData();
+                                   } else {
+                                     toast.error(data.error || 'Erro ao processar reembolso.');
+                                   }
+                                 } catch(e) {
+                                   toast.error('Erro de rede ao processar reembolso.');
+                                 }
+                               }}
+                               title="Processar Reembolso no Stripe"
+                               className="text-red-500 hover:text-red-400 p-1.5 rounded-full transition-colors flex bg-red-500/10 hover:bg-red-500/20"
+                             >
+                               <Undo2 size={12} />
                              </button>
                           )}
                         </div>
