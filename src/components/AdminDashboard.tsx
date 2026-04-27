@@ -162,6 +162,12 @@ export default function AdminDashboard({
         }
       });
 
+    // Polling fallback every 30 seconds to ensure data freshness
+    const pollInterval = setInterval(() => {
+      console.log("[POLLING] Refreshing dashboard data...");
+      fetchDashboardData();
+    }, 30000);
+
     const productsChannel = supabase
       .channel("products-admin-realtime")
       .on(
@@ -176,6 +182,7 @@ export default function AdminDashboard({
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(productsChannel);
+      clearInterval(pollInterval);
     };
   }, [user.id]);
 
