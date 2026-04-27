@@ -288,14 +288,22 @@ apiRouter.post('/recovery/send', async (req, res) => {
       if ((error as any).context) {
         try {
           const bodyText = await (error as any).context.text();
-          console.error(`[RECOVERY PROXY BODY]:`, bodyText);
-          const bodyJson = JSON.parse(bodyText);
-          errorMessage = bodyJson.error || bodyJson.message || errorMessage;
+          console.error(`[RECOVERY PROXY BODY (RAW)]:`, bodyText);
+          
+          try {
+            const bodyJson = JSON.parse(bodyText);
+            errorMessage = bodyJson.error || bodyJson.message || errorMessage;
+          } catch (e) {
+            console.error("[RECOVERY PROXY] Falha ao parsear erro do corpo (JSON inválido), tentando string:", bodyText);
+            // Se não for JSON, usamos o texto como erro
+            errorMessage = bodyText || errorMessage;
+          }
         } catch (e) {
-          console.error("[RECOVERY PROXY] Falha ao parsear erro do corpo:", e);
+          console.error("[RECOVERY PROXY] Falha absoluta ao ler corpo do erro:", e);
         }
       }
       
+      // Ensure we send valid JSON
       return res.status(500).json({ error: errorMessage });
     }
     

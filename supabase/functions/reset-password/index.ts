@@ -48,13 +48,26 @@ Deno.serve(async (req) => {
     if (dbError) throw dbError;
 
     // 3. Enviar e-mail via Nodemailer (Muito mais estável)
+    const smtpHost = Deno.env.get("SMTP_HOSTNAME");
+    const smtpPort = Deno.env.get("SMTP_PORT");
+    const smtpUser = Deno.env.get("SMTP_USER");
+    const smtpPass = Deno.env.get("SMTP_PASS");
+
+    if (!smtpHost || !smtpPort || !smtpUser || !smtpPass) {
+      console.error("Configurações SMTP ausentes no ambiente.");
+      return new Response(JSON.stringify({ error: "Configuração do servidor de e-mail incompleta." }), { 
+        status: 500, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      });
+    }
+
     const transporter = nodemailer.createTransport({
-      host: Deno.env.get("SMTP_HOSTNAME"),
-      port: parseInt(Deno.env.get("SMTP_PORT") || "465"),
-      secure: parseInt(Deno.env.get("SMTP_PORT") || "465") === 465,
+      host: smtpHost,
+      port: parseInt(smtpPort),
+      secure: parseInt(smtpPort) === 465,
       auth: {
-        user: Deno.env.get("SMTP_USER"),
-        pass: Deno.env.get("SMTP_PASS"),
+        user: smtpUser,
+        pass: smtpPass,
       },
     });
 
