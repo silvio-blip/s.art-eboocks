@@ -1922,9 +1922,11 @@ export default function AdminDashboard({
                                     ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' 
                                     : order.status === 'refund_pending'
                                       ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse'
-                                      : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                      : order.status === 'refund_rejected'
+                                        ? 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
+                                        : 'bg-red-500/10 text-red-500 border border-red-500/20'
                                 }`}>
-                                  {order.status === 'refund_requested' ? 'Em Análise' : order.status === 'refund_pending' ? 'Processando Stripe' : 'Reembolsado'}
+                                  {order.status === 'refund_requested' ? 'Em Análise' : order.status === 'refund_pending' ? 'Processando Stripe' : order.status === 'refund_rejected' ? 'Reembolso Rejeitado' : 'Reembolsado'}
                                 </div>
                               </td>
                               <td className="px-8 py-6 text-right">

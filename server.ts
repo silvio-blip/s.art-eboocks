@@ -1167,9 +1167,9 @@ adminRouter.post('/orders/:id/cancel-refund', async (req, res) => {
       return res.status(400).json({ error: 'Apenas pedidos com status "Reembolso Solicitado" podem ser cancelados.' });
     }
 
-    // Set back to completed
+    // Set back to rejected
     await supabase.from('orders').update({ 
-      status: 'completed',
+      status: 'refund_rejected',
       selected_options: {
         ...(order.selected_options || {}),
         refund_reason: null,
@@ -1177,7 +1177,7 @@ adminRouter.post('/orders/:id/cancel-refund', async (req, res) => {
       }
     }).eq('id', id);
 
-    return res.json({ success: true, message: 'Pedido de reembolso cancelado pelo administrador.' });
+    return res.json({ success: true, message: 'Pedido de reembolso rejeitado pelo administrador.' });
   } catch (err: any) {
     console.error('[ADMIN CANCEL REFUND ERROR]', err);
     res.status(500).json({ error: err.message });
