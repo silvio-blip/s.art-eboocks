@@ -401,8 +401,10 @@ export default function AdminDashboard({
   };
 
   // Correct financial calculations
-  const completedOrders = orders.filter((o) => ["completed", "refund_pending"].includes(o.status?.toLowerCase() || ""));
+  const completedOrders = orders.filter((o) => ["completed", "pago", "delivered"].includes(o.status?.toLowerCase() || ""));
   const refundedOrders = orders.filter((o) => o.status?.toLowerCase() === "refunded");
+  const refundedOrdersCount = refundedOrders.length;
+  const requestedRefundsCount = orders.filter((o) => ["refund_requested", "refund_pending"].includes(o.status?.toLowerCase() || "")).length;
 
   const totalCompleted = completedOrders.reduce(
     (sum, o) => sum + (parseFloat(o.total_amount?.toString() || '0')),
@@ -722,7 +724,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="flex items-end justify-between">
                   <h3 className="text-3xl md:text-5xl font-serif text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-                    {orders.filter(o => o.status === 'refund_pending').length}
+                    {requestedRefundsCount}
                   </h3>
                   <div className="p-2 md:p-3 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20">
                     <Clock size={18} />
@@ -1926,63 +1928,65 @@ export default function AdminDashboard({
                                 </div>
                               </td>
                               <td className="px-8 py-6 text-right">
-                                {order.status === 'refund_requested' && (
-                                  <div className="flex gap-2 justify-end">
-                                    <Button
-                                      onClick={async () => {
-                                        if (!confirm("Deseja realmente aprovar e processar o reembolso via Stripe?")) return;
-                                        try {
-                                          const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
-                                            method: 'POST',
-                                            headers: {
-                                              'Content-Type': 'application/json',
-                                              'x-user-id': user.id
-                                            }
-                                          });
-                                          const data = await response.json();
-                                          if (data.success) {
-                                            toast.success(data.message);
-                                            fetchDashboardData();
-                                          } else {
-                                            toast.error(data.error || "Erro ao processar");
-                                          }
-                                        } catch(e) {
-                                          toast.error("Erro de rede");
-                                        }
-                                      }}
-                                      className="bg-red-500 hover:bg-red-600 text-white text-[9px] uppercase tracking-widest h-8 px-4 rounded-none"
-                                    >
-                                      Confirmar
-                                    </Button>
-                                    <Button
-                                      onClick={async () => {
-                                        if (!confirm("Deseja realmente cancelar esta solicitação de reembolso?")) return;
-                                        try {
-                                          const response = await fetch(`/api/admin/orders/${order.id}/cancel-refund`, {
-                                            method: 'POST',
-                                            headers: {
-                                              'Content-Type': 'application/json',
-                                              'x-user-id': user.id
-                                            }
-                                          });
-                                          const data = await response.json();
-                                          if (data.success) {
-                                            toast.success(data.message);
-                                            fetchDashboardData();
-                                          } else {
-                                            toast.error(data.error || "Erro ao processar");
-                                          }
-                                        } catch(e) {
-                                          toast.error("Erro de rede");
-                                        }
-                                      }}
-                                      variant="outline"
-                                      className="border-white/20 text-white/60 hover:bg-white/10 text-[9px] uppercase tracking-widest h-8 px-4 rounded-none"
-                                    >
-                                      Cancelar
-                                    </Button>
-                                  </div>
-                                )}
+                                    <div className="flex gap-2 justify-end">
+                                      {order.status === 'refund_requested' && (
+                                        <>
+                                          <Button
+                                            onClick={async () => {
+                                              if (!confirm("Deseja realmente aprovar e processar o reembolso via Stripe?")) return;
+                                              try {
+                                                const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
+                                                  method: 'POST',
+                                                  headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'x-user-id': user.id
+                                                  }
+                                                });
+                                                const data = await response.json();
+                                                if (data.success) {
+                                                  toast.success(data.message);
+                                                  fetchDashboardData();
+                                                } else {
+                                                  toast.error(data.error || "Erro ao processar");
+                                                }
+                                              } catch(e) {
+                                                toast.error("Erro de rede");
+                                              }
+                                            }}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] uppercase tracking-widest h-8 px-4 rounded-none"
+                                          >
+                                            Confirmar
+                                          </Button>
+                                          <Button
+                                            onClick={async () => {
+                                              if (!confirm("Deseja realmente recusar esta solicitação de reembolso?")) return;
+                                              try {
+                                                const response = await fetch(`/api/admin/orders/${order.id}/cancel-refund`, {
+                                                  method: 'POST',
+                                                  headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'x-user-id': user.id
+                                                  }
+                                                });
+                                                const data = await response.json();
+                                                if (data.success) {
+                                                  toast.success("Solicitação recusada com sucesso.");
+                                                  fetchDashboardData();
+                                                } else {
+                                                  toast.error(data.error || "Erro ao recusar");
+                                                }
+                                              } catch(e) {
+                                                toast.error("Erro de rede");
+                                              }
+                                            }}
+                                            variant="outline"
+                                            className="border-white/20 text-white/60 hover:bg-white/10 text-[9px] uppercase tracking-widest h-8 px-4 rounded-none"
+                                          >
+                                            Recusar
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
                                 {order.status === 'refund_pending' && (
                                   <div className="text-[9px] text-white/30 uppercase tracking-widest flex items-center justify-end gap-2">
                                     <Loader2 size={12} className="animate-spin text-blue-500" />

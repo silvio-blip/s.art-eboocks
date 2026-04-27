@@ -198,10 +198,21 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
     return o.shipping_status === orderFilter;
   });
 
-  const libraryItems = purchasedProducts.filter(o => 
-    (o.status === 'completed' || o.status === 'refund_requested' || o.status === 'refund_pending') && 
-    (o.product?.product_type === 'digital' || (!o.product?.product_type && o.product?.category === 'E-books'))
-  );
+  const libraryItems = Array.from(
+    purchasedProducts
+      .filter(o => 
+        (o.status === 'completed' || o.status === 'refund_requested' || o.status === 'refund_pending') && 
+        (o.product?.product_type === 'digital' || (!o.product?.product_type && o.product?.category === 'E-books'))
+      )
+      .reduce((acc, order) => {
+        // Only keep the latest order for each product
+        if (!acc.has(order.product_id) || new Date(order.created_at) > new Date(acc.get(order.product_id)!.created_at)) {
+          acc.set(order.product_id, order);
+        }
+        return acc;
+      }, new Map<string, Order>())
+      .values()
+  ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   if (loading) return null;
 

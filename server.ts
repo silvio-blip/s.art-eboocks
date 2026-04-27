@@ -132,21 +132,22 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const supabase = getSupabase();
   const resend = getResend();
   
-  const userId = session.metadata?.userId;
-  const productId = session.metadata?.productId;
-  const orderId = session.metadata?.orderId;
-  const email = session.customer_email || session.customer_details?.email;
+    const userId = session.metadata?.userId;
+    const productId = session.metadata?.productId;
+    const orderId = session.metadata?.orderId;
+    const email = session.customer_email || session.customer_details?.email;
 
-  console.log(`[S.ART WEBHOOK] Payment confirmed for Session: ${session.id}, Order: ${orderId}, Product: ${productId}`);
+    console.log(`[S.ART WEBHOOK] Payment confirmed for Session: ${session.id}, Order: ${orderId}, Product: ${productId}, User: ${userId}`);
 
-  try {
-    // 1. Update or Create Order in Supabase
-    const updateData: any = { 
-      status: 'completed',
-      stripe_session_id: session.id,
-      total_amount: session.amount_total ? (session.amount_total / 100) : 0
-    };
-    if (email) updateData.customer_email = email;
+    try {
+      // 1. Update or Create Order in Supabase
+      const updateData: any = { 
+        status: 'completed',
+        stripe_session_id: session.id,
+        total_amount: session.amount_total ? (session.amount_total / 100) : 0,
+        user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null
+      };
+      if (email) updateData.customer_email = email;
 
     let orderProcessed = false;
 
@@ -173,8 +174,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       const { error: insertError } = await supabase
         .from('orders')
         .upsert({
-          id: orderId || undefined,
-          user_id: userId || null,
+          id: (orderId && orderId !== 'undefined' && orderId !== '') ? orderId : undefined,
+          user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null,
           product_id: productId,
           total_amount: updateData.total_amount,
           status: 'completed',
@@ -191,7 +192,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
             postalCode: session.metadata?.shipping_postal_code,
             country: session.metadata?.shipping_country,
             phone: session.metadata?.shipping_phone
-          }
+          },
+          created_at: new Date().toISOString()
         }, { onConflict: 'stripe_session_id' });
 
       if (insertError) {
