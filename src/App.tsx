@@ -499,8 +499,15 @@ const AuthDialog = ({
             body: JSON.stringify({ email: normalizedEmail })
           });
 
-          const data = await response.json().catch(() => ({ error: "Erro na resposta do servidor." }));
-
+          const rawText = await response.text();
+          let data;
+          try {
+            data = JSON.parse(rawText);
+          } catch (e) {
+            console.error("Failed to parse JSON response. Response text:", rawText);
+            throw new Error(`Erro do servidor (${response.status}): Resposta inválida.`);
+          }
+          
           if (!response.ok || data.error) {
             throw new Error(data.error || `Erro: ${response.status}`);
           }
@@ -520,7 +527,14 @@ const AuthDialog = ({
           body: JSON.stringify({ email, code: otp })
         });
 
-        const data = await response.json();
+        const rawText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          console.error("Failed to parse JSON response. Response text:", rawText);
+          throw new Error(`Erro do servidor (${response.status}): Resposta inválida.`);
+        }
         if (!response.ok || data.error) throw new Error(data.error || "Código inválido ou expirado.");
 
         toast.success("Código validado. Defina a sua nova senha.");
@@ -535,7 +549,14 @@ const AuthDialog = ({
           body: JSON.stringify({ email, code: otp, password })
         });
 
-        const data = await response.json();
+        const rawText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          console.error("Failed to parse JSON response. Response text:", rawText);
+          throw new Error(`Erro do servidor (${response.status}): Resposta inválida.`);
+        }
         if (!response.ok || data.error) throw new Error(data.error || "Erro ao redefinir senha.");
 
         toast.success("Senha atualizada com sucesso. Pode entrar.");
