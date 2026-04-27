@@ -142,7 +142,7 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
+      const filePath = `avatars/${fileName}`; // Usando pasta avatars dentro do bucket assets
 
       const { error: uploadError } = await supabase.storage
         .from('assets')

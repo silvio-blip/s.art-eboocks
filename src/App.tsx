@@ -456,9 +456,17 @@ const AuthDialog = ({
         });
         if (error) throw error;
         if (data.user) {
+          const customId = `SART-${data.user.id.substring(0, 4).toUpperCase()}`;
           await supabase
             .from("profiles")
-            .upsert({ id: data.user.id, email, full_name: fullName });
+            .upsert({ 
+              id: data.user.id, 
+              email, 
+              full_name: fullName,
+              custom_id: customId,
+              welcomed: false,
+              theme: 'dark'
+            });
         }
         toast.success("Conta criada. Verifique o seu email.");
         onClose();
@@ -1490,7 +1498,7 @@ export default function App() {
       .single();
 
     // Se o perfil não existir, criá-lo (Sincronização manual sem triggers)
-    if (error && error.code === 'PGRST116') {
+    if (error && (error.code === 'PGRST116' || error.message.includes('No object found') || error.message.includes('JSON object requested'))) {
       console.log("[PROFILE] Perfil não encontrado. Criando perfil para novo utilizador...");
       const googleAvatar = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture;
       const fullName = userObj.user_metadata?.full_name || userObj.user_metadata?.name || "";
@@ -1505,21 +1513,27 @@ export default function App() {
             avatar_url: googleAvatar || "", 
             welcomed: false,
             custom_id: customId,
-            email: userObj.email // Salvando e-mail para visibilidade no admin
+            email: userObj.email,
+            theme: 'dark'
           }
         ])
         .select()
-        .single();
+        .maybeSingle();
 
       if (!createError && newProfile) {
+        console.log("[PROFILE] Perfil criado com sucesso.");
         setProfile({
           full_name: newProfile.full_name || "",
           avatar_url: newProfile.avatar_url || "",
         });
-        // Enviar e-mail de boas-vindas imediatamente
         sendWelcomeEmail(userObj, newProfile);
       } else {
-        console.error("[PROFILE] Erro ao criar perfil:", createError);
+        console.error("[PROFILE] Erro crítico ao criar perfil:", createError);
+        // Fallback: tentar definir o perfil mesmo sem salvar no banco para o UI não ficar quebrado
+        setProfile({
+          full_name: fullName,
+          avatar_url: googleAvatar || "",
+        });
       }
       return;
     }
@@ -1532,15 +1546,16 @@ export default function App() {
 
       let finalAvatar = data.avatar_url;
 
-      // Sincronizar Avatar do Google se o perfil estiver vazio
-      const googleAvatar =
-        userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture;
+      // Sincronizar Avatar do Google se o perfil estiver sem foto
+      const googleAvatar = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture;
       if (!finalAvatar && googleAvatar) {
-        await supabase
+        console.log("[PROFILE] Sincronizando avatar do Google...");
+        const { error: updateError } = await supabase
           .from("profiles")
           .update({ avatar_url: googleAvatar })
           .eq("id", userObj.id);
-        finalAvatar = googleAvatar;
+        
+        if (!updateError) finalAvatar = googleAvatar;
       }
 
       setProfile({
