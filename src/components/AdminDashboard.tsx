@@ -122,7 +122,7 @@ export default function AdminDashboard({
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(
     null,
   );
-  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users">(
+  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds">(
     "overview",
   );
   const [timeRange, setTimeRange] = useState<"weekly" | "monthly" | "yearly">(
@@ -401,7 +401,7 @@ export default function AdminDashboard({
   };
 
   // Correct financial calculations
-  const completedOrders = orders.filter((o) => o.status?.toLowerCase() === "completed");
+  const completedOrders = orders.filter((o) => ["completed", "refund_pending"].includes(o.status?.toLowerCase() || ""));
   const refundedOrders = orders.filter((o) => o.status?.toLowerCase() === "refunded");
 
   const totalCompleted = completedOrders.reduce(
@@ -413,9 +413,9 @@ export default function AdminDashboard({
     0,
   );
 
-  // Gross Revenue = All payments received (including those later refunded)
+  // Gross Revenue = All money that entered (Completed transactions + those pending refund)
   const totalGrossRevenue = totalCompleted + totalRefunded;
-  // Net Profit = What is actually in the bank (Completed)
+  // Net Profit = Money currently in account (Completed + Pending Refund)
   const netProfit = totalCompleted;
   const completedSales = completedOrders.length; 
 
@@ -575,7 +575,7 @@ export default function AdminDashboard({
           </div>
 
           <div className="hidden sm:flex bg-white/5 rounded-full p-1 border border-white/5">
-            {(["overview", "products", "orders", "users"] as const).map((t) => (
+            {(["overview", "products", "orders", "refunds", "users"] as const).map((t) => (
               <button
                 key={t}
                 id={t === "users" ? "tab-users" : undefined}
@@ -586,15 +586,23 @@ export default function AdminDashboard({
                     : "text-white/40 hover:text-white hover:bg-white/5"
                 }`}
               >
-                <span className="relative z-10">
-                  {t === "overview"
-                    ? "Visão Geral"
-                    : t === "products"
-                      ? "Produtos"
-                      : t === "orders"
-                        ? "Ordens"
-                        : "Utilizadores"}
-                </span>
+                <div className="relative z-10 flex items-center gap-2">
+                  <span>
+                    {t === "overview"
+                      ? "Visão Geral"
+                      : t === "products"
+                        ? "Produtos"
+                        : t === "orders"
+                          ? "Ordens"
+                          : t === "refunds"
+                            ? "Reembolsos"
+                            : "Utilizadores"}
+                  </span>
+                  {t === "refunds" && <Undo2 size={12} className="text-white/20" />}
+                  {t === "refunds" && orders.filter(o => o.status === 'refund_requested').length > 0 && (
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                  )}
+                </div>
                 {tab === t && (
                   <motion.div 
                     layoutId="tab-underline"
@@ -609,7 +617,7 @@ export default function AdminDashboard({
 
         {/* Mobile Tabs */}
         <div className="sm:hidden flex border-t border-white/5">
-          {(["overview", "products", "orders", "users"] as const).map((t) => (
+          {(["overview", "products", "orders", "refunds", "users"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -625,7 +633,9 @@ export default function AdminDashboard({
                     ? "Ativos"
                     : t === "orders"
                       ? "Vendas"
-                      : "Users"}
+                      : t === "refunds"
+                        ? "Reembolsos"
+                        : "Users"}
             </button>
           ))}
         </div>
@@ -635,7 +645,18 @@ export default function AdminDashboard({
         {tab === "overview" && (
           <div className="space-y-12 animate-in fade-in duration-700">
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+            <div className="flex justify-end mb-4">
+              <Button 
+                onClick={fetchDashboardData} 
+                variant="outline" 
+                size="sm"
+                className="bg-white/5 border-white/10 text-white/60 hover:text-luxury-gold hover:bg-white/10 text-[9px] uppercase tracking-widest h-8"
+              >
+                <RefreshCw size={12} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Atualizar Dados
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
               <Card id="stats-revenue" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 hover:border-luxury-gold/30 transition-all duration-500 group">
                 <div className="p-0 pb-4">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 group-hover:text-luxury-gold/50 transition-colors">
@@ -674,7 +695,7 @@ export default function AdminDashboard({
                 </div>
               </Card>
 
-              <Card id="stats-profit" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-2 lg:col-span-1 hover:border-emerald-500/30 transition-all duration-500 group border-l-4 border-l-emerald-500/20">
+              <Card id="stats-profit" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-emerald-500/30 transition-all duration-500 group border-l-4 border-l-emerald-500/20">
                 <div className="p-0 pb-4">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 group-hover:text-emerald-400/50 transition-colors">
                     Lucro Líquido
@@ -690,6 +711,25 @@ export default function AdminDashboard({
                   <div className="p-2 md:p-3 bg-emerald-500/10 text-emerald-500 rounded-full border border-emerald-500/20">
                     <ShieldCheck size={18} />
                   </div>
+                </div>
+              </Card>
+
+              <Card id="stats-pending-refunds" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-amber-500/30 transition-all duration-500 group border-l-4 border-l-amber-500/20">
+                <div className="p-0 pb-4">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500 group-hover:text-amber-400 transition-colors">
+                    Reembolsos Solicitados
+                  </div>
+                </div>
+                <div className="flex items-end justify-between">
+                  <h3 className="text-3xl md:text-5xl font-serif text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                    {orders.filter(o => o.status === 'refund_pending').length}
+                  </h3>
+                  <div className="p-2 md:p-3 bg-amber-500/10 text-amber-500 rounded-full border border-amber-500/20">
+                    <Clock size={18} />
+                  </div>
+                </div>
+                <div className="mt-4 text-[9px] uppercase tracking-widest text-white/20">
+                  Aguardando confirmação no separador "Ordens"
                 </div>
               </Card>
             </div>
@@ -1714,42 +1754,20 @@ export default function AdminDashboard({
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-3">
-                          <select
-                            value={order.status}
-                            onChange={async (e) => {
-                              const newStatus = e.target.value;
-                              try {
-                                const response = await fetch(`/api/admin/orders/${order.id}/status`, {
-                                  method: "PUT",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                    "x-user-id": user.id,
-                                  },
-                                  body: JSON.stringify({ status: newStatus }),
-                                });
-                                if (response.ok) {
-                                  toast.success("Status de pagamento atualizado.");
-                                  fetchDashboardData();
-                                } else {
-                                  toast.error("Erro ao atualizar status.");
-                                }
-                              } catch (err) {
-                                toast.error("Erro na comunicação.");
-                              }
-                            }}
-                            className={`bg-luxury-dark border border-white/10 px-3 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black outline-none cursor-pointer hover:border-luxury-gold transition-all ${
-                              order.status === "completed"
-                                ? "text-emerald-500 border-emerald-500/20"
-                                : order.status === "refunded"
-                                  ? "text-red-500 border-red-500/20"
-                                  : "text-amber-500 border-amber-500/20"
-                            }`}
-                          >
-                            <option value="pending" className="bg-luxury-black">Pendente</option>
-                            <option value="completed" className="bg-luxury-black">Pago</option>
-                            <option value="refunded" className="bg-luxury-black">Reembolsado</option>
-                            <option value="cancelled" className="bg-luxury-black">Cancelado</option>
-                          </select>
+                          <div className={`px-3 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black border ${
+                            order.status === "completed"
+                              ? "text-emerald-500 border-emerald-500/20"
+                              : order.status === "refunded"
+                                ? "text-red-500 border-red-500/20"
+                                : "text-amber-500 border-amber-500/20"
+                          }`}>
+                            {order.status === "pending" ? "Pendente" :
+                             order.status === "completed" ? "Pago" :
+                             order.status === "refund_requested" ? "Reembolso Solicitado" :
+                             order.status === "refund_pending" ? "Reebolso em Proc. (Stripe)" :
+                             order.status === "refunded" ? "Reembolsado" :
+                             "Cancelado"}
+                          </div>
 
                           {order.status === 'pending' && (
                             <button
@@ -1826,6 +1844,159 @@ export default function AdminDashboard({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {tab === "refunds" && (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+             <div>
+                <h2 className="text-3xl md:text-5xl font-serif text-white tracking-tight leading-none">
+                  Gestão de <span className="text-red-500 italic">Reembolsos</span>
+                </h2>
+                <p className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
+                  Controle as solicitações de devolução de membros. A aprovação administrativa inicia o processo de estorno seguro via Stripe.
+                </p>
+              </div>
+
+              <div className="bg-luxury-dark border border-white/5 rounded-none overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-white/5 text-[10px] uppercase tracking-[0.3em] text-white/30 bg-white/[0.02]">
+                        <th className="px-8 py-8 font-normal">Ordem / Produto</th>
+                        <th className="px-8 py-8 font-normal">Cliente</th>
+                        <th className="px-8 py-8 font-normal">Data Solicitação</th>
+                        <th className="px-8 py-8 font-normal">Motivo</th>
+                        <th className="px-8 py-8 font-normal">Estatuto</th>
+                        <th className="px-8 py-8 font-normal text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {orders.filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status)).length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-8 py-20 text-center text-white/20 text-xs uppercase tracking-[0.2em]">
+                            Nenhuma solicitação de reembolso encontrada.
+                          </td>
+                        </tr>
+                      ) : (
+                        orders
+                          .filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status))
+                          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                          .map((order) => (
+                            <tr key={order.id} className="group hover:bg-white/[0.02] transition-colors">
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-10 h-14 bg-white/5 flex-shrink-0">
+                                    <img 
+                                      src={getImageUrl(order.product?.image_url || '')} 
+                                      className="w-full h-full object-cover grayscale opacity-50 group-hover:grayscale-0 group-hover:opacity-100 transition-all" 
+                                    />
+                                  </div>
+                                  <div>
+                                    <div className="text-[11px] text-white/90 font-medium tracking-wide">
+                                      {order.product?.title || 'Produto Indisponível'}
+                                    </div>
+                                    <div className="text-[9px] text-white/30 mt-1 uppercase tracking-widest font-mono">
+                                      SART-{order.id.split('-')[0].toUpperCase()}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-8 py-6">
+                                <div className="text-[11px] text-white/70">{order.customer_email || 'Anonimizado'}</div>
+                                <div className="text-[9px] text-white/30 uppercase tracking-widest mt-1">Ref: {order.shipping_details?.fullName || 'N/A'}</div>
+                              </td>
+                              <td className="px-8 py-6 text-[10px] text-white/40 uppercase tracking-widest">
+                                {order.selected_options?.refund_requested_at ? format(new Date(order.selected_options.refund_requested_at), "dd MMM yyyy", { locale: ptBR }) : 'N/A'}
+                              </td>
+                              <td className="px-8 py-6">
+                                <div className="text-[10px] text-white/60 max-w-[200px] truncate" title={order.selected_options?.refund_reason}>
+                                  {order.selected_options?.refund_reason || 'Não especificado'}
+                                </div>
+                              </td>
+                              <td className="px-8 py-6">
+                                <div className={`inline-flex px-3 py-1 rounded-full text-[8px] uppercase tracking-widest font-black ${
+                                  order.status === 'refund_requested' 
+                                    ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' 
+                                    : order.status === 'refund_pending'
+                                      ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse'
+                                      : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                }`}>
+                                  {order.status === 'refund_requested' ? 'Em Análise' : order.status === 'refund_pending' ? 'Processando Stripe' : 'Reembolsado'}
+                                </div>
+                              </td>
+                              <td className="px-8 py-6 text-right">
+                                {order.status === 'refund_requested' && (
+                                  <div className="flex gap-2 justify-end">
+                                    <Button
+                                      onClick={async () => {
+                                        if (!confirm("Deseja realmente aprovar e processar o reembolso via Stripe?")) return;
+                                        try {
+                                          const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              'x-user-id': user.id
+                                            }
+                                          });
+                                          const data = await response.json();
+                                          if (data.success) {
+                                            toast.success(data.message);
+                                            fetchDashboardData();
+                                          } else {
+                                            toast.error(data.error || "Erro ao processar");
+                                          }
+                                        } catch(e) {
+                                          toast.error("Erro de rede");
+                                        }
+                                      }}
+                                      className="bg-red-500 hover:bg-red-600 text-white text-[9px] uppercase tracking-widest h-8 px-4 rounded-none"
+                                    >
+                                      Confirmar
+                                    </Button>
+                                    <Button
+                                      onClick={async () => {
+                                        if (!confirm("Deseja realmente cancelar esta solicitação de reembolso?")) return;
+                                        try {
+                                          const response = await fetch(`/api/admin/orders/${order.id}/cancel-refund`, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              'x-user-id': user.id
+                                            }
+                                          });
+                                          const data = await response.json();
+                                          if (data.success) {
+                                            toast.success(data.message);
+                                            fetchDashboardData();
+                                          } else {
+                                            toast.error(data.error || "Erro ao processar");
+                                          }
+                                        } catch(e) {
+                                          toast.error("Erro de rede");
+                                        }
+                                      }}
+                                      variant="outline"
+                                      className="border-white/20 text-white/60 hover:bg-white/10 text-[9px] uppercase tracking-widest h-8 px-4 rounded-none"
+                                    >
+                                      Cancelar
+                                    </Button>
+                                  </div>
+                                )}
+                                {order.status === 'refund_pending' && (
+                                  <div className="text-[9px] text-white/30 uppercase tracking-widest flex items-center justify-end gap-2">
+                                    <Loader2 size={12} className="animate-spin text-blue-500" />
+                                    Aguardando Stripe...
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
           </div>
         )}
 

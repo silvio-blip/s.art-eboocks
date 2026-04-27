@@ -199,7 +199,7 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
   });
 
   const libraryItems = purchasedProducts.filter(o => 
-    (o.status === 'completed' || o.status === 'refund_pending') && 
+    (o.status === 'completed' || o.status === 'refund_requested' || o.status === 'refund_pending') && 
     (o.product?.product_type === 'digital' || (!o.product?.product_type && o.product?.category === 'E-books'))
   );
 
@@ -352,7 +352,7 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                   const releaseDate = new Date(purchaseDate.getTime() + (14 * 24 * 60 * 60 * 1000));
                   const daysSincePurchase = (new Date().getTime() - purchaseDate.getTime()) / (1000 * 3600 * 24);
                   const isWarrantyActive = daysSincePurchase <= 14;
-                  const isRefundPending = order.status === 'refund_pending';
+                  const isRefundPending = order.status === 'refund_requested' || order.status === 'refund_pending';
 
                   return order.product && (
                     <div key={order.id} className="group relative">
@@ -492,9 +492,14 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                         </div>
                         
                         <div className="flex justify-end md:justify-center gap-2">
-                          {order.status === 'refund_pending' && (
+                          {order.status === 'refund_requested' && (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-sm border border-amber-100 dark:border-amber-900/50">
                               Reembolso Solicitado
+                            </span>
+                          )}
+                          {order.status === 'refund_pending' && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-sm border border-blue-100 dark:border-blue-900/50 animate-pulse">
+                              Reembolso em Processamento
                             </span>
                           )}
                           {order.status === 'refunded' && (

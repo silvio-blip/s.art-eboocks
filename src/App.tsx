@@ -1695,7 +1695,7 @@ export default function App() {
       .from("orders")
       .select("*")
       .eq("user_id", userId)
-      .in("status", ["completed", "refund_pending", "refunded"]) // Filtrar status válidos para o utilizador ver
+      .in("status", ["completed", "refund_requested", "refund_pending", "refunded"]) // Filtrar status válidos para o utilizador ver
       .order("created_at", { ascending: false });
 
     if (ordersError) {

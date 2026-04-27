@@ -60,10 +60,42 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
   } else if (event.type === 'charge.refunded') {
     const charge = event.data.object as Stripe.Charge;
     await handleChargeRefunded(charge);
+  } else if (event.type === 'refund.updated') {
+    const refund = event.data.object as Stripe.Refund;
+    await handleRefundUpdated(refund);
   }
 
   res.json({ received: true });
 });
+
+async function handleRefundUpdated(refund: Stripe.Refund) {
+  const supabase = getSupabase();
+  try {
+    const paymentIntent = refund.payment_intent as string;
+    if (!paymentIntent) return;
+
+    // Find sessions that used this payment intent
+    const stripe = getStripe();
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
+
+    if (sessions.data.length > 0) {
+      const sessionId = sessions.data[0].id;
+      
+      if (refund.status === 'succeeded') {
+        const { data: order } = await supabase.from('orders').select('product_id, user_id').eq('stripe_session_id', sessionId).single();
+        
+        await supabase.from('orders').update({ status: 'refunded' }).eq('stripe_session_id', sessionId);
+        
+        if (order) {
+          await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+        }
+        console.log(`[S.ART WEBHOOK] Order updated to refunded (via refund.updated) for session: ${sessionId}`);
+      }
+    }
+  } catch (error) {
+    console.error('[S.ART WEBHOOK ERROR during refund.updated handling]', error);
+  }
+}
 
 async function handleChargeRefunded(charge: Stripe.Charge) {
   const supabase = getSupabase();
@@ -105,27 +137,67 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const orderId = session.metadata?.orderId;
   const email = session.customer_email || session.customer_details?.email;
 
-  console.log(`[S.ART] Payment confirmed for Order: ${orderId}, Product: ${productId}`);
+  console.log(`[S.ART WEBHOOK] Payment confirmed for Session: ${session.id}, Order: ${orderId}, Product: ${productId}`);
 
   try {
-    // 1. Update Order in Supabase
-    if (orderId) {
-      const updateData: any = { 
-        status: 'completed',
-        stripe_session_id: session.id 
-      };
-      
-      if (email) updateData.customer_email = email;
+    // 1. Update or Create Order in Supabase
+    const updateData: any = { 
+      status: 'completed',
+      stripe_session_id: session.id,
+      total_amount: session.amount_total ? (session.amount_total / 100) : 0
+    };
+    if (email) updateData.customer_email = email;
 
-      try {
-        await supabase.from('orders').update(updateData).eq('id', orderId);
-      } catch (err) {
-        console.warn("[S.ART WEBHOOK] Partial update on order. customer_email might be missing from schema.");
-        // Fallback update without customer_email if it fails
-        await supabase.from('orders').update({
+    let orderProcessed = false;
+
+    if (orderId) {
+      console.log(`[S.ART WEBHOOK] Attempting to update existing order: ${orderId}`);
+      const { data: updated, error: updateError } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', orderId)
+        .select()
+        .single();
+      
+      if (!updateError && updated) {
+        orderProcessed = true;
+        console.log(`[S.ART WEBHOOK] Order ${orderId} updated successfully.`);
+      } else {
+        console.warn(`[S.ART WEBHOOK] DB Update failed for ${orderId}, will try UPSERT/INSERT. Error:`, updateError);
+      }
+    }
+
+    if (!orderProcessed) {
+      console.log(`[S.ART WEBHOOK] Order not found or not provided. Creating new record for session ${session.id}`);
+      // Fallback: Create record from metadata if doesn't exist
+      const { error: insertError } = await supabase
+        .from('orders')
+        .upsert({
+          id: orderId || undefined,
+          user_id: userId || null,
+          product_id: productId,
+          total_amount: updateData.total_amount,
           status: 'completed',
-          stripe_session_id: session.id
-        }).eq('id', orderId);
+          stripe_session_id: session.id,
+          customer_email: email,
+          selected_options: {
+            size: session.metadata?.size,
+            color: session.metadata?.color
+          },
+          shipping_details: {
+            fullName: session.metadata?.shipping_name,
+            address: session.metadata?.shipping_address,
+            city: session.metadata?.shipping_city,
+            postalCode: session.metadata?.shipping_postal_code,
+            country: session.metadata?.shipping_country,
+            phone: session.metadata?.shipping_phone
+          }
+        }, { onConflict: 'stripe_session_id' });
+
+      if (insertError) {
+        console.error(`[S.ART WEBHOOK] CRITICAL: Failed to create order record during webhook!`, insertError);
+      } else {
+        console.log(`[S.ART WEBHOOK] Order record synchronized successfully via checkout.session.completed fallback.`);
       }
     }
 
@@ -525,12 +597,33 @@ apiRouter.get('/verify-session', async (req, res) => {
     if (session.payment_status === 'paid') {
       const productId = session.metadata?.productId;
       const orderId = session.metadata?.orderId;
+      const userId = session.metadata?.userId;
+      const email = session.customer_email || session.customer_details?.email;
       
-      // Update order status to completed
+      // Upsert order status to completed (resilient to missing initial record)
       await supabase
         .from('orders')
-        .update({ status: 'completed' })
-        .eq('id', orderId);
+        .upsert({ 
+          id: orderId || undefined,
+          status: 'completed',
+          product_id: productId,
+          user_id: userId || null,
+          total_amount: session.amount_total ? (session.amount_total / 100) : 0,
+          stripe_session_id: session.id,
+          customer_email: email,
+          selected_options: {
+            size: session.metadata?.size,
+            color: session.metadata?.color
+          },
+          shipping_details: {
+            fullName: session.metadata?.shipping_name,
+            address: session.metadata?.shipping_address,
+            city: session.metadata?.shipping_city,
+            postalCode: session.metadata?.shipping_postal_code,
+            country: session.metadata?.shipping_country,
+            phone: session.metadata?.shipping_phone
+          }
+        }, { onConflict: 'stripe_session_id' });
 
       const { data: product } = await supabase
         .from('products')
@@ -973,19 +1066,14 @@ apiRouter.post('/request-refund', async (req, res) => {
     }
 
     if (order.status !== 'completed') {
-      return res.status(400).json({ error: 'Apenas ordens pagas podem ser reembolsadas.' });
+      return res.status(400).json({ error: 'Apenas ordens concluídas podem ser reembolsadas.' });
     }
 
-    const daysSincePurchase = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 3600 * 24);
-    if (daysSincePurchase > 14) {
-      return res.status(400).json({ error: 'O período de garantia de 14 dias expirou.' });
-    }
-
-    // Update status to refund_pending (acting as requested)
+    // Update status to 'refund_requested' for admin review
     const { error: updateError } = await supabase
       .from('orders')
       .update({ 
-        status: 'refund_pending',
+        status: 'refund_requested',
         selected_options: { 
           ...order.selected_options, 
           refund_reason: reason || 'Não especificado',
@@ -996,14 +1084,14 @@ apiRouter.post('/request-refund', async (req, res) => {
 
     if (updateError) throw updateError;
 
-    return res.json({ success: true, message: 'Pedido de reembolso enviado para análise.' });
+    return res.json({ success: true, message: 'Pedido de reembolso enviado para análise administrativa.' });
   } catch (err: any) {
     console.error('[REQUEST REFUND ERROR]', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// Admin Refund Processing (Actually calls Stripe)
+// Admin Refund Processing (Initiates Stripe refund)
 adminRouter.post('/orders/:id/refund', async (req, res) => {
   const { id } = req.params;
   const supabase = getSupabase();
@@ -1030,28 +1118,66 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
       return res.status(400).json({ error: 'Payment Intent não encontrado.' });
     }
 
-    // Process Stripe Refund
-    console.log(`[ADMIN REFUND] Processing Stripe refund for PI: ${session.payment_intent}`);
+    // Trigger Stripe Refund Process
+    console.log(`[ADMIN REFUND] Initiating Stripe refund for PI: ${session.payment_intent}`);
     const refund = await stripe.refunds.create({
       payment_intent: session.payment_intent as string,
     });
 
-    if (refund.status === 'succeeded') {
-      // Sync DB immediately if succeeded
-      await supabase.from('orders').update({ status: 'refunded' }).eq('id', id);
-      
-      // Remove reading progress if applicable
-      if (order.user_id && order.product_id) {
-        await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+    // Update to 'refund_pending' (Approved by admin, waiting for Stripe confirm via webhook)
+    await supabase.from('orders').update({ 
+      status: 'refund_pending',
+      selected_options: {
+        ...order.selected_options,
+        stripe_refund_id: refund.id,
+        refund_approved_at: new Date().toISOString()
       }
-      
-      return res.json({ success: true, stripe_status: 'succeeded' });
-    } else {
-      // It might be pending or failed
-      return res.json({ success: true, stripe_status: refund.status });
-    }
+    }).eq('id', id);
+
+    return res.json({ 
+      success: true, 
+      stripe_status: refund.status, 
+      message: 'Reembolso aprovado. O status será atualizado para "Reembolsado" assim que processado pelo Stripe.'
+    });
   } catch (err: any) {
     console.error('[ADMIN REFUND ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin Cancel Refund Request
+adminRouter.post('/orders/:id/cancel-refund', async (req, res) => {
+  const { id } = req.params;
+  const supabase = getSupabase();
+
+  try {
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    if (order.status !== 'refund_requested') {
+      return res.status(400).json({ error: 'Apenas pedidos com status "Reembolso Solicitado" podem ser cancelados.' });
+    }
+
+    // Set back to completed
+    await supabase.from('orders').update({ 
+      status: 'completed',
+      selected_options: {
+        ...(order.selected_options || {}),
+        refund_reason: null,
+        refund_requested_at: null
+      }
+    }).eq('id', id);
+
+    return res.json({ success: true, message: 'Pedido de reembolso cancelado pelo administrador.' });
+  } catch (err: any) {
+    console.error('[ADMIN CANCEL REFUND ERROR]', err);
     res.status(500).json({ error: err.message });
   }
 });
