@@ -153,7 +153,14 @@ export default function AdminDashboard({
           toast.info("Novas atividades de vendas detectadas!");
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`[REALTIME] Subscription status for orders: ${status}`);
+        if (status === 'SUBSCRIBED') {
+          toast.success("Conectado ao painel em tempo real.");
+        } else if (status === 'CHANNEL_ERROR') {
+          toast.error("Erro na conexão em tempo real.");
+        }
+      });
 
     const productsChannel = supabase
       .channel("products-admin-realtime")
