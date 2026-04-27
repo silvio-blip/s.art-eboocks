@@ -1485,7 +1485,7 @@ export default function App() {
   const fetchProfile = async (userObj: SupabaseUser) => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("theme, full_name, avatar_url")
+      .select("theme, full_name, avatar_url, welcomed, custom_id")
       .eq("id", userObj.id)
       .single();
 
@@ -1512,6 +1512,38 @@ export default function App() {
         full_name: data.full_name || userObj.user_metadata?.full_name || "",
         avatar_url: finalAvatar || "",
       });
+
+      // --- WELCOME EMAIL LOGIC ---
+      // Se ainda não foi enviado o e-mail de boas-vindas
+      if (data.welcomed === false) {
+        console.log("[WELCOME] Novo utilizador detetado, enviando e-mail de boas-vindas...");
+        
+        try {
+          const { error: functionError } = await supabase.functions.invoke("welcome-email", {
+            body: { 
+              record: { 
+                email: userObj.email, 
+                raw_user_meta_data: { 
+                  full_name: data.full_name || userObj.user_metadata?.full_name || "Membro" 
+                } 
+              } 
+            }
+          });
+
+          if (!functionError) {
+            // Marcar como welcomed para não repetir
+            await supabase
+              .from("profiles")
+              .update({ welcomed: true })
+              .eq("id", userObj.id);
+            console.log("[WELCOME] E-mail de boas-vindas enviado com sucesso.");
+          } else {
+            console.error("[WELCOME] Erro ao invocar welcome-email:", functionError);
+          }
+        } catch (err) {
+          console.error("[WELCOME] Erro inesperado ao enviar boas-vindas:", err);
+        }
+      }
     }
   };
 
