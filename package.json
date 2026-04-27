@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "node server.js",
-    "build": "vite build && esbuild server.ts --platform=node --outfile=server.js --bundle --format=esm --external:path --external:fs --external:url",
+    "build": "vite build && esbuild server.ts --platform=node --outfile=server.js --bundle --format=esm --external:path --external:fs --external:url --external:express --external:cors --external:resend --external:stripe --external:dotenv --external:@supabase/supabase-js",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
