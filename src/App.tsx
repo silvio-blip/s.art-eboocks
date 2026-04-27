@@ -1489,6 +1489,41 @@ export default function App() {
       .eq("id", userObj.id)
       .single();
 
+    // Se o perfil não existir, criá-lo (Sincronização manual sem triggers)
+    if (error && error.code === 'PGRST116') {
+      console.log("[PROFILE] Perfil não encontrado. Criando perfil para novo utilizador...");
+      const googleAvatar = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture;
+      const fullName = userObj.user_metadata?.full_name || userObj.user_metadata?.name || "";
+      const customId = `SART-${userObj.id.substring(0, 4).toUpperCase()}`;
+
+      const { data: newProfile, error: createError } = await supabase
+        .from("profiles")
+        .insert([
+          { 
+            id: userObj.id, 
+            full_name: fullName, 
+            avatar_url: googleAvatar || "", 
+            welcomed: false,
+            custom_id: customId,
+            email: userObj.email // Salvando e-mail para visibilidade no admin
+          }
+        ])
+        .select()
+        .single();
+
+      if (!createError && newProfile) {
+        setProfile({
+          full_name: newProfile.full_name || "",
+          avatar_url: newProfile.avatar_url || "",
+        });
+        // Enviar e-mail de boas-vindas imediatamente
+        sendWelcomeEmail(userObj, newProfile);
+      } else {
+        console.error("[PROFILE] Erro ao criar perfil:", createError);
+      }
+      return;
+    }
+
     if (!error && data) {
       if (data.theme) {
         setTheme(data.theme as "light" | "dark");
@@ -1513,37 +1548,38 @@ export default function App() {
         avatar_url: finalAvatar || "",
       });
 
-      // --- WELCOME EMAIL LOGIC ---
-      // Se ainda não foi enviado o e-mail de boas-vindas
+      // Lógica de e-mail de boas-vindas para perfis existentes mas não "welcomed"
       if (data.welcomed === false) {
-        console.log("[WELCOME] Novo utilizador detetado, enviando e-mail de boas-vindas...");
-        
-        try {
-          const { error: functionError } = await supabase.functions.invoke("welcome-email", {
-            body: { 
-              record: { 
-                email: userObj.email, 
-                raw_user_meta_data: { 
-                  full_name: data.full_name || userObj.user_metadata?.full_name || "Membro" 
-                } 
-              } 
-            }
-          });
-
-          if (!functionError) {
-            // Marcar como welcomed para não repetir
-            await supabase
-              .from("profiles")
-              .update({ welcomed: true })
-              .eq("id", userObj.id);
-            console.log("[WELCOME] E-mail de boas-vindas enviado com sucesso.");
-          } else {
-            console.error("[WELCOME] Erro ao invocar welcome-email:", functionError);
-          }
-        } catch (err) {
-          console.error("[WELCOME] Erro inesperado ao enviar boas-vindas:", err);
-        }
+        sendWelcomeEmail(userObj, data);
       }
+    }
+  };
+
+  const sendWelcomeEmail = async (userObj: SupabaseUser, profileData: any) => {
+    console.log("[WELCOME] Iniciando envio de e-mail de boas-vindas...");
+    try {
+      const { error: functionError } = await supabase.functions.invoke("welcome-email", {
+        body: { 
+          record: { 
+            email: userObj.email, 
+            raw_user_meta_data: { 
+              full_name: profileData.full_name || userObj.user_metadata?.full_name || "Membro" 
+            } 
+          } 
+        }
+      });
+
+      if (!functionError) {
+        await supabase
+          .from("profiles")
+          .update({ welcomed: true })
+          .eq("id", userObj.id);
+        console.log("[WELCOME] E-mail enviado e perfil marcado como acolhido.");
+      } else {
+        console.error("[WELCOME] Erro na Edge Function:", functionError);
+      }
+    } catch (err) {
+      console.error("[WELCOME] Erro inesperado:", err);
     }
   };
 
