@@ -120,7 +120,9 @@ const Navbar = ({
   searchQuery: string;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const avatarUrl = profile?.avatar_url ? getImageUrl(profile.avatar_url) : "";
+  const avatarUrl = profile?.avatar_url 
+    ? getImageUrl(profile.avatar_url) 
+    : (user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "");
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-colors duration-500">
@@ -180,6 +182,7 @@ const Navbar = ({
                     {avatarUrl ? (
                       <img
                         src={avatarUrl}
+                        referrerPolicy="no-referrer"
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -1497,39 +1500,40 @@ export default function App() {
       .eq("id", userObj.id)
       .single();
 
-    // Se o perfil não existir, criá-lo (Sincronização manual sem triggers)
+    // Se o perfil não existir, criá-lo (Sincronização manual como fallback se o trigger não correr)
     if (error && (error.code === 'PGRST116' || error.message.includes('No object found') || error.message.includes('JSON object requested'))) {
-      console.log("[PROFILE] Perfil não encontrado. Criando perfil para novo utilizador...");
+      console.log("[PROFILE] Perfil não encontrado. Tentando sincronização de fallback...");
       const googleAvatar = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture;
       const fullName = userObj.user_metadata?.full_name || userObj.user_metadata?.name || "";
       const customId = `SART-${userObj.id.substring(0, 4).toUpperCase()}`;
 
+      // Tentar inserir. Se o trigger já o criou, o upsert resolve.
       const { data: newProfile, error: createError } = await supabase
         .from("profiles")
-        .insert([
-          { 
-            id: userObj.id, 
-            full_name: fullName, 
-            avatar_url: googleAvatar || "", 
-            welcomed: false,
-            custom_id: customId,
-            email: userObj.email,
-            theme: 'dark'
-          }
-        ])
+        .upsert({ 
+          id: userObj.id, 
+          email: userObj.email,
+          full_name: fullName, 
+          avatar_url: googleAvatar || "", 
+          welcomed: false,
+          custom_id: customId,
+          theme: 'dark'
+        }, { onConflict: 'id' })
         .select()
         .maybeSingle();
 
       if (!createError && newProfile) {
-        console.log("[PROFILE] Perfil criado com sucesso.");
+        console.log("[PROFILE] Perfil garantido via fallback.");
         setProfile({
           full_name: newProfile.full_name || "",
           avatar_url: newProfile.avatar_url || "",
         });
-        sendWelcomeEmail(userObj, newProfile);
+        if (newProfile.welcomed === false) {
+          sendWelcomeEmail(userObj, newProfile);
+        }
       } else {
-        console.error("[PROFILE] Erro crítico ao criar perfil:", createError);
-        // Fallback: tentar definir o perfil mesmo sem salvar no banco para o UI não ficar quebrado
+        console.warn("[PROFILE] Fallback falhou (pode ser RLS ou trigger já em curso):", createError);
+        // Fallback UI
         setProfile({
           full_name: fullName,
           avatar_url: googleAvatar || "",
@@ -1563,7 +1567,7 @@ export default function App() {
         avatar_url: finalAvatar || "",
       });
 
-      // Lógica de e-mail de boas-vindas para perfis existentes mas não "welcomed"
+      // Só envia e-mail se ainda não foi marcado como welcomed
       if (data.welcomed === false) {
         sendWelcomeEmail(userObj, data);
       }

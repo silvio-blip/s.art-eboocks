@@ -1038,6 +1038,7 @@ export default function AdminDashboard({
                     <img
                       src={getImageUrl(p.image_url)}
                       alt={p.title}
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                     />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -1848,7 +1849,12 @@ export default function AdminDashboard({
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 overflow-hidden flex-shrink-0">
                             {profile.avatar_url ? (
-                              <img src={getImageUrl(profile.avatar_url)} alt="" className="w-full h-full object-cover" />
+                              <img 
+                                src={getImageUrl(profile.avatar_url || profile.email)} 
+                                referrerPolicy="no-referrer"
+                                alt="" 
+                                className="w-full h-full object-cover" 
+                              />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-luxury-gold text-xs font-bold uppercase">
                                 {profile.full_name?.substring(0, 2) || "U"}
@@ -1922,7 +1928,12 @@ export default function AdminDashboard({
               <div className="flex gap-4 items-start pb-4 border-b border-white/10">
                 {viewingOrder.product?.image_url && (
                   <div className="w-20 h-24 bg-white/5 border border-white/10 flex-shrink-0">
-                    <img src={getImageUrl(viewingOrder.product.image_url)} alt="Produto" className="w-full h-full object-cover" />
+                    <img 
+                      src={getImageUrl(viewingOrder.product.image_url)} 
+                      referrerPolicy="no-referrer"
+                      alt="Produto" 
+                      className="w-full h-full object-cover" 
+                    />
                   </div>
                 )}
                 <div>

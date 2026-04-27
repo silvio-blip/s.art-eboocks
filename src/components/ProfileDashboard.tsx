@@ -241,7 +241,12 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
             <div className="md:col-span-1 space-y-6">
               <div className="relative group">
                 <div className="aspect-square w-full bg-neutral-100 dark:bg-zinc-800 rounded-none overflow-hidden border border-black/5 dark:border-white/5 shadow-2xl">
-                  <img src={getImageUrl(profile?.avatar_url || '')} alt="Avatar" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                  <img 
+                    src={getImageUrl(profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || '')} 
+                    alt="Avatar" 
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                  />
                 </div>
                 {isEditing && (
                   <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px] uppercase tracking-widest gap-2 cursor-pointer z-10 backdrop-blur-[2px]">
@@ -352,7 +357,12 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                   return order.product && (
                     <div key={order.id} className="group relative">
                       <div className="aspect-[3/4] bg-neutral-100 dark:bg-zinc-800 overflow-hidden relative shadow-md">
-                        <img src={getImageUrl(order.product.image_url)} alt={order.product.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                        <img 
+                          src={getImageUrl(order.product.image_url)} 
+                          referrerPolicy="no-referrer"
+                          alt={order.product.title} 
+                          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                        />
                         
                         {isRefundPending && (
                           <div className="absolute top-2 right-2 bg-amber-500 text-white text-[7px] font-bold uppercase tracking-widest px-2 py-1 shadow-xl">
@@ -451,7 +461,12 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                   <div key={order.id} className="group bg-white dark:bg-zinc-900 border border-black/5 dark:border-white/5 overflow-hidden hover:border-luxury-gold/30 transition-all duration-500">
                     <div className="p-4 md:p-6 flex items-center gap-6">
                       <div className="w-16 h-20 bg-neutral-100 dark:bg-zinc-800 flex-shrink-0">
-                        <img src={getImageUrl(order.product?.image_url || '')} alt="" className="w-full h-full object-cover" />
+                        <img 
+                          src={getImageUrl(order.product?.image_url || '')} 
+                          referrerPolicy="no-referrer"
+                          alt="" 
+                          className="w-full h-full object-cover" 
+                        />
                       </div>
                       
                       <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
