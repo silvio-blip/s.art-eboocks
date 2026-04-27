@@ -486,7 +486,14 @@ const AuthDialog = ({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email: normalizedEmail })
           });
-          const checkData = await checkResponse.json();
+          const rawCheckText = await checkResponse.text();
+          let checkData;
+          try {
+            checkData = JSON.parse(rawCheckText);
+          } catch (e) {
+            console.error("Failed to parse check-exists JSON response. Response text:", rawCheckText);
+            throw new Error(`Erro do servidor (${checkResponse.status}): ${rawCheckText.substring(0, 50)}...`);
+          }
           
           if (!checkData.exists) {
             throw new Error("Este e-mail não está registado no nosso sistema.");
@@ -505,7 +512,7 @@ const AuthDialog = ({
             data = JSON.parse(rawText);
           } catch (e) {
             console.error("Failed to parse JSON response. Response text:", rawText);
-            throw new Error(`Erro do servidor (${response.status}): Resposta inválida.`);
+            throw new Error(`Erro do servidor (${response.status}): ${rawText.substring(0, 50)}...`);
           }
           
           if (!response.ok || data.error) {
@@ -533,7 +540,7 @@ const AuthDialog = ({
           data = JSON.parse(rawText);
         } catch (e) {
           console.error("Failed to parse JSON response. Response text:", rawText);
-          throw new Error(`Erro do servidor (${response.status}): Resposta inválida.`);
+          throw new Error(`Erro do servidor (${response.status}): ${rawText.substring(0, 50)}...`);
         }
         if (!response.ok || data.error) throw new Error(data.error || "Código inválido ou expirado.");
 
@@ -555,7 +562,7 @@ const AuthDialog = ({
           data = JSON.parse(rawText);
         } catch (e) {
           console.error("Failed to parse JSON response. Response text:", rawText);
-          throw new Error(`Erro do servidor (${response.status}): Resposta inválida.`);
+          throw new Error(`Erro do servidor (${response.status}): ${rawText.substring(0, 50)}...`);
         }
         if (!response.ok || data.error) throw new Error(data.error || "Erro ao redefinir senha.");
 
