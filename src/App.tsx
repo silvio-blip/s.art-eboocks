@@ -1550,21 +1550,26 @@ export default function App() {
 
       let finalAvatar = data.avatar_url;
 
-      // Sincronizar Avatar do Google se o perfil estiver sem foto
+      // Sincronizar Avatar do Google se o perfil estiver sem foto e o utilizador for Google
       const googleAvatar = userObj.user_metadata?.avatar_url || userObj.user_metadata?.picture;
+      
+      // Se na tabela não houver avatar, mas no Google houver, vamos usar e sincronizar
       if (!finalAvatar && googleAvatar) {
-        console.log("[PROFILE] Sincronizando avatar do Google...");
+        console.log("[PROFILE] Sincronizando avatar do Google para a tabela profiles...");
         const { error: updateError } = await supabase
           .from("profiles")
           .update({ avatar_url: googleAvatar })
           .eq("id", userObj.id);
         
-        if (!updateError) finalAvatar = googleAvatar;
+        if (!updateError) {
+          console.log("[PROFILE] Link do Google salvo no banco de dados.");
+          finalAvatar = googleAvatar;
+        }
       }
 
       setProfile({
-        full_name: data.full_name || userObj.user_metadata?.full_name || "",
-        avatar_url: finalAvatar || "",
+        full_name: data.full_name || userObj.user_metadata?.full_name || userObj.user_metadata?.name || "",
+        avatar_url: finalAvatar || googleAvatar || "", // Fallback final para UI imediata
       });
 
       // Só envia e-mail se ainda não foi marcado como welcomed
