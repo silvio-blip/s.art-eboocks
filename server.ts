@@ -277,34 +277,10 @@ apiRouter.post('/recovery/send', async (req, res) => {
     if (error) {
       console.error(`[RECOVERY PROXY ERROR] Chamada falhou:`, error);
       
-      let errorMessage = "Erro na Edge Function de recuperação.";
-      
-      // Tentar extrair a mensagem de erro do corpo da resposta (JSON)
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-
-      // Se for um FunctionsHttpError, o erro está no contexto
-      if ((error as any).context) {
-        try {
-          const bodyText = await (error as any).context.text();
-          console.error(`[RECOVERY PROXY BODY (RAW)]:`, bodyText);
-          
-          try {
-            const bodyJson = JSON.parse(bodyText);
-            errorMessage = bodyJson.error || bodyJson.message || errorMessage;
-          } catch (e) {
-            console.error("[RECOVERY PROXY] Falha ao parsear erro do corpo (JSON inválido), tentando string:", bodyText);
-            // Se não for JSON, usamos o texto como erro
-            errorMessage = bodyText || errorMessage;
-          }
-        } catch (e) {
-          console.error("[RECOVERY PROXY] Falha absoluta ao ler corpo do erro:", e);
-        }
-      }
-      
-      // Ensure we send valid JSON
-      return res.status(500).json({ error: errorMessage });
+      // Sempre retornamos um JSON válido para o frontend não quebrar
+      return res.status(500).json({ 
+        error: "O serviço de recuperação de senha está temporariamente indisponível. Por favor, tente novamente mais tarde." 
+      });
     }
     
     console.log(`[RECOVERY PROXY SUCCESS] Resposta:`, data);
