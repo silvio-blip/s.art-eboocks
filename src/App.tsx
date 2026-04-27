@@ -1394,13 +1394,15 @@ export default function App() {
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           table: "orders",
           filter: `user_id=eq.${user.id}`,
         },
         (payload: any) => {
-          if (payload.new.status === "completed") {
-            fetchDashboardData(user.id);
+          // Refresh dashboard data on any change to orders
+          fetchDashboardData(user.id);
+
+          if (payload.event === "UPDATE" && payload.new.status === "completed") {
             if (payload.old && payload.old.status !== "completed") {
               toast.success(
                 "Pagamento confirmado! O pedido foi efetuado com sucesso.",
@@ -1408,11 +1410,6 @@ export default function App() {
                   duration: 5000,
                   icon: <CheckCircle2 className="text-emerald-500" size={18} />,
                 },
-              );
-            } else if (payload.new.shipping_status !== payload.old?.shipping_status) {
-              toast.info(
-                "Atualização no estado de envio do seu produto S.Art.",
-                { duration: 4000 }
               );
             }
           }
