@@ -236,12 +236,14 @@ apiRouter.post('/recovery/send', async (req, res) => {
 apiRouter.post('/recovery/check-exists', async (req, res) => {
   try {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
     const supabase = getSupabase();
     
     const { data, error } = await supabase
       .from('profiles')
       .select('id')
-      .ilike('email', email)
+      .ilike('email', email.trim())
       .maybeSingle();
 
     if (error) throw error;
