@@ -996,11 +996,13 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       try {
         if (order.stripe_session_id) {
           session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-            expand: ['payment_intent']
+            expand: ['payment_intent', 'payment_intent.latest_charge']
           });
           pi = session.payment_intent as Stripe.PaymentIntent;
         } else if ((order as any).payment_intent_id) {
-          pi = await stripe.paymentIntents.retrieve((order as any).payment_intent_id);
+          pi = await stripe.paymentIntents.retrieve((order as any).payment_intent_id, {
+            expand: ['latest_charge']
+          });
         }
       } catch (stripeErr: any) {
         console.error(`[STRIPE RETRIEVE ERROR] Order ${id}:`, stripeErr);
@@ -1012,11 +1014,15 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       // Log Stripe Details for Debugging
       console.log(`[SYNC DEBUG] Order ${id} - Stripe Session: ${order.stripe_session_id}, PI: ${(order as any).payment_intent_id}`);
       if (session) console.log(`[SYNC DEBUG] Session Status: ${session.status}, Payment Status: ${session.payment_status}`);
-      if (pi) console.log(`[SYNC DEBUG] PI Status: ${pi.status}, Amount Received: ${pi.amount_received}, Amount Refunded: ${(pi as any).amount_refunded}`);
+      
+      const latestCharge = (pi as any)?.latest_charge;
+      if (pi) console.log(`[SYNC DEBUG] PI Status: ${pi.status}, Amount Received: ${pi.amount_received}, Amount Refunded: ${latestCharge?.amount_refunded || 0}`);
 
       // 1. Determine Status prioritize REFUND
-      const isRefunded = (pi && (pi as any).amount_refunded && (pi as any).amount_refunded > 0) || 
+      const isRefunded = (latestCharge && latestCharge.amount_refunded && latestCharge.amount_refunded > 0) || 
+                         (latestCharge && latestCharge.refunded === true) ||
                          (pi && (pi as any).status === 'canceled');
+                         
       const isPaidOnStripe = session?.payment_status === 'paid' || session?.status === 'complete' || pi?.status === 'succeeded';
       
       if (isRefunded) {

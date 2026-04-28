@@ -469,11 +469,10 @@ export default function AdminDashboard({
     0,
   );
 
-  // Gross Revenue = Every cent that entered the system (Paid - which may or may not be the final state if we count strictly)
-  // But usually Gross = Paid + Refunded (because refunded WAS paid at some point)
-  const totalGrossRevenue = totalSuccessful + totalRefunded;
+  // Gross Revenue = Total collected from successful payments that were NOT refunded
+  const totalGrossRevenue = totalSuccessful;
   
-  // Net Profit = What remains after refunds
+  // Net Profit = What remains after refunds (same as above since we don't have other costs yet)
   const netProfit = totalSuccessful; 
   const completedSales = successfulOrders.length; 
 
@@ -2016,9 +2015,14 @@ export default function AdminDashboard({
                                 </div>
                               </td>
                               <td className="px-8 py-6 text-right">
-                                  <div className="flex gap-2 justify-end">
+                                  <div className="flex gap-2 justify-end items-center">
                                     <Button
-                                      onClick={async () => {
+                                      onClick={async (e) => {
+                                        const btn = e.currentTarget;
+                                        btn.disabled = true;
+                                        const icon = btn.querySelector('.sync-icon');
+                                        icon?.classList.add('animate-spin');
+                                        
                                         try {
                                           const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
                                             method: 'POST',
@@ -2036,13 +2040,16 @@ export default function AdminDashboard({
                                           }
                                         } catch (e) {
                                           toast.error("Erro de rede");
+                                        } finally {
+                                          btn.disabled = false;
+                                          icon?.classList.remove('animate-spin');
                                         }
                                       }}
                                       variant="outline"
-                                      className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none"
+                                      className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none transition-all"
                                       title="Sincronizar estado com Stripe"
                                     >
-                                      <RefreshCw size={10} className="mr-1" />
+                                      <RefreshCw size={10} className="mr-1 sync-icon" />
                                       Sincronizar
                                     </Button>
 
@@ -2104,12 +2111,17 @@ export default function AdminDashboard({
                                         </>
                                       )}
                                     </div>
-                                {order.status === 'refund_pending' && (
-                                  <div className="text-[9px] text-white/30 uppercase tracking-widest flex items-center justify-end gap-2">
-                                    <Loader2 size={12} className="animate-spin text-blue-500" />
-                                    Aguardando Stripe...
-                                  </div>
-                                )}
+                                  {order.status === 'refund_pending' && (
+                                    <div className="flex flex-col items-end gap-1 mt-2">
+                                      <div className="text-[9px] text-blue-400 uppercase tracking-widest flex items-center gap-2 font-bold bg-blue-500/5 px-2 py-1 border border-blue-500/10">
+                                        <Loader2 size={10} className="animate-spin" />
+                                        Processamento Stripe
+                                      </div>
+                                      <div className="text-[7px] text-white/40 uppercase tracking-[0.1em] mt-1 text-right">
+                                        Clique em Sincronizar se o estorno já foi concluído
+                                      </div>
+                                    </div>
+                                  )}
                               </td>
                             </tr>
                           ))
