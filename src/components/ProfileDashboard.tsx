@@ -505,16 +505,16 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                         <div className="flex justify-end md:justify-center gap-2">
                           {order.status === 'refund_requested' && (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-sm border border-amber-100 dark:border-amber-900/50">
-                              Reembolso Solicitado
+                              Em Análise
                             </span>
                           )}
                           {order.status === 'refund_pending' && (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-sm border border-blue-100 dark:border-blue-900/50 animate-pulse">
-                              Reembolso em Processamento
+                              Estorno em Processamento
                             </span>
                           )}
                           {order.status === 'refunded' && (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-red-50 text-red-600 dark:bg-red-950/20 shadow-sm border border-red-100 dark:border-red-900/50">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 shadow-sm border border-emerald-100 dark:border-emerald-900/50">
                               Reembolsado
                             </span>
                           )}

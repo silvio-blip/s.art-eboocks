@@ -1779,8 +1779,8 @@ export default function AdminDashboard({
                           }`}>
                             {order.status === "pending" ? "Pendente" :
                              (order.status === "paid" || order.status === "completed") ? "Pago" :
-                             order.status === "refund_requested" ? "Reembolso Solicitado" :
-                             order.status === "refund_pending" ? "Reebolso em Proc. (Stripe)" :
+                             order.status === "refund_requested" ? "Em Análise" :
+                             order.status === "refund_pending" ? "Estornando (Stripe)" :
                              order.status === "refunded" ? "Reembolsado" :
                              "Cancelado"}
                           </div>
@@ -1938,9 +1938,9 @@ export default function AdminDashboard({
                                       ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse'
                                       : order.status === 'refund_rejected'
                                         ? 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
-                                        : 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                        : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                                 }`}>
-                                  {order.status === 'refund_requested' ? 'Em Análise' : order.status === 'refund_pending' ? 'Processando Stripe' : order.status === 'refund_rejected' ? 'Reembolso Rejeitado' : 'Reembolsado'}
+                                  {order.status === 'refund_requested' ? 'Em Análise' : order.status === 'refund_pending' ? 'Processando Estorno' : order.status === 'refund_rejected' ? 'Solicitação Rejeitada' : 'Reembolso Concluído'}
                                 </div>
                               </td>
                               <td className="px-8 py-6 text-right">

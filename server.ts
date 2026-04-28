@@ -74,23 +74,33 @@ async function handleRefundUpdated(refund: Stripe.Refund) {
     const paymentIntent = refund.payment_intent as string;
     if (!paymentIntent) return;
 
-    // Find sessions that used this payment intent
-    const stripe = getStripe();
-    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
-
-    if (sessions.data.length > 0) {
-      const sessionId = sessions.data[0].id;
+    if (refund.status === 'succeeded') {
+      // First try to find by payment_intent_id (new way)
+      let { data: order, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('payment_intent_id', paymentIntent)
+        .single();
       
-      if (refund.status === 'succeeded') {
-        const { data: order } = await supabase.from('orders').select('product_id, user_id').eq('stripe_session_id', sessionId).single();
-        
-        await supabase.from('orders').update({ status: 'refunded' }).eq('stripe_session_id', sessionId);
-        
-        if (order) {
-          // Remove access immediately by deleting progress
-          await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+      // Fallback: search by session ID via Stripe (old way)
+      if (!order || error) {
+        const stripe = getStripe();
+        const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
+        if (sessions.data.length > 0) {
+          const { data: fallbackOrder } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('stripe_session_id', sessions.data[0].id)
+            .single();
+          order = fallbackOrder;
         }
-        console.log(`[S.ART WEBHOOK] Order updated to refunded (via refund.updated) for session: ${sessionId}`);
+      }
+
+      if (order) {
+        await supabase.from('orders').update({ status: 'refunded' }).eq('id', order.id);
+        // Remove access immediately
+        await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+        console.log(`[S.ART WEBHOOK] Order ${order.id} updated to refunded (via refund.updated)`);
       }
     }
   } catch (error) {
@@ -100,29 +110,36 @@ async function handleRefundUpdated(refund: Stripe.Refund) {
 
 async function handleChargeRefunded(charge: Stripe.Charge) {
   const supabase = getSupabase();
-  const stripe = getStripe();
   try {
-    if (!charge.payment_intent) return;
+    const paymentIntent = charge.payment_intent as string;
+    if (!paymentIntent) return;
     
-    // Find checkout sessions that used this payment intent
-    const sessions = await stripe.checkout.sessions.list({ 
-      payment_intent: charge.payment_intent as string 
-    });
-
-    if (sessions.data.length > 0) {
-      const sessionId = sessions.data[0].id;
-      
-      const { data: order } = await supabase.from('orders').select('product_id, user_id').eq('stripe_session_id', sessionId).single();
-      
-      // Remove access by changing the order status to 'refunded'
-      await supabase.from('orders').update({ status: 'refunded' }).eq('stripe_session_id', sessionId);
-      
-      // Also delete reading progress to fully break access/cache for this user
-      if (order) {
-        await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+    // First try to find by payment_intent_id (new way)
+    let { data: order, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('payment_intent_id', paymentIntent)
+      .single();
+    
+    // Fallback: search by session ID via Stripe (old way)
+    if (!order || error) {
+      const stripe = getStripe();
+      const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
+      if (sessions.data.length > 0) {
+        const { data: fallbackOrder } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('stripe_session_id', sessions.data[0].id)
+          .single();
+        order = fallbackOrder;
       }
-      
-      console.log(`[S.ART WEBHOOK] Order updated to refunded and access removed fully for session: ${sessionId}`);
+    }
+
+    if (order) {
+      await supabase.from('orders').update({ status: 'refunded' }).eq('id', order.id);
+      // Delete progress
+      await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+      console.log(`[S.ART WEBHOOK] Order ${order.id} updated to refunded and access removed via charge.refunded`);
     }
   } catch (error) {
     console.error('[S.ART WEBHOOK ERROR during refund handling]', error);
@@ -145,6 +162,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       const updateData: any = { 
         status: 'paid', // Standardized to paid
         stripe_session_id: session.id,
+        payment_intent_id: session.payment_intent as string,
         total_amount: session.amount_total ? (session.amount_total / 100) : 0,
         user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null
       };
@@ -181,6 +199,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           total_amount: updateData.total_amount,
           status: 'paid', // Standardized to paid
           stripe_session_id: session.id,
+          payment_intent_id: session.payment_intent as string,
           customer_email: email,
           selected_options: {
             size: session.metadata?.size,
