@@ -1014,23 +1014,23 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       if (session) console.log(`[SYNC DEBUG] Session Status: ${session.status}, Payment Status: ${session.payment_status}`);
       if (pi) console.log(`[SYNC DEBUG] PI Status: ${pi.status}, Amount Received: ${pi.amount_received}, Amount Refunded: ${(pi as any).amount_refunded}`);
 
-      // 1. Determine if PAID
+      // 1. Determine Status prioritize REFUND
+      const isRefunded = (pi && (pi as any).amount_refunded && (pi as any).amount_refunded > 0) || 
+                         (pi && (pi as any).status === 'canceled');
       const isPaidOnStripe = session?.payment_status === 'paid' || session?.status === 'complete' || pi?.status === 'succeeded';
       
-      if (isPaidOnStripe) {
-        newStatus = 'paid';
-      }
-
-      // 2. Check if REFUNDED
-      if (pi && (pi as any).amount_refunded && (pi as any).amount_refunded > 0) {
+      if (isRefunded) {
         newStatus = 'refunded';
-        
-        // Force remove access
+        // Force remove access for digital products
         await supabase.from('user_reading_progress').delete()
           .eq('book_id', order.product_id)
           .eq('user_id', order.user_id);
           
         console.log(`[SYNC DEBUG] Order ${id} detected as refunded in Stripe.`);
+      } else if (isPaidOnStripe) {
+        newStatus = 'paid';
+      } else if (session?.status === 'expired' || pi?.status === 'canceled') {
+        newStatus = 'failed';
       }
 
       const updatePayload: any = {};
