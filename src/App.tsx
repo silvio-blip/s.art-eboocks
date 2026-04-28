@@ -1430,10 +1430,10 @@ export default function App() {
           // Refresh dashboard data on any change to orders
           fetchDashboardData(user.id);
 
-          if (payload.event === "UPDATE" && payload.new.status === "completed") {
-            if (payload.old && payload.old.status !== "completed") {
+          if (payload.event === "UPDATE" && (payload.new.status === "paid" || payload.new.status === "completed")) {
+            if (payload.old && (payload.old.status !== "paid" && payload.old.status !== "completed")) {
               toast.success(
-                "Pagamento confirmado! O pedido foi efetuado com sucesso.",
+                "Pagamento confirmado! O acesso à sua obra foi libertado.",
                 {
                   duration: 5000,
                   icon: <CheckCircle2 className="text-emerald-500" size={18} />,
@@ -1720,7 +1720,7 @@ export default function App() {
       .from("orders")
       .select("*")
       .eq("user_id", userId)
-      .in("status", ["completed", "refund_requested", "refund_pending", "refunded"]) // Filtrar status válidos para o utilizador ver
+      .in("status", ["paid", "completed", "refund_requested", "refund_pending", "refunded"]) // Added "paid"
       .order("created_at", { ascending: false });
 
     if (ordersError) {
@@ -1821,7 +1821,7 @@ export default function App() {
 
     // Check if user already owns the product (only for digital)
     const order = purchasedProducts.find(
-      (o) => o.product_id === product.id && o.status === "completed",
+      (o) => o.product_id === product.id && (o.status === "paid" || o.status === "completed"),
     );
     if (order && product.product_type !== "physical") {
       handleOpenReader(product, order.id, order.created_at);

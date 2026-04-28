@@ -87,6 +87,7 @@ async function handleRefundUpdated(refund: Stripe.Refund) {
         await supabase.from('orders').update({ status: 'refunded' }).eq('stripe_session_id', sessionId);
         
         if (order) {
+          // Remove access immediately by deleting progress
           await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
         }
         console.log(`[S.ART WEBHOOK] Order updated to refunded (via refund.updated) for session: ${sessionId}`);
@@ -142,7 +143,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     try {
       // 1. Update or Create Order in Supabase
       const updateData: any = { 
-        status: 'completed',
+        status: 'paid', // Standardized to paid
         stripe_session_id: session.id,
         total_amount: session.amount_total ? (session.amount_total / 100) : 0,
         user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null
@@ -178,7 +179,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null,
           product_id: productId,
           total_amount: updateData.total_amount,
-          status: 'completed',
+          status: 'paid', // Standardized to paid
           stripe_session_id: session.id,
           customer_email: email,
           selected_options: {
@@ -586,12 +587,12 @@ apiRouter.get('/verify-session', async (req, res) => {
       const userId = session.metadata?.userId;
       const email = session.customer_email || session.customer_details?.email;
       
-      // Upsert order status to completed (resilient to missing initial record)
+      // Upsert order status to paid (resilient to missing initial record)
       await supabase
         .from('orders')
         .upsert({ 
           id: orderId || undefined,
-          status: 'completed',
+          status: 'paid', // Standardized to paid
           product_id: productId,
           user_id: userId || null,
           total_amount: session.amount_total ? (session.amount_total / 100) : 0,
@@ -891,10 +892,10 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
         // Was paid, sync our local DB!
         await supabase
           .from('orders')
-          .update({ status: 'completed' })
+          .update({ status: 'paid' })
           .eq('id', id);
           
-        order.status = 'completed'; // update local variable for upcoming logic
+        order.status = 'paid'; // update local variable for upcoming logic
       }
     }
 
@@ -934,11 +935,11 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       if (session.payment_status === 'paid') {
         const { error: updateError } = await supabase
           .from('orders')
-          .update({ status: 'completed' })
+          .update({ status: 'paid' })
           .eq('id', id);
         
         if (updateError) throw updateError;
-        return res.json({ success: true, status: 'completed' });
+        return res.json({ success: true, status: 'paid' });
       } else {
         return res.json({ success: true, status: order.status, message: 'Ainda não pago no Stripe' });
       }
@@ -961,7 +962,7 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
       .from('orders')
       .select('*, product:products(*) ')
       .eq('id', orderId)
-      .eq('status', 'completed')
+      .in('status', ['paid', 'completed'])
       .single();
 
     if (orderError) {
@@ -1051,8 +1052,8 @@ apiRouter.post('/request-refund', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    if (order.status !== 'completed') {
-      return res.status(400).json({ error: 'Apenas ordens concluídas podem ser reembolsadas.' });
+    if (order.status !== 'paid' && order.status !== 'completed') {
+      return res.status(400).json({ error: 'Apenas ordens pagas ou concluídas podem ser reembolsadas.' });
     }
 
     // Update status to 'refund_requested' for admin review

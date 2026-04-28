@@ -201,8 +201,8 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
   const libraryItems = Array.from(
     purchasedProducts
       .filter(o => 
-        (o.status === 'completed' || o.status === 'refund_requested' || o.status === 'refund_pending') && 
-        (o.product?.product_type === 'digital' || (!o.product?.product_type && o.product?.category === 'E-books'))
+        (o.status === 'paid' || o.status === 'completed' || o.status === 'refund_requested' || o.status === 'refund_pending') && 
+        (o.product?.category === 'E-books' || o.product?.title?.toLowerCase().includes('livro') || o.product?.description?.toLowerCase().includes('livro'))
       )
       .reduce((acc, order) => {
         // Only keep the latest order for each product
@@ -518,7 +518,7 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                               Reembolsado
                             </span>
                           )}
-                          {order.status === 'completed' && (() => {
+                          {(order.status === 'paid' || order.status === 'completed') && (() => {
                             const isDigital = order.product?.product_type === 'digital' || (!order.product?.product_type && order.product?.category === 'E-books');
                             const effectiveStatus = isDigital ? 'delivered' : (order.shipping_status || 'pending');
                             
@@ -527,17 +527,16 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                                 effectiveStatus === 'delivered' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 shadow-emerald-500/5' :
                                 effectiveStatus === 'sent' ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-blue-500/5' :
                                 effectiveStatus === 'processing' ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-amber-500/5' :
-                                effectiveStatus === 'pago' ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-950/20 shadow-emerald-500/5' :
+                                effectiveStatus === 'pago' || order.status === 'paid' ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-950/20 shadow-emerald-500/5' :
                                 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
                               }`}>
-                                {effectiveStatus === 'delivered' ? <CheckCircle2 size={10} /> : 
+                                {(effectiveStatus === 'delivered' || order.status === 'paid' || effectiveStatus === 'pago') ? <CheckCircle2 size={10} /> : 
                                  effectiveStatus === 'sent' ? <Truck size={10} /> : 
-                                 effectiveStatus === 'pago' ? <CheckCircle2 size={10} /> :
                                  <Clock size={10} />}
                                 {effectiveStatus === 'delivered' ? 'Concluído' : 
                                  effectiveStatus === 'sent' ? 'Em Trânsito' : 
                                  effectiveStatus === 'processing' ? 'Armazém / Processando' :
-                                 effectiveStatus === 'pago' ? 'Pago' : 'Pendente'}
+                                 (effectiveStatus === 'pago' || order.status === 'paid') ? 'Pago' : 'Pendente'}
                               </span>
                             );
                           })()}

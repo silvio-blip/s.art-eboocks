@@ -415,12 +415,12 @@ export default function AdminDashboard({
   };
 
   // Correct financial calculations
-  const completedOrders = orders.filter((o) => ["completed", "pago", "delivered"].includes(o.status?.toLowerCase() || ""));
+  const successfulOrders = orders.filter((o) => ["paid", "completed", "pago", "delivered"].includes(o.status?.toLowerCase() || ""));
   const refundedOrders = orders.filter((o) => o.status?.toLowerCase() === "refunded");
   const refundedOrdersCount = refundedOrders.length;
   const requestedRefundsCount = orders.filter((o) => ["refund_requested", "refund_pending"].includes(o.status?.toLowerCase() || "")).length;
 
-  const totalCompleted = completedOrders.reduce(
+  const totalSuccessful = successfulOrders.reduce(
     (sum, o) => sum + (parseFloat(o.total_amount?.toString() || '0')),
     0,
   );
@@ -429,11 +429,11 @@ export default function AdminDashboard({
     0,
   );
 
-  // Gross Revenue = All money that entered (Completed transactions + those pending refund)
-  const totalGrossRevenue = totalCompleted + totalRefunded;
-  // Net Profit = Money currently in account (Completed + Pending Refund)
-  const netProfit = totalCompleted;
-  const completedSales = completedOrders.length; 
+  // Gross Revenue = All money that entered (Paid transactions + those pending refund)
+  const totalGrossRevenue = totalSuccessful + totalRefunded;
+  // Net Profit = Money currently in account
+  const netProfit = totalSuccessful;
+  const completedSales = successfulOrders.length; 
 
   // Processing chart data with safety for NaN and invalid dates
   const getChartData = () => {
@@ -450,7 +450,7 @@ export default function AdminDashboard({
         ];
         const data = days.map((day) => ({ name: day, value: 0, sales: 0 }));
 
-        completedOrders.forEach((order) => {
+        successfulOrders.forEach((order) => {
           if (!order.created_at) return;
           const date = new Date(order.created_at);
           if (isNaN(date.getTime())) return;
@@ -481,7 +481,7 @@ export default function AdminDashboard({
       const currentYear = new Date().getFullYear();
       const data = months.map((month) => ({ name: month, value: 0, sales: 0 }));
 
-      completedOrders.forEach((order) => {
+      successfulOrders.forEach((order) => {
         if (!order.created_at) return;
         const date = new Date(order.created_at);
         if (isNaN(date.getTime())) return;
@@ -505,7 +505,7 @@ export default function AdminDashboard({
         sales: 0,
       }));
 
-      completedOrders.forEach((order) => {
+      successfulOrders.forEach((order) => {
         if (!order.created_at) return;
         const date = new Date(order.created_at);
         if (isNaN(date.getTime())) return;
@@ -1726,7 +1726,7 @@ export default function AdminDashboard({
                                 const data = await response.json();
                                 if (
                                   order.status === "pending" &&
-                                  data.status === "completed"
+                                  (data.status === "paid" || data.status === "completed")
                                 ) {
                                   toast.success(
                                     "Status logístico atualizado (e pagamento sincronizado auto).",
@@ -1771,14 +1771,14 @@ export default function AdminDashboard({
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-3">
                           <div className={`px-3 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black border ${
-                            order.status === "completed"
+                            (order.status === "paid" || order.status === "completed")
                               ? "text-emerald-500 border-emerald-500/20"
                               : order.status === "refunded"
                                 ? "text-red-500 border-red-500/20"
                                 : "text-amber-500 border-amber-500/20"
                           }`}>
                             {order.status === "pending" ? "Pendente" :
-                             order.status === "completed" ? "Pago" :
+                             (order.status === "paid" || order.status === "completed") ? "Pago" :
                              order.status === "refund_requested" ? "Reembolso Solicitado" :
                              order.status === "refund_pending" ? "Reebolso em Proc. (Stripe)" :
                              order.status === "refunded" ? "Reembolsado" :
@@ -1797,7 +1797,7 @@ export default function AdminDashboard({
                                      }
                                    });
                                    const data = await response.json();
-                                   if (data.status === 'completed') {
+                                   if (data.status === 'paid' || data.status === 'completed') {
                                      toast.success('Pagamento confirmado no Stripe!');
                                      fetchDashboardData();
                                    } else {
@@ -1814,7 +1814,7 @@ export default function AdminDashboard({
                              </button>
                           )}
 
-                          {(order.status === 'refund_pending' || order.status === 'completed') && (
+                          {(order.status === 'refund_pending' || order.status === 'paid' || order.status === 'completed') && (
                             <button
                                onClick={async () => {
                                  if (!confirm("Deseja realmente processar o reembolso total desta ordem via Stripe?")) return;
