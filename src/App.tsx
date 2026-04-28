@@ -1430,16 +1430,20 @@ export default function App() {
           // Refresh dashboard data on any change to orders
           fetchDashboardData(user.id);
 
-          if (payload.event === "UPDATE" && (payload.new.status === "paid" || payload.new.status === "completed")) {
-            if (payload.old && (payload.old.status !== "paid" && payload.old.status !== "completed")) {
-              toast.success(
-                "Pagamento confirmado! O acesso à sua obra foi libertado.",
-                {
-                  duration: 5000,
-                  icon: <CheckCircle2 className="text-emerald-500" size={18} />,
-                },
-              );
-            }
+          const newStatus = payload.new?.status?.toLowerCase();
+          const oldStatus = payload.old?.status?.toLowerCase();
+
+          const isNowPaid = ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(newStatus);
+          const wasNotPaid = !oldStatus || !['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(oldStatus);
+
+          if (payload.event === "UPDATE" && isNowPaid && wasNotPaid) {
+            toast.success(
+              "Pagamento confirmado! O acesso à sua obra foi libertado.",
+              {
+                duration: 5000,
+                icon: <CheckCircle2 className="text-emerald-500" size={18} />,
+              },
+            );
           }
         },
       )
@@ -1720,7 +1724,7 @@ export default function App() {
       .from("orders")
       .select("*")
       .eq("user_id", userId)
-      .in("status", ["paid", "completed", "refund_requested", "refund_pending", "refunded"]) // Added "paid"
+      .in("status", ["paid", "completed", "pago", "delivered", "succeeded", "refund_requested", "refund_pending", "refunded"])
       .order("created_at", { ascending: false });
 
     if (ordersError) {
@@ -2078,13 +2082,13 @@ export default function App() {
                         onBuy={handleBuy}
                         onRead={(p) => {
                           const order = purchasedProducts.find(
-                            (o) => o.product_id === p.id && ['paid', 'completed', 'pago', 'delivered'].includes(o.status),
+                            (o) => o.product_id === p.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(o.status?.toLowerCase()),
                           );
                           if (order)
                             handleOpenReader(p, order.id, order.created_at);
                         }}
                         isOwned={purchasedProducts.some(
-                          (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered'].includes(p.status),
+                          (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(p.status?.toLowerCase()),
                         )}
                         isProcessing={checkoutLoading === product.id}
                       />

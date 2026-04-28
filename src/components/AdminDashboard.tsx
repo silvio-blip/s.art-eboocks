@@ -247,6 +247,39 @@ export default function AdminDashboard({
     }
   };
 
+  const syncAllPayments = async () => {
+    const ordersToSync = orders.filter(o => 
+      ["pending", "pendente", "waiting", "refund_pending"].includes(o.status?.toLowerCase() || "") ||
+      (o.status?.toLowerCase() === "paid" && (Number(o.total_amount) || 0) === 0)
+    );
+    if (ordersToSync.length === 0) {
+      toast.info("Nenhuma ordem pendente exige sincronização imediata.");
+      return;
+    }
+    
+    const syncToast = toast.loading(`Sincronizando ${ordersToSync.length} ordens com Stripe...`);
+    let successCount = 0;
+    
+    // Use for...of for sequential execution to avoid hitting Stripe rate limits too hard if there are many
+    for (const order of ordersToSync) {
+      try {
+        const res = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': user.id
+          }
+        });
+        if (res.ok) successCount++;
+      } catch (e) {
+        console.error(`Error syncing order ${order.id}:`, e);
+      }
+    }
+    
+    toast.success(`${successCount} ordens foram verificadas e atualizadas.`, { id: syncToast });
+    fetchDashboardData();
+  };
+
   const fetchProducts = async () => {
     const { data } = await supabase
       .from("products")
@@ -414,116 +447,92 @@ export default function AdminDashboard({
     }
   };
 
-  // Correct financial calculations
-  const successfulOrders = orders.filter((o) => ["paid", "completed", "pago", "delivered"].includes(o.status?.toLowerCase() || ""));
+  // Correct financial calculations - Standardizing Statuses
+  const activeStatuses = ["paid", "completed", "pago", "delivered", "succeeded"];
+  
+  const successfulOrders = orders.filter((o) => {
+    const s = o.status?.toLowerCase() || "";
+    return activeStatuses.includes(s);
+  });
+  
   const refundedOrders = orders.filter((o) => o.status?.toLowerCase() === "refunded");
   const refundedOrdersCount = refundedOrders.length;
   const requestedRefundsCount = orders.filter((o) => ["refund_requested", "refund_pending"].includes(o.status?.toLowerCase() || "")).length;
 
   const totalSuccessful = successfulOrders.reduce(
-    (sum, o) => sum + (parseFloat(o.total_amount?.toString() || '0')),
+    (sum, o) => sum + (Number(o.total_amount) || 0),
     0,
   );
+  
   const totalRefunded = refundedOrders.reduce(
-    (sum, o) => sum + (parseFloat(o.total_amount?.toString() || '0')),
+    (sum, o) => sum + (Number(o.total_amount) || 0),
     0,
   );
 
-  // Gross Revenue = All money that entered (Paid transactions + those pending refund)
+  // Gross Revenue = Every cent that entered the system (Paid - which may or may not be the final state if we count strictly)
+  // But usually Gross = Paid + Refunded (because refunded WAS paid at some point)
   const totalGrossRevenue = totalSuccessful + totalRefunded;
-  // Net Profit = Money currently in account
-  const netProfit = totalSuccessful;
+  
+  // Net Profit = What remains after refunds
+  const netProfit = totalSuccessful; 
   const completedSales = successfulOrders.length; 
 
-  // Processing chart data with safety for NaN and invalid dates
+  // Re-calculating display data for charts using the same active statuses
   const getChartData = () => {
     try {
       if (timeRange === "weekly") {
-        const days = [
-          "Segunda",
-          "Terça",
-          "Quarta",
-          "Quinta",
-          "Sexta",
-          "Sábado",
-          "Domingo",
-        ];
+        const days = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"];
         const data = days.map((day) => ({ name: day, value: 0, sales: 0 }));
 
         successfulOrders.forEach((order) => {
           if (!order.created_at) return;
           const date = new Date(order.created_at);
           if (isNaN(date.getTime())) return;
-          
           const dayIndex = (date.getDay() + 6) % 7; 
-          const amt = typeof order.total_amount === 'string' ? parseFloat(order.total_amount) : Number(order.total_amount);
-          data[dayIndex].value += amt || 0;
+          data[dayIndex].value += Number(order.total_amount) || 0;
           data[dayIndex].sales += 1;
         });
         return data;
       }
 
-    if (timeRange === "monthly") {
-      const months = [
-        "Jan",
-        "Fev",
-        "Mar",
-        "Abr",
-        "Mai",
-        "Jun",
-        "Jul",
-        "Ago",
-        "Set",
-        "Out",
-        "Nov",
-        "Dez",
-      ];
-      const currentYear = new Date().getFullYear();
-      const data = months.map((month) => ({ name: month, value: 0, sales: 0 }));
+      if (timeRange === "monthly") {
+        const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+        const currentYear = new Date().getFullYear();
+        const data = months.map((month) => ({ name: month, value: 0, sales: 0 }));
 
-      successfulOrders.forEach((order) => {
-        if (!order.created_at) return;
-        const date = new Date(order.created_at);
-        if (isNaN(date.getTime())) return;
+        successfulOrders.forEach((order) => {
+          if (!order.created_at) return;
+          const date = new Date(order.created_at);
+          if (isNaN(date.getTime())) return;
+          if (date.getFullYear() === currentYear) {
+            const monthIndex = date.getMonth();
+            data[monthIndex].value += Number(order.total_amount) || 0;
+            data[monthIndex].sales += 1;
+          }
+        });
+        return data;
+      }
 
-        if (date.getFullYear() === currentYear) {
-          const monthIndex = date.getMonth();
-          const amt = typeof order.total_amount === 'string' ? parseFloat(order.total_amount) : Number(order.total_amount);
-          data[monthIndex].value += amt || 0;
-          data[monthIndex].sales += 1;
-        }
-      });
-      return data;
-    }
+      if (timeRange === "yearly") {
+        const currentYear = new Date().getFullYear();
+        const years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
+        const data = years.map((year) => ({ name: year.toString(), value: 0, sales: 0 }));
 
-    if (timeRange === "yearly") {
-      const currentYear = new Date().getFullYear();
-      const years = Array.from({ length: 5 }, (_, i) => currentYear - 4 + i);
-      const data = years.map((year) => ({
-        name: year.toString(),
-        value: 0,
-        sales: 0,
-      }));
-
-      successfulOrders.forEach((order) => {
-        if (!order.created_at) return;
-        const date = new Date(order.created_at);
-        if (isNaN(date.getTime())) return;
-
-        const year = date.getFullYear();
-        const yearData = data.find((d) => d.name === year.toString());
-        if (yearData) {
-          const amt = typeof order.total_amount === 'string' ? parseFloat(order.total_amount) : Number(order.total_amount);
-          yearData.value += amt || 0;
-          yearData.sales += 1;
-        }
-      });
-      return data;
-    }
-
-    return [{ name: "N/A", value: 0, sales: 0 }];
+        successfulOrders.forEach((order) => {
+          if (!order.created_at) return;
+          const date = new Date(order.created_at);
+          if (isNaN(date.getTime())) return;
+          const year = date.getFullYear();
+          const yearData = data.find((d) => d.name === year.toString());
+          if (yearData) {
+            yearData.value += Number(order.total_amount) || 0;
+            yearData.sales += 1;
+          }
+        });
+        return data;
+      }
+      return [{ name: "N/A", value: 0, sales: 0 }];
     } catch (e) {
-      console.error("Error generating chart data:", e);
       return [{ name: "Erro", value: 0, sales: 0 }];
     }
   };
@@ -946,9 +955,20 @@ export default function AdminDashboard({
 
             {/* Recent Orders Table */}
             <div className="space-y-6">
-              <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">
-                Últimas Transações
-              </h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">
+                  Últimas Transações
+                </h3>
+                <Button
+                  onClick={syncAllPayments}
+                  variant="outline"
+                  size="sm"
+                  className="bg-white/5 border-white/10 text-luxury-gold hover:bg-luxury-gold hover:text-black text-[9px] uppercase tracking-widest h-8 px-4"
+                >
+                  <RefreshCw size={12} className="mr-2" />
+                  Sincronizar Pendentes
+                </Button>
+              </div>
               <div className="overflow-x-auto border border-white/5">
                 <table className="w-full text-left text-sm">
                   <thead>
@@ -973,6 +993,9 @@ export default function AdminDashboard({
                       </th>
                       <th id="th-status" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
                         Status
+                      </th>
+                      <th id="th-actions" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                        Ação
                       </th>
                     </tr>
                   </thead>
@@ -1009,7 +1032,7 @@ export default function AdminDashboard({
                         <td className="px-6 py-4">
                           <span
                             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-widest font-bold ${
-                              order.status === "completed"
+                              activeStatuses.includes(order.status?.toLowerCase() || "")
                                 ? "bg-emerald-500/10 text-emerald-500"
                                 : order.status === "refunded"
                                   ? "bg-red-500/10 text-red-500"
@@ -1018,7 +1041,7 @@ export default function AdminDashboard({
                                     : "bg-amber-500/10 text-amber-500"
                             }`}
                           >
-                            {order.status === "completed" ? (
+                            {activeStatuses.includes(order.status?.toLowerCase() || "") ? (
                               <>
                                 <CheckCircle size={8} className="mr-1" />{" "}
                                 Liquidado
@@ -1039,6 +1062,38 @@ export default function AdminDashboard({
                               </>
                             )}
                           </span>
+                        </td>
+                        <td className="px-8 py-4">
+                          {!activeStatuses.includes(order.status?.toLowerCase() || "") && order.status !== "refunded" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
+                                    method: 'POST',
+                                    headers: {
+                                      'Content-Type': 'application/json',
+                                      'x-user-id': user.id
+                                    }
+                                  });
+                                  const data = await response.json();
+                                  if (data.success) {
+                                    toast.success(data.message || 'Sincronizado!');
+                                    fetchDashboardData();
+                                  } else {
+                                    toast.info(data.message || 'Sem alterações no Stripe.');
+                                  }
+                                } catch (e) {
+                                  toast.error('Erro de conexão.');
+                                }
+                              }}
+                              className="h-7 w-7 p-0 bg-white/5 border-white/10 hover:bg-luxury-gold hover:text-black rounded-none"
+                              title="Sincronizar com Stripe"
+                            >
+                              <RefreshCw size={12} />
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -1586,6 +1641,14 @@ export default function AdminDashboard({
                 onChange={(e) => setOrderSearch(e.target.value)}
                 className="bg-luxury-dark border border-white/5 py-4 px-6 text-[10px] uppercase tracking-widest text-white outline-none focus:border-luxury-gold flex-1 transition-colors"
               />
+              <Button
+                variant="outline"
+                onClick={syncAllPayments}
+                className="h-auto px-6 text-[9px] uppercase tracking-widest font-black border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold/10"
+              >
+                <RefreshCw size={14} className="mr-2" />
+                Sincronizar Tudo
+              </Button>
               <select
                 value={orderDateFilter}
                 onChange={(e) => setOrderDateFilter(e.target.value as any)}
@@ -1771,21 +1834,24 @@ export default function AdminDashboard({
                       <td className="px-8 py-6">
                         <div className="flex items-center gap-3">
                           <div className={`px-3 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black border ${
-                            (order.status === "paid" || order.status === "completed")
+                            ["paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "")
                               ? "text-emerald-500 border-emerald-500/20"
-                              : order.status === "refunded"
+                              : order.status?.toLowerCase() === "refunded"
                                 ? "text-red-500 border-red-500/20"
-                                : "text-amber-500 border-amber-500/20"
+                                : ["pending", "pendente", "waiting"].includes(order.status?.toLowerCase() || "")
+                                  ? "text-amber-500 border-amber-500/20"
+                                  : "text-blue-500 border-blue-500/20"
                           }`}>
-                            {order.status === "pending" ? "Pendente" :
-                             (order.status === "paid" || order.status === "completed") ? "Pago" :
+                            {["pending", "pendente", "waiting"].includes(order.status?.toLowerCase() || "") ? "Pendente" :
+                             ["paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "") ? "Pago" :
                              order.status === "refund_requested" ? "Em Análise" :
                              order.status === "refund_pending" ? "Estornando (Stripe)" :
                              order.status === "refunded" ? "Reembolsado" :
-                             "Cancelado"}
+                             order.status?.toUpperCase() || "Status"}
                           </div>
 
-                          {order.status === 'pending' && (
+                          {(["pending", "pendente", "waiting", "refund_pending"].includes(order.status?.toLowerCase() || "") || 
+                            (order.status?.toLowerCase() === "paid" && (Number(order.total_amount) || 0) === 0)) && (
                             <button
                                onClick={async () => {
                                  try {
@@ -1888,7 +1954,7 @@ export default function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {orders.filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status)).length === 0 ? (
+                      {orders.filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status?.toLowerCase() || "")).length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-8 py-20 text-center text-white/20 text-xs uppercase tracking-[0.2em]">
                             Nenhuma solicitação de reembolso encontrada.
@@ -1896,7 +1962,7 @@ export default function AdminDashboard({
                         </tr>
                       ) : (
                         orders
-                          .filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status))
+                          .filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status?.toLowerCase() || ""))
                           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                           .map((order) => (
                             <tr key={order.id} className="group hover:bg-white/[0.02] transition-colors">
@@ -1932,15 +1998,21 @@ export default function AdminDashboard({
                               </td>
                               <td className="px-8 py-6">
                                 <div className={`inline-flex px-3 py-1 rounded-full text-[8px] uppercase tracking-widest font-black ${
-                                  order.status === 'refund_requested' 
+                                  order.status?.toLowerCase() === 'refund_requested' 
                                     ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' 
-                                    : order.status === 'refund_pending'
+                                    : order.status?.toLowerCase() === 'refund_pending'
                                       ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse'
-                                      : order.status === 'refund_rejected'
+                                      : order.status?.toLowerCase() === 'refund_rejected'
                                         ? 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
-                                        : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                        : (order.status?.toLowerCase() === 'refunded' || order.status?.toLowerCase() === 'pago')
+                                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                          : 'bg-white/5 text-white/40 border border-white/10'
                                 }`}>
-                                  {order.status === 'refund_requested' ? 'Em Análise' : order.status === 'refund_pending' ? 'Processando Estorno' : order.status === 'refund_rejected' ? 'Solicitação Rejeitada' : 'Reembolso Concluído'}
+                                  {order.status?.toLowerCase() === 'refund_requested' ? 'Em Análise' : 
+                                   order.status?.toLowerCase() === 'refund_pending' ? 'Processando Estorno (Stripe)' : 
+                                   order.status?.toLowerCase() === 'refund_rejected' ? 'Solicitação Rejeitada' : 
+                                   order.status?.toLowerCase() === 'refunded' ? 'Reembolso Concluído' :
+                                   order.status?.toUpperCase() || 'Pendente'}
                                 </div>
                               </td>
                               <td className="px-8 py-6 text-right">

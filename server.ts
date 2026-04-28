@@ -75,24 +75,17 @@ async function handleRefundUpdated(refund: Stripe.Refund) {
     if (!paymentIntent) return;
 
     if (refund.status === 'succeeded' || refund.status === 'failed' || refund.status === 'canceled') {
-      // Find order by PI or Session
-      let { data: order } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('payment_intent_id', paymentIntent)
-        .maybeSingle();
+      const stripe = getStripe();
+      const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
       
-      if (!order) {
-        const stripe = getStripe();
-        const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
-        if (sessions.data.length > 0) {
-          const { data: fallbackOrder } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('stripe_session_id', sessions.data[0].id)
-            .maybeSingle();
-          order = fallbackOrder;
-        }
+      let order = null;
+      if (sessions.data.length > 0) {
+        const { data: foundOrder } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('stripe_session_id', sessions.data[0].id)
+          .maybeSingle();
+        order = foundOrder;
       }
 
       if (order) {
@@ -118,23 +111,17 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     const paymentIntent = charge.payment_intent as string;
     if (!paymentIntent) return;
     
-    let { data: order } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('payment_intent_id', paymentIntent)
-      .maybeSingle();
+    const stripe = getStripe();
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
     
-    if (!order) {
-      const stripe = getStripe();
-      const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
-      if (sessions.data.length > 0) {
-        const { data: fallbackOrder } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('stripe_session_id', sessions.data[0].id)
-          .maybeSingle();
-        order = fallbackOrder;
-      }
+    let order = null;
+    if (sessions.data.length > 0) {
+      const { data: foundOrder } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('stripe_session_id', sessions.data[0].id)
+        .maybeSingle();
+      order = foundOrder;
     }
 
     if (order) {
@@ -163,7 +150,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       const updateData: any = { 
         status: 'paid', // Standardized to paid
         stripe_session_id: session.id,
-        payment_intent_id: session.payment_intent as string,
+        // REMOVED missing column payment_intent_id
         total_amount: session.amount_total ? (session.amount_total / 100) : 0,
         user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null
       };
@@ -200,7 +187,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           total_amount: updateData.total_amount,
           status: 'paid', // Standardized to paid
           stripe_session_id: session.id,
-          payment_intent_id: session.payment_intent as string,
+          // REMOVED missing column payment_intent_id
           customer_email: email,
           selected_options: {
             size: session.metadata?.size,
@@ -601,36 +588,49 @@ apiRouter.get('/verify-session', async (req, res) => {
     const supabase = getSupabase();
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    if (session.payment_status === 'paid') {
+    if (session.payment_status === 'paid' || session.status === 'complete') {
       const productId = session.metadata?.productId;
       const orderId = session.metadata?.orderId;
       const userId = session.metadata?.userId;
       const email = session.customer_email || session.customer_details?.email;
+      const amount = session.amount_total ? (session.amount_total / 100) : 0;
       
-      // Upsert order status to paid (resilient to missing initial record)
-      await supabase
+      console.log(`[VERIFY SESSION] Successful session ${sessionId}. Order ID: ${orderId}, User ID: ${userId}, Amount: ${amount}`);
+
+      const piId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id;
+      
+      const upsertPayload: any = { 
+        status: 'paid',
+        product_id: productId,
+        user_id: userId || null,
+        total_amount: amount,
+        stripe_session_id: session.id,
+        customer_email: email,
+        selected_options: {
+          size: session.metadata?.size,
+          color: session.metadata?.color
+        },
+        shipping_details: {
+          fullName: session.metadata?.shipping_name,
+          address: session.metadata?.shipping_address,
+          city: session.metadata?.shipping_city,
+          postalCode: session.metadata?.shipping_postal_code,
+          country: session.metadata?.shipping_country,
+          phone: session.metadata?.shipping_phone
+        }
+      };
+
+      if (orderId) upsertPayload.id = orderId;
+
+      const { error: upsertError } = await supabase
         .from('orders')
-        .upsert({ 
-          id: orderId || undefined,
-          status: 'paid', // Standardized to paid
-          product_id: productId,
-          user_id: userId || null,
-          total_amount: session.amount_total ? (session.amount_total / 100) : 0,
-          stripe_session_id: session.id,
-          customer_email: email,
-          selected_options: {
-            size: session.metadata?.size,
-            color: session.metadata?.color
-          },
-          shipping_details: {
-            fullName: session.metadata?.shipping_name,
-            address: session.metadata?.shipping_address,
-            city: session.metadata?.shipping_city,
-            postalCode: session.metadata?.shipping_postal_code,
-            country: session.metadata?.shipping_country,
-            phone: session.metadata?.shipping_phone
-          }
-        }, { onConflict: 'stripe_session_id' });
+        .upsert(upsertPayload, { onConflict: 'id' }); // Primary key is usually safer if we have it
+
+      if (upsertError) {
+        console.error('[VERIFY SESSION DB ERROR]', upsertError);
+        // Fallback: try upserting by stripe_session_id if ID match failed
+        await supabase.from('orders').upsert(upsertPayload, { onConflict: 'stripe_session_id' });
+      }
 
       const { data: product } = await supabase
         .from('products')
@@ -950,44 +950,88 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    if (order.stripe_session_id) {
-      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-        expand: ['payment_intent.refunds']
-      });
+    if (order.stripe_session_id || (order as any).payment_intent_id) {
+      let pi: Stripe.PaymentIntent | null = null;
+      let session: Stripe.Checkout.Session | null = null;
+
+      try {
+        if (order.stripe_session_id) {
+          session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+            expand: ['payment_intent']
+          });
+          pi = session.payment_intent as Stripe.PaymentIntent;
+        } else if ((order as any).payment_intent_id) {
+          pi = await stripe.paymentIntents.retrieve((order as any).payment_intent_id);
+        }
+      } catch (stripeErr: any) {
+        console.error(`[STRIPE RETRIEVE ERROR] Order ${id}:`, stripeErr);
+        return res.status(400).json({ error: `Erro ao buscar dados no Stripe: ${stripeErr.message}` });
+      }
       
-      const pi = session.payment_intent as any;
       let newStatus = order.status;
 
-      // 1. Check if paid
-      if (session.payment_status === 'paid') {
+      // Log Stripe Details for Debugging
+      console.log(`[SYNC DEBUG] Order ${id} - Stripe Session: ${order.stripe_session_id}, PI: ${(order as any).payment_intent_id}`);
+      if (session) console.log(`[SYNC DEBUG] Session Status: ${session.status}, Payment Status: ${session.payment_status}`);
+      if (pi) console.log(`[SYNC DEBUG] PI Status: ${pi.status}, Amount Received: ${pi.amount_received}, Amount Refunded: ${(pi as any).amount_refunded}`);
+
+      // 1. Determine if PAID
+      const isPaidOnStripe = session?.payment_status === 'paid' || session?.status === 'complete' || pi?.status === 'succeeded';
+      
+      if (isPaidOnStripe) {
         newStatus = 'paid';
       }
 
-      // 2. Check if refunded
-      if (pi && pi.refunds && pi.refunds.data && pi.refunds.data.length > 0) {
-        const successfulRefunds = pi.refunds.data.filter((r: any) => r.status === 'succeeded');
-        if (successfulRefunds.length > 0) {
-          newStatus = 'refunded';
-          // Force remove access
-          await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
-        }
+      // 2. Check if REFUNDED
+      if (pi && (pi as any).amount_refunded && (pi as any).amount_refunded > 0) {
+        newStatus = 'refunded';
+        
+        // Force remove access
+        await supabase.from('user_reading_progress').delete()
+          .eq('book_id', order.product_id)
+          .eq('user_id', order.user_id);
+          
+        console.log(`[SYNC DEBUG] Order ${id} detected as refunded in Stripe.`);
       }
 
-      if (newStatus !== order.status) {
-        await supabase
+      const updatePayload: any = {};
+      if (newStatus !== order.status) updatePayload.status = newStatus;
+      
+      // Ensure amount is synced - trust Stripe as source of truth
+      const stripeAmount = (pi?.amount_received || pi?.amount || session?.amount_total || 0) / 100;
+      const currentAmount = Number(order.total_amount) || 0;
+      
+      if (stripeAmount > 0 && Math.abs(stripeAmount - currentAmount) > 0.01) {
+        console.log(`[SYNC DEBUG] Updating Order ${id} amount from ${currentAmount} to ${stripeAmount}`);
+        updatePayload.total_amount = stripeAmount;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        console.log(`[SYNC DEBUG] Persisting updates to DB for Order ${id}:`, updatePayload);
+        const { error: updateError } = await supabase
           .from('orders')
-          .update({ 
-            status: newStatus,
-            payment_intent_id: pi?.id || order.payment_intent_id 
-          })
+          .update(updatePayload)
           .eq('id', id);
         
-        return res.json({ success: true, status: newStatus, message: 'Status sincronizado com sucesso do Stripe' });
+        if (updateError) {
+          console.error(`[SYNC DB ERROR] Order ${id}:`, JSON.stringify(updateError));
+          return res.status(500).json({ error: `Erro no banco de dados ao atualizar ordem: ${updateError.message || 'Erro desconhecido'}` });
+        }
+        
+        return res.json({ 
+          success: true, 
+          status: newStatus, 
+          message: `Sincronização concluída com sucesso.` 
+        });
       } else {
-        return res.json({ success: true, status: order.status, message: 'Status já está sincronizado com o Stripe' });
+        return res.json({ 
+          success: true, 
+          status: order.status, 
+          message: `A ordem já está sincronizada (Status: ${order.status}, Valor: €${currentAmount}).` 
+        });
       }
     } else {
-      return res.status(400).json({ error: 'Nenhum ID de sessão Stripe encontrado nesta ordem' });
+      return res.status(400).json({ error: 'Não foi encontrado ID de transação (Sessão ou PI) para sincronizar.' });
     }
   } catch (error: any) {
     console.error('[SYNC PAYMENT ERROR]', error);
@@ -1144,33 +1188,47 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
     }
 
     // Retrieve full session with payment intent expand
-    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-      expand: ['payment_intent']
-    });
+    let pi: Stripe.PaymentIntent | null = null;
     
-    const pi = session.payment_intent as Stripe.PaymentIntent;
+    if (order.stripe_session_id) {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+        expand: ['payment_intent']
+      });
+      pi = session.payment_intent as Stripe.PaymentIntent;
+    } else if ((order as any).payment_intent_id) {
+      pi = await stripe.paymentIntents.retrieve((order as any).payment_intent_id);
+    }
+    
     if (!pi || !pi.id) {
-      return res.status(400).json({ error: 'Nenhum Payment Intent encontrado para este reembolso.' });
+      return res.status(400).json({ error: 'Nenhum Payment Intent encontrado. Certifique-se de sincronizar a ordem primeiro.' });
     }
 
-    // Amount needs to be > 0. Check PI amount_received/amount.
-    const amountToRefund = pi.amount_received || pi.amount || Math.round(parseFloat(order.total_amount?.toString() || '0') * 100);
+    // Amount needs to be > 0.
+    let amountToRefund = pi.amount_received || pi.amount || Math.round(parseFloat(order.total_amount?.toString() || '0') * 100);
     
-    if (amountToRefund <= 0) {
-      return res.status(400).json({ error: `Impossível reembolsar valor de 0. (Calculado: ${amountToRefund})` });
+    // If it is still 0, we have a problem, try to use the product price as last resort
+    if (!amountToRefund || amountToRefund <= 0) {
+      // Fetch product to get price
+      const { data: product } = await supabase.from('products').select('price').eq('id', order.product_id).single();
+      if (product && product.price) {
+        amountToRefund = Math.round(parseFloat(product.price.toString()) * 100);
+      }
+    }
+
+    if (!amountToRefund || amountToRefund <= 0) {
+      return res.status(400).json({ error: `Valor inválido para estorno. O Stripe reporta montante recebido de 0 e o valor local também é 0.` });
     }
 
     console.log(`[ADMIN REFUND] Initiating Stripe refund of ${amountToRefund} cents for PI: ${pi.id}`);
     
     const refund = await stripe.refunds.create({
       payment_intent: pi.id,
-      amount: amountToRefund, // Explicitly pass the amount to avoid ambiguous 0 errors
+      amount: amountToRefund,
     });
 
     // Update to 'refund_pending'
     await supabase.from('orders').update({ 
       status: 'refund_pending',
-      payment_intent_id: pi.id,
       selected_options: {
         ...(order.selected_options || {}),
         stripe_refund_id: refund.id,
@@ -1178,10 +1236,17 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
       }
     }).eq('id', id);
 
+    // IMMEDIATELY Revoke accessibility for digital products
+    await supabase.from('user_reading_progress').delete()
+      .eq('book_id', order.product_id)
+      .eq('user_id', order.user_id);
+
+    console.log(`[ADMIN REFUND] Order ${id} set to refund_pending and access revoked.`);
+    
     return res.json({ 
       success: true, 
       stripe_status: refund.status, 
-      message: 'Reembolso aprovado. O status será atualizado para "Reembolsado" assim que o Stripe confirmar o estorno.'
+      message: 'Reembolso aprovado. O acesso foi removido e o status será atualizado para "Reembolsado" assim que o Stripe confirmar.'
     });
   } catch (err: any) {
     console.error('[ADMIN REFUND ERROR]', err);

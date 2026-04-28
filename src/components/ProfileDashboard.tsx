@@ -200,10 +200,15 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
 
   const libraryItems = Array.from(
     purchasedProducts
-      .filter(o => 
-        (o.status === 'paid' || o.status === 'completed' || o.status === 'refund_requested' || o.status === 'refund_pending') && 
-        (o.product?.category === 'E-books' || o.product?.title?.toLowerCase().includes('livro') || o.product?.description?.toLowerCase().includes('livro'))
-      )
+      .filter(o => {
+        const status = o.status?.toLowerCase();
+        const isPaid = ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(status);
+        const isDigital = o.product?.product_type === 'digital' || 
+                         o.product?.category?.toLowerCase() === 'e-books' || 
+                         o.product?.title?.toLowerCase().includes('livro') || 
+                         o.product?.description?.toLowerCase().includes('livro');
+        return isPaid && isDigital;
+      })
       .reduce((acc, order) => {
         // Only keep the latest order for each product
         if (!acc.has(order.product_id) || new Date(order.created_at) > new Date(acc.get(order.product_id)!.created_at)) {
