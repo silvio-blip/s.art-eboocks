@@ -74,16 +74,15 @@ async function handleRefundUpdated(refund: Stripe.Refund) {
     const paymentIntent = refund.payment_intent as string;
     if (!paymentIntent) return;
 
-    if (refund.status === 'succeeded') {
-      // First try to find by payment_intent_id (new way)
-      let { data: order, error } = await supabase
+    if (refund.status === 'succeeded' || refund.status === 'failed' || refund.status === 'canceled') {
+      // Find order by PI or Session
+      let { data: order } = await supabase
         .from('orders')
         .select('*')
         .eq('payment_intent_id', paymentIntent)
-        .single();
+        .maybeSingle();
       
-      // Fallback: search by session ID via Stripe (old way)
-      if (!order || error) {
+      if (!order) {
         const stripe = getStripe();
         const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
         if (sessions.data.length > 0) {
@@ -91,16 +90,21 @@ async function handleRefundUpdated(refund: Stripe.Refund) {
             .from('orders')
             .select('*')
             .eq('stripe_session_id', sessions.data[0].id)
-            .single();
+            .maybeSingle();
           order = fallbackOrder;
         }
       }
 
       if (order) {
-        await supabase.from('orders').update({ status: 'refunded' }).eq('id', order.id);
-        // Remove access immediately
-        await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
-        console.log(`[S.ART WEBHOOK] Order ${order.id} updated to refunded (via refund.updated)`);
+        const newStatus = refund.status === 'succeeded' ? 'refunded' : 'paid'; // revert if failed? or just leave
+        console.log(`[S.ART WEBHOOK] Refund ${refund.id} updated to ${refund.status} for Order ${order.id}`);
+        
+        await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
+        
+        if (newStatus === 'refunded') {
+          // Absolute removal of access
+          await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+        }
       }
     }
   } catch (error) {
@@ -114,15 +118,13 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     const paymentIntent = charge.payment_intent as string;
     if (!paymentIntent) return;
     
-    // First try to find by payment_intent_id (new way)
-    let { data: order, error } = await supabase
+    let { data: order } = await supabase
       .from('orders')
       .select('*')
       .eq('payment_intent_id', paymentIntent)
-      .single();
+      .maybeSingle();
     
-    // Fallback: search by session ID via Stripe (old way)
-    if (!order || error) {
+    if (!order) {
       const stripe = getStripe();
       const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
       if (sessions.data.length > 0) {
@@ -130,19 +132,18 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
           .from('orders')
           .select('*')
           .eq('stripe_session_id', sessions.data[0].id)
-          .single();
+          .maybeSingle();
         order = fallbackOrder;
       }
     }
 
     if (order) {
+      console.log(`[S.ART WEBHOOK] Charge Refunded for Order ${order.id}. Setting status to refunded.`);
       await supabase.from('orders').update({ status: 'refunded' }).eq('id', order.id);
-      // Delete progress
       await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
-      console.log(`[S.ART WEBHOOK] Order ${order.id} updated to refunded and access removed via charge.refunded`);
     }
   } catch (error) {
-    console.error('[S.ART WEBHOOK ERROR during refund handling]', error);
+    console.error('[S.ART WEBHOOK ERROR during charge.refunded handling]', error);
   }
 }
 
@@ -950,22 +951,46 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
     }
 
     if (order.stripe_session_id) {
-      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+        expand: ['payment_intent.refunds']
+      });
+      
+      const pi = session.payment_intent as any;
+      let newStatus = order.status;
+
+      // 1. Check if paid
       if (session.payment_status === 'paid') {
-        const { error: updateError } = await supabase
+        newStatus = 'paid';
+      }
+
+      // 2. Check if refunded
+      if (pi && pi.refunds && pi.refunds.data && pi.refunds.data.length > 0) {
+        const successfulRefunds = pi.refunds.data.filter((r: any) => r.status === 'succeeded');
+        if (successfulRefunds.length > 0) {
+          newStatus = 'refunded';
+          // Force remove access
+          await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
+        }
+      }
+
+      if (newStatus !== order.status) {
+        await supabase
           .from('orders')
-          .update({ status: 'paid' })
+          .update({ 
+            status: newStatus,
+            payment_intent_id: pi?.id || order.payment_intent_id 
+          })
           .eq('id', id);
         
-        if (updateError) throw updateError;
-        return res.json({ success: true, status: 'paid' });
+        return res.json({ success: true, status: newStatus, message: 'Status sincronizado com sucesso do Stripe' });
       } else {
-        return res.json({ success: true, status: order.status, message: 'Ainda não pago no Stripe' });
+        return res.json({ success: true, status: order.status, message: 'Status já está sincronizado com o Stripe' });
       }
     } else {
       return res.status(400).json({ error: 'Nenhum ID de sessão Stripe encontrado nesta ordem' });
     }
   } catch (error: any) {
+    console.error('[SYNC PAYMENT ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1118,23 +1143,36 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
       return res.status(400).json({ error: 'ID de sessão Stripe ausente.' });
     }
 
-    // Retrieve payment intent
-    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
-    if (!session.payment_intent) {
-      return res.status(400).json({ error: 'Payment Intent não encontrado.' });
+    // Retrieve full session with payment intent expand
+    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+      expand: ['payment_intent']
+    });
+    
+    const pi = session.payment_intent as Stripe.PaymentIntent;
+    if (!pi || !pi.id) {
+      return res.status(400).json({ error: 'Nenhum Payment Intent encontrado para este reembolso.' });
     }
 
-    // Trigger Stripe Refund Process
-    console.log(`[ADMIN REFUND] Initiating Stripe refund for PI: ${session.payment_intent}`);
+    // Amount needs to be > 0. Check PI amount_received/amount.
+    const amountToRefund = pi.amount_received || pi.amount || Math.round(parseFloat(order.total_amount?.toString() || '0') * 100);
+    
+    if (amountToRefund <= 0) {
+      return res.status(400).json({ error: `Impossível reembolsar valor de 0. (Calculado: ${amountToRefund})` });
+    }
+
+    console.log(`[ADMIN REFUND] Initiating Stripe refund of ${amountToRefund} cents for PI: ${pi.id}`);
+    
     const refund = await stripe.refunds.create({
-      payment_intent: session.payment_intent as string,
+      payment_intent: pi.id,
+      amount: amountToRefund, // Explicitly pass the amount to avoid ambiguous 0 errors
     });
 
-    // Update to 'refund_pending' (Approved by admin, waiting for Stripe confirm via webhook)
+    // Update to 'refund_pending'
     await supabase.from('orders').update({ 
       status: 'refund_pending',
+      payment_intent_id: pi.id,
       selected_options: {
-        ...order.selected_options,
+        ...(order.selected_options || {}),
         stripe_refund_id: refund.id,
         refund_approved_at: new Date().toISOString()
       }
@@ -1143,7 +1181,7 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
     return res.json({ 
       success: true, 
       stripe_status: refund.status, 
-      message: 'Reembolso aprovado. O status será atualizado para "Reembolsado" assim que processado pelo Stripe.'
+      message: 'Reembolso aprovado. O status será atualizado para "Reembolsado" assim que o Stripe confirmar o estorno.'
     });
   } catch (err: any) {
     console.error('[ADMIN REFUND ERROR]', err);

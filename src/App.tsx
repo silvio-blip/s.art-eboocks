@@ -2078,13 +2078,13 @@ export default function App() {
                         onBuy={handleBuy}
                         onRead={(p) => {
                           const order = purchasedProducts.find(
-                            (o) => o.product_id === p.id && (o.status === 'paid' || o.status === 'completed'),
+                            (o) => o.product_id === p.id && ['paid', 'completed', 'pago', 'delivered'].includes(o.status),
                           );
                           if (order)
                             handleOpenReader(p, order.id, order.created_at);
                         }}
                         isOwned={purchasedProducts.some(
-                          (p) => p.product_id === product.id && (p.status === 'paid' || p.status === 'completed'),
+                          (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered'].includes(p.status),
                         )}
                         isProcessing={checkoutLoading === product.id}
                       />

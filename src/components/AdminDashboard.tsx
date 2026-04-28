@@ -1797,8 +1797,8 @@ export default function AdminDashboard({
                                      }
                                    });
                                    const data = await response.json();
-                                   if (data.status === 'paid' || data.status === 'completed') {
-                                     toast.success('Pagamento confirmado no Stripe!');
+                                   if (data.success) {
+                                     toast.success(data.message || 'Status sincronizado com o Stripe!');
                                      fetchDashboardData();
                                    } else {
                                      toast.info(data.message || 'Ainda não pago no Stripe.');
@@ -1944,8 +1944,37 @@ export default function AdminDashboard({
                                 </div>
                               </td>
                               <td className="px-8 py-6 text-right">
-                                    <div className="flex gap-2 justify-end">
-                                      {order.status === 'refund_requested' && (
+                                  <div className="flex gap-2 justify-end">
+                                    <Button
+                                      onClick={async () => {
+                                        try {
+                                          const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
+                                            method: 'POST',
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                              'x-user-id': user.id
+                                            }
+                                          });
+                                          const data = await response.json();
+                                          if (data.success) {
+                                            toast.success(data.message);
+                                            fetchDashboardData();
+                                          } else {
+                                            toast.error(data.error || "Erro de sincronização");
+                                          }
+                                        } catch (e) {
+                                          toast.error("Erro de rede");
+                                        }
+                                      }}
+                                      variant="outline"
+                                      className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none"
+                                      title="Sincronizar estado com Stripe"
+                                    >
+                                      <RefreshCw size={10} className="mr-1" />
+                                      Sincronizar
+                                    </Button>
+
+                                    {order.status === 'refund_requested' && (
                                         <>
                                           <Button
                                             onClick={async () => {

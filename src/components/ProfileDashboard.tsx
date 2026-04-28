@@ -510,7 +510,7 @@ export default function ProfileDashboard({ user, purchasedProducts, readingProgr
                           )}
                           {order.status === 'refund_pending' && (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-sm border border-blue-100 dark:border-blue-900/50 animate-pulse">
-                              Estorno em Processamento
+                              Estornando (Stripe)
                             </span>
                           )}
                           {order.status === 'refunded' && (
