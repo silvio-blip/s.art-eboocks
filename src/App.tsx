@@ -1781,13 +1781,20 @@ export default function App() {
   };
 
   const [refundBookName, setRefundBookName] = useState("");
+  const [refundReason, setRefundReason] = useState("");
   const [refundOrder, setRefundOrder] = useState<Order | null>(null);
   const [isRefunding, setIsRefunding] = useState(false);
 
   const handleRefund = async () => {
     if (!refundOrder || !user) return;
+    
     if (refundBookName !== refundOrder.product?.title) {
       toast.error("O título digitado não corresponde à obra selecionada.");
+      return;
+    }
+
+    if (!refundReason || refundReason.trim().length < 10) {
+      toast.error("O motivo do reembolso é obrigatório e deve ter pelo menos 10 caracteres.");
       return;
     }
 
@@ -1799,7 +1806,7 @@ export default function App() {
         body: JSON.stringify({ 
           orderId: refundOrder.id, 
           userId: user.id,
-          reason: "Solicitado via painel do utilizador"
+          reason: refundReason
         }),
       });
       const data = await res.json();
@@ -1809,6 +1816,7 @@ export default function App() {
       toast.success("O seu pedido de reembolso foi enviado para análise administrativa.");
       setRefundOrder(null);
       setRefundBookName("");
+      setRefundReason("");
       fetchDashboardData(user.id);
     } catch (e: any) {
       toast.error(e.message);
@@ -2498,22 +2506,40 @@ export default function App() {
               </div>
             </DialogHeader>
             <div className="flex flex-col gap-4 pt-4">
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 text-center block mb-2">
-                  Digite o nome exato da obra para confirmar:
-                </label>
-                <input
-                  type="text"
-                  placeholder={refundOrder.product?.title}
-                  value={refundBookName}
-                  onChange={(e) => setRefundBookName(e.target.value)}
-                  className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 text-center dark:text-white transition-colors"
-                />
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 mb-2">
+                    Digite o nome exato da obra para confirmar:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder={refundOrder.product?.title}
+                    value={refundBookName}
+                    onChange={(e) => setRefundBookName(e.target.value)}
+                    className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 text-center dark:text-white transition-colors"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 mb-2">
+                    Motivo da sua solicitação: (Obrigatório)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Explique por que deseja o reembolso..."
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 dark:text-white transition-colors resize-none"
+                  />
+                </div>
               </div>
               <Button
                 onClick={handleRefund}
                 disabled={
-                  isRefunding || refundBookName !== refundOrder.product?.title
+                  isRefunding || 
+                  refundBookName !== refundOrder.product?.title ||
+                  !refundReason || 
+                  refundReason.trim().length < 10
                 }
                 className="rounded-none bg-red-500 hover:bg-red-600 text-white h-12 uppercase tracking-[0.2em] text-[9px] font-bold mt-2 transition-all disabled:opacity-50"
               >

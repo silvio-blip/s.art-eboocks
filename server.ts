@@ -1188,9 +1188,9 @@ apiRouter.post('/request-refund', async (req, res) => {
       .from('orders')
       .update({ 
         status: 'refund_requested',
+        refund_reason: reason || 'Não especificado',
         selected_options: { 
           ...order.selected_options, 
-          refund_reason: reason || 'Não especificado',
           refund_requested_at: new Date().toISOString()
         } 
       })
@@ -1313,17 +1313,16 @@ adminRouter.post('/orders/:id/cancel-refund', async (req, res) => {
       return res.status(400).json({ error: 'Apenas pedidos com status "Reembolso Solicitado" podem ser cancelados.' });
     }
 
-    // Set back to rejected
+    // Set back to 'paid' so everything returns to normal (access restored)
     await supabase.from('orders').update({ 
-      status: 'refund_rejected',
+      status: 'paid',
       selected_options: {
         ...(order.selected_options || {}),
-        refund_reason: null,
-        refund_requested_at: null
+        refund_refusal_at: new Date().toISOString()
       }
     }).eq('id', id);
 
-    return res.json({ success: true, message: 'Pedido de reembolso rejeitado pelo administrador.' });
+    return res.json({ success: true, message: 'Pedido de reembolso recusado. O acesso à obra foi restabelecido.' });
   } catch (err: any) {
     console.error('[ADMIN CANCEL REFUND ERROR]', err);
     res.status(500).json({ error: err.message });

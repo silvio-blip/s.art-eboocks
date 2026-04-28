@@ -1992,8 +1992,8 @@ export default function AdminDashboard({
                                 {order.selected_options?.refund_requested_at ? format(new Date(order.selected_options.refund_requested_at), "dd MMM yyyy", { locale: ptBR }) : 'N/A'}
                               </td>
                               <td className="px-8 py-6">
-                                <div className="text-[10px] text-white/60 max-w-[200px] truncate" title={order.selected_options?.refund_reason}>
-                                  {order.selected_options?.refund_reason || 'Não especificado'}
+                                <div className="text-[10px] text-white/60 max-w-[200px] truncate" title={order.refund_reason || order.selected_options?.refund_reason}>
+                                  {order.refund_reason || order.selected_options?.refund_reason || 'Não especificado'}
                                 </div>
                               </td>
                               <td className="px-8 py-6">
