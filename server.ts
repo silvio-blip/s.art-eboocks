@@ -157,27 +157,43 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       if (email) updateData.customer_email = email;
 
     let orderProcessed = false;
+    let existingOrder = null;
 
-    if (orderId) {
-      console.log(`[S.ART WEBHOOK] Attempting to update existing order: ${orderId}`);
-      const { data: updated, error: updateError } = await supabase
+    // A. Priority 1: Check by orderId from metadata (if present)
+    if (orderId && orderId !== 'undefined' && orderId !== '') {
+      console.log(`[S.ART WEBHOOK] Searching for order by ID: ${orderId}`);
+      const { data } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+      existingOrder = data;
+    }
+
+    // B. Priority 2: Check by stripe_session_id (Standard source of truth)
+    if (!existingOrder) {
+      console.log(`[S.ART WEBHOOK] Searching for order by Session ID: ${session.id}`);
+      const { data } = await supabase.from('orders').select('*').eq('stripe_session_id', session.id).maybeSingle();
+      existingOrder = data;
+    }
+
+    if (existingOrder) {
+      console.log(`[S.ART WEBHOOK] Found existing order ${existingOrder.id} (${existingOrder.status}). Updating...`);
+      const { error: updateError } = await supabase
         .from('orders')
-        .update(updateData)
-        .eq('id', orderId)
-        .select()
-        .single();
+        .update({
+          ...updateData,
+          status: 'paid'
+        })
+        .eq('id', existingOrder.id);
       
-      if (!updateError && updated) {
+      if (!updateError) {
         orderProcessed = true;
-        console.log(`[S.ART WEBHOOK] Order ${orderId} updated successfully.`);
+        console.log(`[S.ART WEBHOOK] Order ${existingOrder.id} updated successfully.`);
       } else {
-        console.warn(`[S.ART WEBHOOK] DB Update failed for ${orderId}, will try UPSERT/INSERT. Error:`, updateError);
+        console.error(`[S.ART WEBHOOK] Update failed for order ${existingOrder.id}:`, updateError);
       }
     }
 
     if (!orderProcessed) {
-      console.log(`[S.ART WEBHOOK] Order not found or not provided. Creating new record for session ${session.id}`);
-      // Fallback: Create record from metadata if doesn't exist
+      console.log(`[S.ART WEBHOOK] Order not found. Creating new record for session ${session.id}`);
+      // Fallback: Create record from metadata if it doesn't exist
       const { error: insertError } = await supabase
         .from('orders')
         .upsert({
@@ -185,9 +201,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null,
           product_id: productId,
           total_amount: updateData.total_amount,
-          status: 'paid', // Standardized to paid
+          status: 'paid', 
           stripe_session_id: session.id,
-          // REMOVED missing column payment_intent_id
           customer_email: email,
           selected_options: {
             size: session.metadata?.size,
@@ -205,9 +220,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         }, { onConflict: 'stripe_session_id' });
 
       if (insertError) {
-        console.error(`[S.ART WEBHOOK] CRITICAL: Failed to create order record during webhook!`, insertError);
+        console.error(`[S.ART WEBHOOK] CRITICAL: Failed to create/upsert order record!`, insertError);
       } else {
-        console.log(`[S.ART WEBHOOK] Order record synchronized successfully via checkout.session.completed fallback.`);
+        console.log(`[S.ART WEBHOOK] Order record synchronized successfully via checkout.session.completed.`);
       }
     }
 
@@ -426,32 +441,49 @@ apiRouter.post('/create-checkout', async (req, res) => {
       stripeImage = data.publicUrl;
     }
 
-    // Create Order Record in Pending State
+    // Create Order Record in Pending State (or reuse recent pending one)
     let orderId = '';
     try {
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          user_id: userId || null,
-          product_id: productId,
-          total_amount: product.price,
-          status: 'pending',
-          selected_options: options || {},
-          shipping_details: shippingInfo || null,
-          customer_email: email
-        })
-        .select()
-        .single();
+      // Check for a recent pending order for this user/product to avoid duplicates if the request was sent twice
+      if (userId) {
+        const { data: existingPending } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('product_id', productId)
+          .eq('status', 'pending')
+          .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // 5 minutes ago
+          .maybeSingle();
         
-      if (!orderError && order) {
-        orderId = order.id;
-      } else {
-        console.warn("[S.ART] DB Sync Warning: Could not create initial order record.", orderError);
-        // Special case: if table doesn't have shipping_details yet, we tried above and failed
-        // But the previous fallback logic was also trying selected_options mapping
+        if (existingPending) {
+          console.log(`[S.ART] Reusing existing pending order: ${existingPending.id}`);
+          orderId = existingPending.id;
+        }
+      }
+
+      if (!orderId) {
+        const { data: order, error: orderError } = await supabase
+          .from('orders')
+          .insert({
+            user_id: userId || null,
+            product_id: productId,
+            total_amount: product.price,
+            status: 'pending',
+            selected_options: options || {},
+            shipping_details: shippingInfo || null,
+            customer_email: email
+          })
+          .select()
+          .single();
+          
+        if (!orderError && order) {
+          orderId = order.id;
+        } else {
+          console.warn("[S.ART] DB Sync Warning: Could not create initial order record.", orderError);
+        }
       }
     } catch (dbErr) {
-      console.warn("[S.ART] DB Exception: Failed to insert order.", dbErr);
+      console.warn("[S.ART] DB Exception: Failed to manage order record.", dbErr);
     }
 
     // Determine the origin for URLs
@@ -597,8 +629,6 @@ apiRouter.get('/verify-session', async (req, res) => {
       
       console.log(`[VERIFY SESSION] Successful session ${sessionId}. Order ID: ${orderId}, User ID: ${userId}, Amount: ${amount}`);
 
-      const piId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id;
-      
       const upsertPayload: any = { 
         status: 'paid',
         product_id: productId,
@@ -620,16 +650,25 @@ apiRouter.get('/verify-session', async (req, res) => {
         }
       };
 
-      if (orderId) upsertPayload.id = orderId;
+      // Search for existing order first to avoid creating duplicates if primary key matching fails for some reason
+      let targetOrderId = orderId;
+      if (!targetOrderId || targetOrderId === 'undefined' || targetOrderId === '') {
+        const { data: found } = await supabase.from('orders').select('id').eq('stripe_session_id', session.id).maybeSingle();
+        if (found) targetOrderId = found.id;
+      }
+
+      if (targetOrderId && targetOrderId !== 'undefined' && targetOrderId !== '') {
+        upsertPayload.id = targetOrderId;
+      }
 
       const { error: upsertError } = await supabase
         .from('orders')
-        .upsert(upsertPayload, { onConflict: 'id' }); // Primary key is usually safer if we have it
+        .upsert(upsertPayload, { onConflict: 'stripe_session_id' }); // Conflict resolving on stripe_session_id is safer
 
       if (upsertError) {
         console.error('[VERIFY SESSION DB ERROR]', upsertError);
-        // Fallback: try upserting by stripe_session_id if ID match failed
-        await supabase.from('orders').upsert(upsertPayload, { onConflict: 'stripe_session_id' });
+        // Desperate fallback
+        await supabase.from('orders').upsert(upsertPayload, { onConflict: 'id' });
       }
 
       const { data: product } = await supabase
