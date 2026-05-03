@@ -20,8 +20,6 @@ export interface DropeaCheckoutSession {
 export const DropeaService = {
   async getProducts(userId?: string, retries = 2): Promise<DropeaProduct[]> {
     try {
-      console.log(`--- [DropeaService] Fetching products via Proxy (UserID: ${userId || 'guest'}) ---`);
-      
       const graphqlQuery = {
         query: `query {
           products(page: 1) {
@@ -37,9 +35,7 @@ export const DropeaService = {
         }`
       };
 
-      const fetchUrl = '/dropea-api/graphql/dropshippers';
-      console.log(`--- [DropeaService] POST request to local proxy: ${fetchUrl} ---`);
-
+      const fetchUrl = '/api/dropea-api/graphql/dropshippers';
       const response = await fetch(fetchUrl, {
         method: 'POST',
         headers: {
@@ -47,14 +43,11 @@ export const DropeaService = {
           'Accept': 'application/json'
         },
         body: JSON.stringify(graphqlQuery)
-      }).catch(err => {
-        console.error('--- [DropeaService] Local Proxy Connection Failed ---', err.message);
-        throw err;
       });
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`--- [DropeaService] API Error ${response.status} ---`, errorText);
+        console.error(`--- [DropeaService] Proxy Error ${response.status} ---`, errorText);
         return [];
       }
       
@@ -129,7 +122,7 @@ export const DropeaService = {
     const productIdRaw = session.product_id || (session.products && session.products[0]?.product_id);
     const productId = Number(productIdRaw);
     
-    console.log("[CHECKOUT] Payload check ID:", productIdRaw, "->", productId, "Country:", countryCode);
+    // console.log("[CHECKOUT] Payload check ID:", productIdRaw, "->", productId, "Country:", countryCode);
     
     if (!productId || isNaN(productId)) {
         throw new Error("ID do produto ausente ou inválido no checkout");

@@ -31,13 +31,13 @@ const getSupabase = () => {
 const initDB = async () => {
   try {
     const supabase = getSupabase();
-    console.log('[INIT] Verificando esquema do banco de dados...');
+    // console.log('[INIT] Verificando esquema do banco de dados...');
     
     // Check if dropea_id exists by trying to select it.
     const { error: columnError } = await supabase.from('products').select('dropea_id').limit(1);
     
     if (columnError) {
-      console.log('[INIT] Coluna dropea_id não encontrada. Tentando criar esquema...');
+      // console.log('[INIT] Coluna dropea_id não encontrada. Tentando criar esquema...');
       // If we can't add columns via code, we'll have to rely on manual SQL or wait for the sync to fail gracefully.
       // But we can try to use RPC if it exists.
       try {
@@ -46,7 +46,7 @@ const initDB = async () => {
         console.warn('[INIT] Falha ao adicionar coluna via RPC. Verifique se a tabela "products" possui o campo "dropea_id".');
       }
     } else {
-      console.log('[INIT] Esquema verificado com sucesso.');
+      // console.log('[INIT] Esquema verificado com sucesso.');
     }
 
   } catch (err) {
@@ -71,26 +71,22 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// --- TOP LEVEL DEBUG ---
-app.get('/api-status', (req, res) => {
-  res.json({ server: 'running', timestamp: new Date().toISOString() });
-});
+// Initial cleanup completed
 
 // PROXY FOR DROPEA (Client-Side friendly)
-// Correct way to mount a proxy on /dropea-api using app.use
-app.use('/dropea-api', async (req, res) => {
-  const url = `https://api.dropea.com${req.url}`;
-  
-  console.log(`[DROPEA PROXY] ${req.method} ${req.url} -> ${url}`);
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, x-user-id');
-    return res.sendStatus(200);
-  }
+app.all(['/dropea-api*', '/api/dropea-api*'], async (req: any, res: any) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, x-user-id, Accept, Authorization');
 
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+
+  let targetPath = req.url;
+  targetPath = targetPath.replace(/^\/api\/dropea-api/, '');
+  targetPath = targetPath.replace(/^\/dropea-api/, '');
+  
+  const url = `https://api.dropea.com${targetPath || '/'}`;
+  
   try {
     const axiosConfig: any = {
       method: req.method,
@@ -102,22 +98,18 @@ app.use('/dropea-api', async (req, res) => {
         'Accept': 'application/json',
         'User-Agent': 'SArt-Boutique-Boutique/1.0'
       },
-      timeout: 20000,
+      timeout: 30000,
       validateStatus: () => true
     };
 
     const response = await axios(axiosConfig);
-    console.log(`[DROPEA PROXY] Status: ${response.status} for ${url}`);
-    
-    // Explicit CORS headers
-    res.header('Access-Control-Allow-Origin', '*');
     return res.status(response.status).json(response.data);
   } catch (error: any) {
-    console.error(`[DROPEA PROXY FAIL] ${url}:`, error.message);
     if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Proxy failed to reach Dropea', 
-        details: error.message 
+      return res.status(502).json({ 
+        error: 'Proxy failed to reach Dropea API', 
+        details: error.message,
+        target: url
       });
     }
   }
@@ -376,8 +368,6 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
 // Recovery Proxy Routes
 
 apiRouter.use((req, res, next) => {
-  const userId = req.headers['x-user-id'] || req.headers['user-id'] || req.query.userId;
-  console.log(`[API PROXY] Request: ${req.method} ${req.url} | UserID: ${userId}`);
   next();
 });
 
@@ -385,10 +375,8 @@ apiRouter.post('/recovery/send', async (req, res) => {
   try {
     const { email } = req.body;
     const supabase = getSupabase();
-    console.log(`[RECOVERY PROXY] Requesting recovery for: ${email}`);
     
     // Invocação interna usando o slug correto: reset-password
-    console.log(`[RECOVERY PROXY] Invocando Edge Function 'reset-password' para ${email}...`);
     const { data, error } = await supabase.functions.invoke('reset-password', {
       body: { email }
     });
@@ -881,7 +869,7 @@ adminRouter.put('/users/:id/role', async (req, res) => {
 adminRouter.get('/products', async (req, res) => {
   try {
     const supabase = getSupabase();
-    console.log('[ADMIN] Buscando todos os produtos via Service Role...');
+    // console.log('[ADMIN] Buscando todos os produtos via Service Role...');
     const { data, error } = await supabase
       .from('products')
       .select('*')
@@ -911,7 +899,7 @@ adminRouter.post('/products', async (req, res) => {
       finalPrice = 0;
     }
 
-    console.log(`[ADMIN] Creating product. Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
+    // console.log(`[ADMIN] Creating product. Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
 
     const supabase = getSupabase();
     
@@ -958,7 +946,7 @@ adminRouter.put('/products/:id', async (req, res) => {
       finalPrice = 0;
     }
 
-    console.log(`[ADMIN] Updating product ${id}. New Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
+    // console.log(`[ADMIN] Updating product ${id}. New Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
 
     const supabase = getSupabase();
     const updateData: any = { 
@@ -1546,33 +1534,57 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
 });
 
 // --- ORDER STATUS SYNC ---
-apiRouter.post('/orders/sync-statuses', express.json(), async (req, res) => {
+apiRouter.post('/orders/sync-statuses', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   try {
-    const { userId } = req.body;
+    const { userId } = req.body || {};
     if (!userId) return res.status(400).json({ error: "userId required" });
 
     const supabase = getSupabase();
-    console.log(`[SYNC STATUS] Starting sync for user: ${userId}`);
     
+    // First, try a simple select to see if the column exists
+    const { data: testData, error: testError } = await supabase
+      .from('orders')
+      .select('id')
+      .limit(1);
+
+    if (testError) throw testError;
+
+    // Check for dropea_order_id explicitly to avoid fatal error on first fetch
     const { data: orders, error } = await supabase
       .from('orders')
       .select('*')
       .eq('user_id', userId)
-      .not('dropea_order_id', 'is', null)
       .not('shipping_status', 'eq', 'delivered');
 
-    if (error) throw error;
+    if (error) {
+       if (error.code === '42703') {
+         // Column missing, skip sync silently to avoid log spam
+         return res.json({ updated: 0, warning: "Database schema update required (missing dropea_order_id)" });
+       }
+       throw error;
+    }
+
     if (!orders || orders.length === 0) {
-      console.log(`[SYNC STATUS] No eligible orders found for user: ${userId}`);
       return res.json({ updated: 0 });
     }
 
+    // Filter orders that have a dropea_order_id mapping
+    const eligibleOrders = orders.filter(o => o.dropea_order_id);
+    if (eligibleOrders.length === 0) {
+      return res.json({ updated: 0 });
+    }
+
+    if (!DROPEA_API_KEY) {
+      return res.status(500).json({ error: "Dropea configuration missing" });
+    }
+
     let updatedCount = 0;
-    for (const order of orders) {
+    for (const order of eligibleOrders) {
       try {
-        console.log(`[SYNC STATUS] Checking Dropea status for Order ${order.id} (Dropea ID: ${order.dropea_order_id})`);
-        
+        const dropeaId = parseInt(order.dropea_order_id, 10);
+        if (isNaN(dropeaId)) continue;
+
         // Buscar status na Dropea via GraphQL
         const graphqlQuery = {
           query: `
@@ -1583,26 +1595,23 @@ apiRouter.post('/orders/sync-statuses', express.json(), async (req, res) => {
               }
             }
           `,
-          variables: { id: parseInt(order.dropea_order_id, 10) }
+          variables: { id: dropeaId }
         };
 
         const response = await axios.post(DROPEA_API_URL, graphqlQuery, {
           headers: { 
             'x-api-key': DROPEA_API_KEY,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'User-Agent': 'SArt-Boutique-Boutique/1.0'
           },
           timeout: 8000
-        }).catch(e => {
-          console.warn(`[SYNC STATUS] Dropea API skip for order ${order.id}:`, e.message);
-          return null;
-        });
+        }).catch(() => null);
 
         if (!response) continue;
 
         const dropeaOrder = response.data?.data?.order;
         if (dropeaOrder && dropeaOrder.status) {
           const status = dropeaOrder.status.toLowerCase();
-          console.log(`[SYNC STATUS] Order ${order.id} current status at Dropea: ${status}`);
           
           let newShippingStatus = order.shipping_status;
 
@@ -1612,7 +1621,6 @@ apiRouter.post('/orders/sync-statuses', express.json(), async (req, res) => {
           else if (status === 'cancelled' || status === 'canceled') newShippingStatus = 'canceled';
           
           if (newShippingStatus !== order.shipping_status) {
-            console.log(`[SYNC STATUS] Updating Order ${order.id}: ${order.shipping_status} -> ${newShippingStatus}`);
             await supabase
               .from('orders')
               .update({ shipping_status: newShippingStatus })
@@ -1621,13 +1629,16 @@ apiRouter.post('/orders/sync-statuses', express.json(), async (req, res) => {
           }
         }
       } catch (err) {
-        console.error(`[SYNC STATUS ERR] Order ${order.id}:`, err);
+        // Silently skip individual order errors to avoid spam
       }
     }
 
     res.json({ updated: updatedCount });
   } catch (err: any) {
-    console.error(`[SYNC STATUS FATAL]`, err);
+    if (err.code === '42703') {
+       return res.json({ updated: 0, error: "Database needs migration (dropea_order_id missing)" });
+    }
+    // console.error(`[SYNC FATAL]`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1676,7 +1687,6 @@ function setupDatabaseListeners() {
 }
 
 async function processOrderFulfillment(order: any) {
-  console.log(`[FULFILLMENT SYSTEM] Detetada nova ordem paga: ${order.id}. Iniciando Dropea...`);
   try {
     const supabase = getSupabase();
     // Normalizar shipping_details (pode vir como string metadata do Stripe ou objeto do Supabase)
@@ -1697,7 +1707,6 @@ async function processOrderFulfillment(order: any) {
     });
 
     if (dropeaOrderId) {
-      console.log(`[FULFILLMENT SUCCESS] Dropea ID: ${dropeaOrderId} para Order ID: ${order.id}`);
       await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', order.id);
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");

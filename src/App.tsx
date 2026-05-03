@@ -1731,7 +1731,7 @@ export default function App() {
   };
 
   const fetchDashboardData = async (userId: string) => {
-    console.log("[DEBUG] Fetching dashboard data for:", userId);
+    // console.log("[DEBUG] Fetching dashboard data for:", userId);
 
     // 1. PRIMEIRO: Sincronizar com a Dropea o estado dos pedidos atuais
     try {
@@ -1741,7 +1741,7 @@ export default function App() {
         body: JSON.stringify({ userId })
       });
     } catch (err) {
-      console.warn("[DEBUG] Erro ao sincronizar status:", err);
+      // Sincronização falhou silenciosamente para evitar poluir o console
     }
 
     // 2. BUSCAR ORDENS ATUALIZADAS
