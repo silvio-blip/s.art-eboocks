@@ -848,6 +848,7 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
  * Sends order status update emails to customers
  */
 async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string) {
+  console.log(`[TRIGGER NOTIFICATION] Iniciado: orderId=${orderId}, status=${status}, shippingStatus=${shippingStatus}`);
   try {
     const supabase = getSupabase();
     
@@ -858,8 +859,17 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       .eq('id', orderId)
       .single();
       
-    if (error || !order) return;
+    if (error) {
+        console.error(`[TRIGGER NOTIFICATION] Erro ao buscar ordem:`, error);
+        return;
+    }
+    if (!order) {
+        console.error(`[TRIGGER NOTIFICATION] Ordem não encontrada: ${orderId}`);
+        return;
+    }
     
+    console.log(`[TRIGGER NOTIFICATION] Ordem encontrada: ${orderId}, status=${order.status}`);
+
     // Fetch profile to get notification email preference
     const { data: profile } = await supabase
       .from('profiles')
@@ -875,7 +885,12 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     }
     
     const customerEmail = profile?.notification_email || order.customer_email;
-    if (!customerEmail) return;
+    if (!customerEmail) {
+        console.log(`[NOTIFICATIONS] Nenhum email encontrado para ordem ${orderId}`);
+        return;
+    }
+    
+    console.log(`[NOTIFICATIONS] Preparando email para ${customerEmail}...`);
 
     let subject = "";
     let body = "";
@@ -2224,28 +2239,6 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
-// --- DATABASE LISTENERS & FULFILLMENT ---
-function setupDatabaseListeners() {
-  const supabase = getSupabase();
-  console.log("[SUPABASE REALTIME] Iniciando monitorização de fulfillment...");
-
-  supabase
-    .channel('orders-fulfillment')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async (payload) => {
-      const newOrder = payload.new as any;
-      const oldOrder = payload.old as any;
-      
-      // Só processamos se o status for 'paid', ainda não tiver sido processado pela Dropea
-      if (newOrder.status !== 'paid' || newOrder.dropea_order_id) return;
-      
-      // Se for um evento de UPDATE, garantimos que ele acabou de mudar para 'paid'
-      if (payload.eventType === 'UPDATE' && oldOrder && oldOrder.status === 'paid') return;
-
-      processOrderFulfillment(newOrder);
-    })
-    .subscribe();
-}
-
 async function processOrderFulfillment(order: any) {
   try {
     const supabase = getSupabase();
@@ -2301,7 +2294,6 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`S.Art Server running on http://localhost:${PORT}`);
-    setupDatabaseListeners();
   });
 }
 
