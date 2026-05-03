@@ -1909,12 +1909,10 @@ export default function App() {
       const { url } = await res.json();
       
       if (url) {
-        toast.info("Abrindo checkout seguro em nova aba...");
+        toast.info("A redirecionar para o checkout seguro...");
         setTimeout(() => {
-          window.open(url, '_blank');
-          // Fechar o modal na aba original para indicar que o processo seguiu para o pagamento
-          setIsCheckoutModalOpen(false);
-          setCheckoutLoading(null);
+          window.location.href = url;
+          // Não fechamos o modal aqui pois a página vai recarregar/mudar para o Stripe
         }, 800);
       } else {
         throw new Error("Sessão de pagamento inválida.");

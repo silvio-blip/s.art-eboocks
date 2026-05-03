@@ -67,7 +67,81 @@ process.on('unhandledRejection', (reason, promise) => {
 const app = express();
 app.use(cors());
 
-// Body parsing MUST come before routing
+// --- STRIPE WEBHOOK (MUST BE BEFORE GLOBAL JSON PARSER) ---
+app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    const rawBody = req.body;
+    if (endpointSecret && sig) {
+      event = stripe!.webhooks.constructEvent(rawBody, sig, endpointSecret);
+    } else {
+      // Falback se não houver secret, mas o body precisa ser string ou buffer
+      const bodyString = Buffer.isBuffer(rawBody) ? rawBody.toString() : (typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody));
+      event = JSON.parse(bodyString);
+    }
+  } catch (err: any) {
+    console.error(`[STRIPE WEBHOOK ERROR] Verification failed: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    console.log(`[STRIPE WEBHOOK] Pagamento confirmado para sessão: ${session.id}`);
+
+    try {
+      const metadata = session.metadata;
+      if (!metadata) throw new Error("Metadata ausente na sessão do Stripe");
+
+      const customerDataRaw = metadata.customer_data;
+      const customerData = JSON.parse(customerDataRaw);
+      const internalProductId = metadata.product_id;
+      const userId = customerData.userId;
+
+      // 3. REGISTAR PEDIDO NO BANCO
+      const supabase = getSupabase();
+      console.log(`[STRIPE WEBHOOK] Criando ordem para user: ${userId}, Produto: ${internalProductId}`);
+      
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: userId,
+          product_id: internalProductId,
+          status: 'paid',
+          shipping_status: 'pending',
+          total_amount: session.amount_total ? session.amount_total / 100 : 0,
+          stripe_session_id: session.id,
+          shipping_details: customerDataRaw
+        })
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error(`[STRIPE WEBHOOK DB ERROR] Falha ao inserir ordem:`, orderError);
+        throw orderError;
+      }
+      
+      console.log(`[STRIPE WEBHOOK] Ordem criada no Supabase ID: ${orderData.id}. Disparando fulfillment...`);
+
+      // Fulfillment imediato
+      if (orderData) {
+        processOrderFulfillment(orderData).catch(e => {
+          console.error(`[STRIPE WEBHOOK] Erro no fulfillment de ${orderData.id}:`, e);
+        });
+      }
+
+    } catch (err: any) {
+      console.error("[STRIPE WEBHOOK FATAL PROCESSING ERROR]", err);
+    }
+  }
+
+  res.json({received: true});
+});
+
+// Body parsing AFTER webhook
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -182,76 +256,6 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   return response.data?.data?.orderCreate?.id;
 }
-
-// --- STRIPE WEBHOOK ---
-app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-  let event;
-
-  try {
-    if (endpointSecret && sig) {
-      event = stripe!.webhooks.constructEvent(req.body, sig, endpointSecret);
-    } else {
-      event = JSON.parse(req.body.toString());
-    }
-  } catch (err: any) {
-    console.error(`[STRIPE WEBHOOK ERROR] Verification failed: ${err.message}`);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
-    console.log(`[STRIPE WEBHOOK] Pagamento confirmado para sessão: ${session.id}`);
-
-    try {
-      const metadata = session.metadata;
-      if (!metadata) throw new Error("Metadata ausente na sessão do Stripe");
-
-      const customerData = JSON.parse(metadata.customer_data);
-      const internalProductId = metadata.product_id;
-      const userId = customerData.userId;
-
-      // 3. REGISTAR PEDIDO NO BANCO
-      const supabase = getSupabase();
-      console.log(`[STRIPE WEBHOOK] Creating order for user: ${userId}, Product: ${internalProductId}`);
-      
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          user_id: userId,
-          product_id: internalProductId,
-          status: 'paid',
-          shipping_status: 'pending',
-          total_amount: session.amount_total ? session.amount_total / 100 : 0,
-          stripe_session_id: session.id,
-          shipping_details: metadata.customer_data
-        })
-        .select()
-        .single();
-
-      if (orderError) {
-        console.error(`[STRIPE WEBHOOK DB ERROR] Failed to insert order:`, orderError);
-        throw orderError;
-      }
-      
-      console.log(`[STRIPE WEBHOOK] Ordem criada no Supabase ID: ${orderData.id}. Disparando fulfillment...`);
-
-      // Disparar fulfillment imediatamente em vez de esperar listener (mais rápido e fiável em containers)
-      if (orderData) {
-        processOrderFulfillment(orderData).catch(e => {
-          console.error(`[STRIPE WEBHOOK] Erro no fulfillment de ${orderData.id}:`, e);
-        });
-      }
-
-    } catch (err: any) {
-      console.error("[STRIPE WEBHOOK DB UPDATE ERROR]", err);
-    }
-  }
-
-  res.json({received: true});
-});
 
 // --- WEBHOOK DROPEA ---
 app.post('/api/dropea/webhook', express.json(), async (req, res) => {
