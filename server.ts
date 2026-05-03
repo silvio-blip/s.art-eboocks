@@ -777,23 +777,41 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
                         
     const shippingLabel = shippingStatus === 'sent' ? 'Enviado' :
                           shippingStatus === 'delivered' ? 'Entregue' : 'A processar';
+    
+    const settingsMessage = `
+      <p style="font-size: 11px; color: #777; margin-top: 40px; border-top: 1px solid #f0f0f0; padding-top: 20px;">
+        Pode gerir as suas preferências de notificações acedendo ao seu 
+        <strong>Perfil > Definições</strong> na nossa loja.
+      </p>
+    `;
 
     // Status: PAID
     if (status === 'paid' && !order.email_paid_sent) {
        subject = `Confirmação de Pagamento - Pedido #${orderId.slice(0, 8)}`;
        body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
-           <h1 style="font-size: 24px; color: #000; margin-bottom: 20px;">Pagamento Confirmado!</h1>
-           <p>Olá,</p>
-           <p>Recebemos o pagamento do seu pedido do produto: <strong>${productName}</strong>.</p>
-           <p>O seu pedido está agora em fase de processamento e será enviado em breve.</p>
-           <div style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-radius: 8px;">
-             <strong>Pedido:</strong> #${orderId}<br/>
-             <strong>Estado:</strong> ${statusLabel}
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
+           <div style="text-align: center; margin-bottom: 30px;">
+             <h1 style="font-size: 24px; color: #000; margin-bottom: 10px;">Pagamento Confirmado!</h1>
+             <p style="color: #666;">Recebemos o pagamento da sua encomenda.</p>
            </div>
-           <p>Iremos notificá-lo assim que a sua encomenda for enviada.</p>
+           
+           <p>Olá,</p>
+           <p>Obrigada por escolher a SArt Boutique. Confirmo agora o seu pedido e aguarde mais informações através deste e-mail.</p>
+           
+           <div style="margin: 30px 0; padding: 25px; background: #fdfdfd; border: 1px solid #f0f0f0; border-radius: 8px;">
+             <div style="margin-bottom: 10px;"><strong>Número do Pedido:</strong> <span style="color: #666;">#${orderId}</span></div>
+             <div style="margin-bottom: 10px;"><strong>Estado:</strong> <span style="display: inline-block; padding: 4px 12px; background: #e8f5e9; color: #2e7d32; border-radius: 20px; font-size: 12px; font-weight: bold;">${statusLabel}</span></div>
+           </div>
+           
+           <p>A sua encomenda entrou agora em fase de processamento. Iremos enviar-lhe um novo e-mail assim que o produto for expedido com o código de rastreio.</p>
+           
+           <div style="margin-top: 30px; text-align: center;">
+             <a href="${process.env.site || 'https://sart-boutique.com'}/profile" style="display: inline-block; padding: 14px 28px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Acompanhar Pedido</a>
+           </div>
+
+           ${settingsMessage}
            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999;">Obrigado por escolher a SArt Boutique.</p>
+           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
          </div>
        `;
        await supabase.from('orders').update({ email_paid_sent: true }).eq('id', orderId);
@@ -805,39 +823,55 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
        
        subject = `A sua encomenda foi enviada! - Pedido #${orderId.slice(0, 8)}`;
        body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
-           <h1 style="font-size: 24px; color: #000; margin-bottom: 20px;">Encomenda a Caminho!</h1>
-           <p>Olá,</p>
-           <p>Boas notícias! O seu produto <strong>${productName}</strong> já foi expedido.</p>
-           <div style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-radius: 8px;">
-             <strong>Código de Rastreio:</strong> ${trackingNumber}<br/>
-             <a href="${trackingUrl}" style="display: inline-block; margin-top: 15px; padding: 12px 24px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold;">Rastrear Encomenda</a>
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
+           <div style="text-align: center; margin-bottom: 30px;">
+             <h1 style="font-size: 24px; color: #000; margin-bottom: 10px;">Encomenda a Caminho!</h1>
+             <p style="color: #666;">O seu produto já foi expedido.</p>
            </div>
-           <p>Pode acompanhar o estado da entrega através do link acima.</p>
+
+           <p>Olá,</p>
+           <p>Boas notícias! O produto <strong>${productName}</strong> já saiu do nosso armazém e está a caminho da sua morada.</p>
+           
+           <div style="margin: 30px 0; padding: 25px; background: #fdfdfd; border: 1px solid #f0f0f0; border-radius: 8px;">
+             <div style="margin-bottom: 15px;"><strong>Código de Rastreio:</strong> <code style="background: #eee; padding: 4px 8px; border-radius: 4px;">${trackingNumber}</code></div>
+             <a href="${trackingUrl}" style="display: inline-block; padding: 14px 28px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Rastrear no Site da Transportadora</a>
+           </div>
+           
+           <p>Pode acompanhar o estado da entrega através do link acima ou no seu perfil de cliente.</p>
+
+           ${settingsMessage}
            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999;">Obrigado por escolher a SArt Boutique.</p>
+           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
          </div>
        `;
        await supabase.from('orders').update({ email_shipped_sent: true }).eq('id', orderId);
     }
     // Shipping: DELIVERED -> Evaluation Email
     else if (shippingStatus === 'delivered' && !order.email_review_sent) {
-       const siteUrl = process.env.SITE_URL || 'https://sart-boutique.com';
+       const siteUrl = process.env.site || 'https://sart-boutique.com';
        const evaluationUrl = `${siteUrl}/evaluate/${orderId}`;
        
        subject = `Como foi a sua experiência? - Pedido #${orderId.slice(0, 8)}`;
        body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
-           <h1 style="font-size: 24px; color: #000; margin-bottom: 20px;">Tudo certinho?</h1>
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
+           <div style="text-align: center; margin-bottom: 30px;">
+             <h1 style="font-size: 24px; color: #000; margin-bottom: 10px;">Entrega Concluída!</h1>
+             <p style="color: #666;">Tudo correu bem?</p>
+           </div>
+
            <p>Olá,</p>
            <p>A sua encomenda do produto <strong>${productName}</strong> foi marcada como entregue.</p>
-           <p>Gostaríamos de saber se correu tudo bem com a entrega e o que achou do produto. A sua opinião é muito importante para nós!</p>
+           <p>Gostaríamos muito de saber o que achou do produto e do nosso serviço. A sua opinião ajuda-nos a melhorar e a crescer.</p>
+           
            <div style="text-align: center; margin: 40px 0;">
-             <a href="${evaluationUrl}" style="display: inline-block; padding: 16px 32px; background: #D4AF37; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">Confirmar e Avaliar</a>
+             <a href="${evaluationUrl}" style="display: inline-block; padding: 18px 36px; background: #D4AF37; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);">Avaliar a minha Compra</a>
            </div>
-           <p>Caso tenha tido algum problema, entre em contacto connosco respondendo a este email.</p>
+           
+           <p style="font-size: 13px; color: #666;">Caso tenha tido algum problema com o produto, por favor responda a este e-mail para que possamos ajudar.</p>
+
+           ${settingsMessage}
            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999;">Obrigado por escolher a SArt Boutique.</p>
+           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
          </div>
        `;
        await supabase.from('orders').update({ email_review_sent: true }).eq('id', orderId);
@@ -846,32 +880,39 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     else if (status === 'canceled' && !order.email_canceled_sent) {
        subject = `Pedido Cancelado - Pedido #${orderId.slice(0, 8)}`;
        body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
-           <h1 style="font-size: 24px; color: #d32f2f; margin-bottom: 20px;">Atualização do Pedido</h1>
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
+           <h1 style="font-size: 24px; color: #d32f2f; margin-bottom: 20px;">Atualização importante do Pedido</h1>
            <p>Olá,</p>
            <p>Lamentamos informar que o seu pedido do produto <strong>${productName}</strong> foi cancelado.</p>
-           <p>Se o cancelamento não foi solicitado por si ou se tiver alguma dúvida, por favor contacte o nosso suporte.</p>
-           <div style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-radius: 8px;">
-             <strong>Pedido:</strong> #${orderId}<br/>
-             <strong>Estado:</strong> Cancelado
+           
+           <div style="margin: 30px 0; padding: 25px; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px;">
+             <strong>Número do Pedido:</strong> #${orderId}<br/>
+             <strong>Estado Final:</strong> <span style="color: #c53030; font-weight: bold;">Cancelado</span>
            </div>
+
+           <p>Se não solicitou este cancelamento ou se tiver qualquer dúvida sobre o reembolso, por favor entre em contacto com a nossa equipa de suporte.</p>
+           
+           ${settingsMessage}
            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999;">Equipa SArt Boutique.</p>
+           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Equipa de Suporte.</p>
          </div>
        `;
        await supabase.from('orders').update({ email_canceled_sent: true }).eq('id', orderId);
     }
 
     if (subject && body) {
-       console.log(`[NOTIFICATIONS] Sending email to ${customerEmail} - ${subject}`);
-       await supabase.functions.invoke('send-email', {
+       console.log(`[NOTIFICATIONS] Calling Edge Function for ${customerEmail}`);
+       
+       await supabase.functions.invoke('send-order-email', {
          body: {
            to: customerEmail,
            subject,
-           body,
-           name: order.customer_name || 'Cliente'
+           html: body,
+           orderId
          }
        });
+
+       console.log(`[NOTIFICATIONS] Edge Function invoked for ${customerEmail}`);
     }
 
   } catch (err) {
@@ -2038,6 +2079,8 @@ async function processOrderFulfillment(order: any) {
 
     if (dropeaOrderId) {
       await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', order.id);
+      // Disparar email de pagamento confirmado após sucesso na Dropea
+      triggerOrderNotification(order.id, 'paid', 'pending').catch(e => console.error('[FULFILLMENT EMAIL ERROR]', e));
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");
     }
