@@ -15,7 +15,8 @@ import {
   Download,
   Book,
   X,
-  FileText
+  FileText,
+  Mail
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -89,7 +90,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [editForm, setEditForm] = useState({ full_name: '', description: '', avatar_url: '' });
+  const [editForm, setEditForm] = useState({ full_name: '', description: '', avatar_url: '', notification_email: '' });
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'sent' | 'delivered' | 'refunded'>('all');
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -143,14 +144,16 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         full_name: data.full_name || '',
         avatar_url: data.avatar_url || '',
         description: data.description || '',
-        custom_id: data.custom_id || `SART-${data.id.substring(0, 4).toUpperCase()}`
+        custom_id: data.custom_id || `SART-${data.id.substring(0, 4).toUpperCase()}`,
+        notification_email: data.notification_email || user.email || ''
       };
 
       setProfile(profileData);
       setEditForm({
         full_name: profileData.full_name,
         description: profileData.description,
-        avatar_url: profileData.avatar_url
+        avatar_url: profileData.avatar_url,
+        notification_email: profileData.notification_email
       });
 
       // If custom_id is missing in DB, update it
@@ -213,7 +216,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         .update({
           full_name: editForm.full_name,
           description: editForm.description,
-          avatar_url: editForm.avatar_url
+          avatar_url: editForm.avatar_url,
+          notification_email: editForm.notification_email
         })
         .eq('id', user.id);
 
@@ -301,6 +305,21 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
               </div>
 
               <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[9px] uppercase tracking-widest text-luxury-gold font-bold">Email para Notificações</label>
+                  {isEditing ? (
+                    <input 
+                      type="email"
+                      value={editForm.notification_email}
+                      onChange={e => setEditForm(prev => ({ ...prev, notification_email: e.target.value }))}
+                      className="w-full bg-transparent border-b border-black/10 dark:border-white/10 py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
+                      placeholder="seu@email.com"
+                    />
+                  ) : (
+                    <p className="text-lg font-serif dark:text-white py-2">{profile?.notification_email || user?.email || 'Nenhum definido'}</p>
+                  )}
+                </div>
+
                 <div className="space-y-2">
                   <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Nome Completo</label>
                   {isEditing ? (
@@ -618,6 +637,38 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                 </button>
                               )}
                             </div>
+                          </div>
+
+                          <div className="flex justify-between items-center pt-2 border-t border-black/5 dark:border-white/5 mt-2">
+                             <div className="flex items-center gap-2">
+                               <Mail size={12} className="text-luxury-gold" />
+                               <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Alertas por E-mail</span>
+                             </div>
+                             <button
+                               onClick={async () => {
+                                 try {
+                                   const newValue = !(selectedOrder.notifications_enabled !== false);
+                                   const { error } = await supabase
+                                     .from('orders')
+                                     .update({ notifications_enabled: newValue })
+                                     .eq('id', selectedOrder.id);
+                                   
+                                   if (error) throw error;
+                                   
+                                   // Update UI
+                                   setSelectedOrder(prev => prev ? { ...prev, notifications_enabled: newValue } : null);
+                                   toast.success(newValue ? "Notificações ativadas" : "Notificações desativadas");
+                                   
+                                   // Optional: reload to sync list state
+                                   setTimeout(() => window.location.reload(), 1000);
+                                 } catch (err: any) {
+                                   toast.error("Erro ao atualizar preferências: " + err.message);
+                                 }
+                               }}
+                               className={`w-8 h-4 rounded-full transition-colors relative flex items-center px-0.5 ${ (selectedOrder.notifications_enabled !== false) ? 'bg-emerald-500' : 'bg-black/20 dark:bg-white/20' }`}
+                             >
+                               <div className={`w-3 h-3 bg-white rounded-full transition-transform ${ (selectedOrder.notifications_enabled !== false) ? 'translate-x-4' : 'translate-x-0' } shadow-sm`} />
+                             </button>
                           </div>
                           {selectedOrder.shipping_status_metadata?.trackingNumber && (
                             <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 space-y-1">

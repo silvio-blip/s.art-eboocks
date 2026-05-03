@@ -35,11 +35,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { supabase } from "./lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
+import { Routes, Route, useLocation } from "react-router-dom";
 
 import { DropeaService } from "./services/DropeaService";
 import AdminDashboard from "./components/AdminDashboard";
 import TermsAndPrivacy from "./components/TermsAndPrivacy";
 import ProfileDashboard from "./components/ProfileDashboard";
+import ProductReview from "./components/ProductReview";
 import {
   Dialog,
   DialogContent,
@@ -1259,6 +1261,9 @@ export default function App() {
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
 
+  const location = useLocation();
+  const isReviewPage = location.pathname.startsWith("/evaluate");
+
   const [shippingInfo, setShippingInfo] = useState({
     fullName: "",
     address: "",
@@ -1945,21 +1950,27 @@ export default function App() {
     <div
       className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700`}
     >
-      <Navbar
-        user={user}
-        profile={profile}
-        theme={theme}
-        onThemeToggle={toggleTheme}
-        onAuthClick={() => setIsAuthOpen(true)}
-        onLogoutClick={() => setIsLogoutOpen(true)}
-        onDashboardClick={(v) => setView(v)}
-        onHomeClick={() => {
-          setView("home");
-          setSearchQuery("");
-        }}
-        onSearch={handleSearch}
-        searchQuery={searchQuery}
-      />
+      {isReviewPage ? (
+        <Routes>
+          <Route path="/evaluate/:orderId" element={<ProductReview />} />
+        </Routes>
+      ) : (
+        <>
+          <Navbar
+            user={user}
+            profile={profile}
+            theme={theme}
+            onThemeToggle={toggleTheme}
+            onAuthClick={() => setIsAuthOpen(true)}
+            onLogoutClick={() => setIsLogoutOpen(true)}
+            onDashboardClick={(v) => setView(v)}
+            onHomeClick={() => {
+              setView("home");
+              setSearchQuery("");
+            }}
+            onSearch={handleSearch}
+            searchQuery={searchQuery}
+          />
 
       <Dialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
         <DialogContent className="max-w-[320px] rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8">
@@ -2133,10 +2144,11 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2 md:col-span-2">
                       <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
-                        Nome Completo
+                        Nome Completo *
                       </label>
                       <input
                         type="text"
+                        required
                         value={shippingInfo.fullName}
                         onChange={(e) =>
                           setShippingInfo({
@@ -2151,10 +2163,11 @@ export default function App() {
 
                     <div className="space-y-2 md:col-span-2">
                       <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
-                        Morada de Entrega
+                        Morada de Entrega *
                       </label>
                       <input
                         type="text"
+                        required
                         value={shippingInfo.address}
                         onChange={(e) =>
                           setShippingInfo({
@@ -2169,10 +2182,11 @@ export default function App() {
 
                     <div className="space-y-2">
                       <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
-                        Cidade
+                        Cidade *
                       </label>
                       <input
                         type="text"
+                        required
                         value={shippingInfo.city}
                         onChange={(e) =>
                           setShippingInfo({
@@ -2187,10 +2201,11 @@ export default function App() {
 
                     <div className="space-y-2">
                       <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
-                        Código Postal
+                        Código Postal *
                       </label>
                       <input
                         type="text"
+                        required
                         value={shippingInfo.postalCode}
                         onChange={(e) =>
                           setShippingInfo({
@@ -2205,37 +2220,63 @@ export default function App() {
 
                     <div className="space-y-2">
                       <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
-                        País
+                        País *
                       </label>
-                      <input
-                        type="text"
+                      <select
                         value={shippingInfo.country}
-                        onChange={(e) =>
+                        required
+                        onChange={(e) => {
+                          const newCountry = e.target.value;
+                          const newPrefix = newCountry === 'Portugal' ? '+351 ' : (newCountry === 'Espanha' ? '+34 ' : '');
                           setShippingInfo({
                             ...shippingInfo,
-                            country: e.target.value,
-                          })
-                        }
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
-                        placeholder="Ex: Portugal"
-                      />
+                            country: newCountry,
+                            phone: newPrefix
+                          });
+                        }}
+                        className="w-full border-b border-black/10 dark:border-white/10 bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white appearance-none cursor-pointer"
+                      >
+                        <option value="" className="dark:bg-zinc-900">Selecione o País</option>
+                        <option value="Portugal" className="dark:bg-zinc-900">Portugal</option>
+                        <option value="Espanha" className="dark:bg-zinc-900">Espanha</option>
+                      </select>
                     </div>
 
                     <div className="space-y-2">
                       <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
-                        Contacto Telefónico
+                        Contacto Telefónico (PT/ES) *
                       </label>
                       <input
                         type="tel"
+                        required
                         value={shippingInfo.phone}
-                        onChange={(e) =>
-                          setShippingInfo({
-                            ...shippingInfo,
-                            phone: e.target.value,
-                          })
-                        }
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
-                        placeholder="+351 900 000 000"
+                        onChange={(e) => {
+                          const input = e.target.value;
+                          const country = shippingInfo.country;
+                          const prefix = country === 'Portugal' ? '+351 ' : (country === 'Espanha' ? '+34 ' : '');
+                          
+                          // Se tentar apagar o prefixo, não deixa
+                          if (input.length < prefix.length) {
+                            setShippingInfo({ ...shippingInfo, phone: prefix });
+                            return;
+                          }
+
+                          if (!input.startsWith(prefix)) return;
+
+                          // Só permite dígitos após o prefixo
+                          const suffix = input.slice(prefix.length).replace(/\D/g, '');
+                          
+                          // Limite estrito de 9 dígitos para PT/ES
+                          const limit = 9;
+                          if (suffix.length <= limit) {
+                            setShippingInfo({
+                              ...shippingInfo,
+                              phone: prefix + suffix
+                            });
+                          }
+                        }}
+                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white font-mono"
+                        placeholder={shippingInfo.country === 'Portugal' ? '+351 9xx xxx xxx' : (shippingInfo.country === 'Espanha' ? '+34 6xx xxx xxx' : 'Seleccione o país primeiro')}
                       />
                     </div>
                   </div>
@@ -2299,11 +2340,33 @@ export default function App() {
                           !shippingInfo.address ||
                           !shippingInfo.city ||
                           !shippingInfo.postalCode ||
-                          !shippingInfo.fullName
+                          !shippingInfo.fullName ||
+                          !shippingInfo.country ||
+                          !shippingInfo.phone
                         ) {
                           toast.error(
                             "Por favor, preencha todos os campos obrigatórios.",
                           );
+                          return;
+                        }
+
+                        // Phone Validation (PT or ES)
+                        const country = shippingInfo.country;
+                        const prefix = country === 'Portugal' ? '+351 ' : (country === 'Espanha' ? '+34 ' : '');
+                        const suffix = shippingInfo.phone.slice(prefix.length).replace(/\s/g, '');
+
+                        if (country === 'Portugal' && suffix.length !== 9) {
+                          toast.error("O número de telemóvel de Portugal deve ter exatamente 9 dígitos.");
+                          return;
+                        }
+
+                        if (country === 'Espanha' && suffix.length !== 9) {
+                          toast.error("O número de telemóvel de Espanha deve ter exatamente 9 dígitos.");
+                          return;
+                        }
+
+                        if (!country) {
+                          toast.error("Por favor, selecione um país para validar o contacto.");
                           return;
                         }
                         
@@ -2316,7 +2379,7 @@ export default function App() {
                           address: shippingInfo.address,
                           city: shippingInfo.city,
                           zip: shippingInfo.postalCode,
-                          country: shippingInfo.country || 'PT'
+                          country: shippingInfo.country === 'Portugal' ? 'PT' : (shippingInfo.country === 'Espanha' ? 'ES' : shippingInfo.country)
                         });
                       }}
                       disabled={!!checkoutLoading}
@@ -2547,6 +2610,8 @@ export default function App() {
           setView("terms");
         }}
       />
+        </>
+      )}
       <Toaster
         position="bottom-center"
         toastOptions={{

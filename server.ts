@@ -346,7 +346,6 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       const checkoutToken = data.checkout_token || data.id || data.token;
       const email = data.customer_email || data.email;
       const productId = data.product_id || data.metadata?.productId;
-      
       if (orderId) {
         console.log(`[DROPEA WEBHOOK] Processing Payment for Order: ${orderId}`);
         await supabase
@@ -357,6 +356,8 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
             customer_email: email
           })
           .eq('id', orderId);
+          
+        triggerOrderNotification(orderId, 'paid', 'pending').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
       }
     } 
     
@@ -369,32 +370,46 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
 
       const updateData: any = { shipping_status: 'sent' };
       if (trackingNumber) {
-        // We'll store tracking info in selected_options or a metadata field if column doesn't exist
-        // Since we didn't add the column yet, we use JSONB shipping_details or selected_options
         updateData.shipping_status_metadata = { trackingNumber, trackingUrl, lastUpdate: new Date().toISOString() };
       }
 
-      await supabase
+      const { data: updatedOrders } = await supabase
         .from('orders')
         .update(updateData)
-        .eq('dropea_order_id', String(dropeaOrderId));
-    }
+        .eq('dropea_order_id', String(dropeaOrderId))
+        .select('id, status');
+
+      if (updatedOrders && updatedOrders.length > 0) {
+        triggerOrderNotification(updatedOrders[0].id, updatedOrders[0].status, 'sent').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+      }
+    } 
     
     else if (event === 'order.delivered') {
       console.log(`[DROPEA WEBHOOK] Order Delivered for Dropea ID: ${dropeaOrderId}`);
-      await supabase
+      const { data: updatedOrders } = await supabase
         .from('orders')
         .update({ shipping_status: 'delivered' })
-        .eq('dropea_order_id', String(dropeaOrderId));
+        .eq('dropea_order_id', String(dropeaOrderId))
+        .select('id, status');
+
+      if (updatedOrders && updatedOrders.length > 0) {
+        triggerOrderNotification(updatedOrders[0].id, updatedOrders[0].status, 'delivered').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+      }
     }
 
     else if (event === 'order.canceled' || event === 'payment.failed') {
       console.log(`[DROPEA WEBHOOK] Order Canceled for Dropea ID: ${dropeaOrderId}`);
       const orderId = data.metadata?.orderId || data.order_id;
-      if (orderId) {
-        await supabase.from('orders').update({ status: 'canceled' }).eq('id', orderId);
-      } else if (dropeaOrderId) {
-        await supabase.from('orders').update({ status: 'canceled' }).eq('dropea_order_id', String(dropeaOrderId));
+      let finalOrderId = orderId;
+
+      if (!finalOrderId && dropeaOrderId) {
+        const { data: foundOrder } = await supabase.from('orders').select('id').eq('dropea_order_id', String(dropeaOrderId)).single();
+        if (foundOrder) finalOrderId = foundOrder.id;
+      }
+
+      if (finalOrderId) {
+        await supabase.from('orders').update({ status: 'canceled' }).eq('id', finalOrderId);
+        triggerOrderNotification(finalOrderId, 'canceled', 'pending').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
       }
     }
   } catch (err: any) {
@@ -702,6 +717,11 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
 
       if (Object.keys(updateData).length > 0) {
         await supabase.from('orders').update(updateData).eq('id', id);
+        
+        // Trigger email notification if status changed
+        if (updateData.status || updateData.shipping_status) {
+          triggerOrderNotification(id, updateData.status || order.status, updateData.shipping_status || order.shipping_status).catch(e => console.error('[EMAIL ERROR]', e));
+        }
       }
       
       return res.json({ success: true, dropea: dropeaData, localUpdated: Object.keys(updateData).length > 0 });
@@ -713,6 +733,151 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * Sends order status update emails to customers
+ */
+async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string) {
+  try {
+    const supabase = getSupabase();
+    
+    // Fetch order details with product info
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, products(title)')
+      .eq('id', orderId)
+      .single();
+      
+    if (error || !order) return;
+    
+    // Fetch profile to get notification email preference
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('notification_email')
+      .eq('id', order.user_id)
+      .single();
+    
+    // Safety check: is notification enabled for this order?
+    // default to true if null/undefined
+    if (order.notifications_enabled === false) {
+      console.log(`[NOTIFICATIONS] Notifications disabled for order ${orderId}`);
+      return;
+    }
+    
+    const customerEmail = profile?.notification_email || order.customer_email;
+    if (!customerEmail) return;
+
+    let subject = "";
+    let body = "";
+    const productName = order.products?.title || "Seu Produto";
+    const statusLabel = status === 'paid' ? 'Pago' : 
+                        status === 'completed' ? 'Concluído' :
+                        status === 'canceled' ? 'Cancelado' :
+                        status === 'refunded' ? 'Reembolsado' : 'Pendente';
+                        
+    const shippingLabel = shippingStatus === 'sent' ? 'Enviado' :
+                          shippingStatus === 'delivered' ? 'Entregue' : 'A processar';
+
+    // Status: PAID
+    if (status === 'paid' && !order.email_paid_sent) {
+       subject = `Confirmação de Pagamento - Pedido #${orderId.slice(0, 8)}`;
+       body = `
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
+           <h1 style="font-size: 24px; color: #000; margin-bottom: 20px;">Pagamento Confirmado!</h1>
+           <p>Olá,</p>
+           <p>Recebemos o pagamento do seu pedido do produto: <strong>${productName}</strong>.</p>
+           <p>O seu pedido está agora em fase de processamento e será enviado em breve.</p>
+           <div style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-radius: 8px;">
+             <strong>Pedido:</strong> #${orderId}<br/>
+             <strong>Estado:</strong> ${statusLabel}
+           </div>
+           <p>Iremos notificá-lo assim que a sua encomenda for enviada.</p>
+           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+           <p style="font-size: 12px; color: #999;">Obrigado por escolher a SArt Boutique.</p>
+         </div>
+       `;
+       await supabase.from('orders').update({ email_paid_sent: true }).eq('id', orderId);
+    } 
+    // Shipping: SENT (SENT is usually updated when we get a tracking number)
+    else if (shippingStatus === 'sent' && !order.email_shipped_sent) {
+       const trackingUrl = order.shipping_status_metadata?.trackingUrl || "#";
+       const trackingNumber = order.shipping_status_metadata?.trackingNumber || "N/A";
+       
+       subject = `A sua encomenda foi enviada! - Pedido #${orderId.slice(0, 8)}`;
+       body = `
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
+           <h1 style="font-size: 24px; color: #000; margin-bottom: 20px;">Encomenda a Caminho!</h1>
+           <p>Olá,</p>
+           <p>Boas notícias! O seu produto <strong>${productName}</strong> já foi expedido.</p>
+           <div style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-radius: 8px;">
+             <strong>Código de Rastreio:</strong> ${trackingNumber}<br/>
+             <a href="${trackingUrl}" style="display: inline-block; margin-top: 15px; padding: 12px 24px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold;">Rastrear Encomenda</a>
+           </div>
+           <p>Pode acompanhar o estado da entrega através do link acima.</p>
+           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+           <p style="font-size: 12px; color: #999;">Obrigado por escolher a SArt Boutique.</p>
+         </div>
+       `;
+       await supabase.from('orders').update({ email_shipped_sent: true }).eq('id', orderId);
+    }
+    // Shipping: DELIVERED -> Evaluation Email
+    else if (shippingStatus === 'delivered' && !order.email_review_sent) {
+       const siteUrl = process.env.SITE_URL || 'https://sart-boutique.com';
+       const evaluationUrl = `${siteUrl}/evaluate/${orderId}`;
+       
+       subject = `Como foi a sua experiência? - Pedido #${orderId.slice(0, 8)}`;
+       body = `
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
+           <h1 style="font-size: 24px; color: #000; margin-bottom: 20px;">Tudo certinho?</h1>
+           <p>Olá,</p>
+           <p>A sua encomenda do produto <strong>${productName}</strong> foi marcada como entregue.</p>
+           <p>Gostaríamos de saber se correu tudo bem com a entrega e o que achou do produto. A sua opinião é muito importante para nós!</p>
+           <div style="text-align: center; margin: 40px 0;">
+             <a href="${evaluationUrl}" style="display: inline-block; padding: 16px 32px; background: #D4AF37; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">Confirmar e Avaliar</a>
+           </div>
+           <p>Caso tenha tido algum problema, entre em contacto connosco respondendo a este email.</p>
+           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+           <p style="font-size: 12px; color: #999;">Obrigado por escolher a SArt Boutique.</p>
+         </div>
+       `;
+       await supabase.from('orders').update({ email_review_sent: true }).eq('id', orderId);
+    }
+    // Status: CANCELED
+    else if (status === 'canceled' && !order.email_canceled_sent) {
+       subject = `Pedido Cancelado - Pedido #${orderId.slice(0, 8)}`;
+       body = `
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333;">
+           <h1 style="font-size: 24px; color: #d32f2f; margin-bottom: 20px;">Atualização do Pedido</h1>
+           <p>Olá,</p>
+           <p>Lamentamos informar que o seu pedido do produto <strong>${productName}</strong> foi cancelado.</p>
+           <p>Se o cancelamento não foi solicitado por si ou se tiver alguma dúvida, por favor contacte o nosso suporte.</p>
+           <div style="margin: 30px 0; padding: 20px; background: #f9f9f9; border-radius: 8px;">
+             <strong>Pedido:</strong> #${orderId}<br/>
+             <strong>Estado:</strong> Cancelado
+           </div>
+           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+           <p style="font-size: 12px; color: #999;">Equipa SArt Boutique.</p>
+         </div>
+       `;
+       await supabase.from('orders').update({ email_canceled_sent: true }).eq('id', orderId);
+    }
+
+    if (subject && body) {
+       console.log(`[NOTIFICATIONS] Sending email to ${customerEmail} - ${subject}`);
+       await supabase.functions.invoke('send-email', {
+         body: {
+           to: customerEmail,
+           subject,
+           body,
+           name: order.customer_name || 'Cliente'
+         }
+       });
+    }
+
+  } catch (err) {
+    console.error('[TRIGGER NOTIFICATION ERROR]', err);
+  }
+}
 
 // Sync Protocol (Actually imports/updates products in DB)
 apiRouter.post('/dropea/sync', async (req, res) => {
