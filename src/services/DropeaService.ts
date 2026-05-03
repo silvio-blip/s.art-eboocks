@@ -145,5 +145,48 @@ export const DropeaService = {
     
     const data = await response.json();
     return { order_id: data.order_id };
+  },
+
+  async getOrderStatus(orderId: string | number) {
+    try {
+      const graphqlQuery = `
+        query GetOrderStatus($id: [Int]) {
+          orders(id: $id) {
+            data {
+              id
+              status
+              tracking_code
+              tracking_url
+            }
+          }
+        }
+      `;
+
+      const response = await fetch('/dropea-api/graphql/dropshippers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: graphqlQuery,
+          variables: { id: [Number(orderId)] }
+        }),
+      });
+
+      const jsonResponse = await response.json();
+      const orderData = jsonResponse?.data?.orders?.data?.[0];
+
+      if (orderData) {
+        return {
+          status: orderData.status,
+          trackingCode: orderData.tracking_code,
+          trackingUrl: orderData.tracking_url
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('[DropeaService] Error fetching order status:', error);
+      return null;
+    }
   }
 };

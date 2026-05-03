@@ -264,39 +264,67 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 }
 
 async function getDropeaOrderStatus(dropeaOrderId: string) {
+  const numericId = parseInt(dropeaOrderId, 10);
+  if (isNaN(numericId)) {
+    console.error(`[DROPEA STATUS ERRORS] Invalid numeric ID: ${dropeaOrderId}`);
+    return null;
+  }
+
   const graphqlQuery = `
-    query Order($id: ID!) {
-      order(id: $id) {
-        id
-        status
-        shipping_status
-        tracking_number
-        tracking_url
+    query GetOrderStatus($id: [Int]) {
+      orders(id: $id) {
+        data {
+          id
+          status
+          tracking_code
+          tracking_url
+        }
       }
     }
   `;
 
-  const variables = { id: dropeaOrderId };
+  const variables = { id: [numericId] };
 
-  console.log(`[DROPEA STATUS CHECK] Checking Dropea ID: ${dropeaOrderId}...`);
-  
-  const response = await axios.post(DROPEA_API_URL, {
-    query: graphqlQuery,
-    variables
-  }, {
-    headers: {
-      'x-api-key': DROPEA_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    timeout: 10000
-  });
+  console.log(`[DROPEA STATUS CHECK] Checking Dropea ID: ${numericId}...`);
 
-  if (response?.data?.errors) {
-    console.error('[DROPEA STATUS ERRORS]', JSON.stringify(response.data.errors, null, 2));
+  try {
+    const response = await axios.post(DROPEA_API_URL, {
+      query: graphqlQuery,
+      variables
+    }, {
+      headers: {
+        'x-api-key': DROPEA_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'SArt-Boutique-Boutique/1.3'
+      },
+      timeout: 10000
+    });
+
+    if (response.data?.errors) {
+      console.error(`[DROPEA STATUS ERRORS] GraphQL Errors for ID ${numericId}:`, JSON.stringify(response.data.errors, null, 2));
+      return null;
+    }
+
+    const orderDataArr = response.data?.data?.orders?.data;
+    const orderData = Array.isArray(orderDataArr) ? orderDataArr[0] : null;
+
+    if (!orderData) {
+      console.warn(`[DROPEA STATUS CHECK] Order ${numericId} not found in Dropea response.`);
+      return null;
+    }
+
+    // Map fields for internal consistency (tracking_code -> tracking_number)
+    return {
+      id: orderData.id,
+      status: orderData.status,
+      tracking_number: orderData.tracking_code,
+      tracking_url: orderData.tracking_url
+    };
+  } catch (error: any) {
+    const errorDetail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
+    console.error(`[DROPEA STATUS FATAL ERROR] for ID ${numericId}: ${errorDetail}`);
     return null;
   }
-
-  return response.data?.data?.order;
 }
 
 // --- WEBHOOK DROPEA ---
@@ -651,17 +679,13 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       
       if (dropeaData.status === 'FULFILLED') {
         updateData.status = 'completed';
-      } else if (dropeaData.status === 'CANCELLED') {
+        updateData.shipping_status = 'sent';
+      } else if (dropeaData.status === 'CANCELLED' || dropeaData.status === 'CANCELED') {
         updateData.status = 'canceled';
       } else if (dropeaData.status === 'REFUNDED') {
         updateData.status = 'refunded';
-      }
-
-      if (dropeaData.shipping_status === 'SHIPPED') {
-        updateData.shipping_status = 'sent';
-      } else if (dropeaData.shipping_status === 'DELIVERED') {
-        updateData.shipping_status = 'delivered';
-      } else if (dropeaData.shipping_status === 'PENDING') {
+      } else if (dropeaData.status === 'PAID') {
+        updateData.status = 'paid';
         updateData.shipping_status = 'pending';
       }
       
@@ -672,6 +696,8 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
           trackingUrl: dropeaData.tracking_url,
           lastSync: new Date().toISOString()
         };
+        // Se tem tracking number, garantimos que o status de envio é 'sent'
+        updateData.shipping_status = 'sent';
       }
 
       if (Object.keys(updateData).length > 0) {
