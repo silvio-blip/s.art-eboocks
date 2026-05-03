@@ -55,8 +55,81 @@ const initDB = async () => {
 };
 initDB();
 
+// Global Error Handler
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const app = express();
 app.use(cors());
+
+// Body parsing MUST come before routing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// --- TOP LEVEL DEBUG ---
+app.get('/api-status', (req, res) => {
+  res.json({ server: 'running', timestamp: new Date().toISOString() });
+});
+
+// PROXY FOR DROPEA (Client-Side friendly)
+// Correct way to mount a proxy on /dropea-api using app.use
+app.use('/dropea-api', async (req, res) => {
+  const url = `https://api.dropea.com${req.url}`;
+  
+  console.log(`[DROPEA PROXY] ${req.method} ${req.url} -> ${url}`);
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, x-user-id');
+    return res.sendStatus(200);
+  }
+
+  try {
+    const axiosConfig: any = {
+      method: req.method,
+      url: url,
+      data: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : undefined,
+      headers: {
+        'x-api-key': DROPEA_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'SArt-Boutique-Boutique/1.0'
+      },
+      timeout: 20000,
+      validateStatus: () => true
+    };
+
+    const response = await axios(axiosConfig);
+    console.log(`[DROPEA PROXY] Status: ${response.status} for ${url}`);
+    
+    // Explicit CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    return res.status(response.status).json(response.data);
+  } catch (error: any) {
+    console.error(`[DROPEA PROXY FAIL] ${url}:`, error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Proxy failed to reach Dropea', 
+        details: error.message 
+      });
+    }
+  }
+});
+
+// Routers defined early
+const apiRouter = express.Router();
+const adminRouter = express.Router();
+
+// MOUNT ROUTERS
+app.use('/api', apiRouter);
+app.use('/api/admin', adminRouter);
 
 // Helper function to create Dropea Order
 async function createDropeaOrderInternal(shopId: number, customer: any, product: any) {
@@ -148,22 +221,37 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       const internalProductId = metadata.product_id;
       const userId = customerData.userId;
 
-      // APENAS ATUALIZAR O BANCO. O LISTENER DO SERVER CUIDARÁ DO FULFILLMENT.
+      // 3. REGISTAR PEDIDO NO BANCO
       const supabase = getSupabase();
-      const { error: orderError } = await supabase
+      console.log(`[STRIPE WEBHOOK] Creating order for user: ${userId}, Product: ${internalProductId}`);
+      
+      const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
           user_id: userId,
           product_id: internalProductId,
-          status: 'paid', // Isto vai disparar o listener!
+          status: 'paid',
           shipping_status: 'pending',
           total_amount: session.amount_total ? session.amount_total / 100 : 0,
           stripe_session_id: session.id,
-          shipping_address: metadata.customer_data
-        });
+          shipping_details: metadata.customer_data
+        })
+        .select()
+        .single();
 
-      if (orderError) throw orderError;
-      console.log(`[STRIPE WEBHOOK] Ordem criada no Supabase. Listener processará fulfillment.`);
+      if (orderError) {
+        console.error(`[STRIPE WEBHOOK DB ERROR] Failed to insert order:`, orderError);
+        throw orderError;
+      }
+      
+      console.log(`[STRIPE WEBHOOK] Ordem criada no Supabase ID: ${orderData.id}. Disparando fulfillment...`);
+
+      // Disparar fulfillment imediatamente em vez de esperar listener (mais rápido e fiável em containers)
+      if (orderData) {
+        processOrderFulfillment(orderData).catch(e => {
+          console.error(`[STRIPE WEBHOOK] Erro no fulfillment de ${orderData.id}:`, e);
+        });
+      }
 
     } catch (err: any) {
       console.error("[STRIPE WEBHOOK DB UPDATE ERROR]", err);
@@ -224,8 +312,7 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
           payment_status: 'paid',
           dropea_order_id: checkoutToken,
           customer_email: email || existingOrder.customer_email,
-          total_amount: data.amount || data.total || existingOrder.total_amount,
-          updated_at: new Date().toISOString()
+          total_amount: data.amount || data.total || existingOrder.total_amount
         })
         .eq('id', orderId);
 
@@ -287,13 +374,12 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
 
 
 // Recovery Proxy Routes
-app.use(express.json());
-const apiRouter = express.Router();
+
 apiRouter.use((req, res, next) => {
-  console.log(`[API PROXY] Request: ${req.method} ${req.url}`);
+  const userId = req.headers['x-user-id'] || req.headers['user-id'] || req.query.userId;
+  console.log(`[API PROXY] Request: ${req.method} ${req.url} | UserID: ${userId}`);
   next();
 });
-app.use('/api', apiRouter);
 
 apiRouter.post('/recovery/send', async (req, res) => {
   try {
@@ -423,53 +509,106 @@ apiRouter.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+apiRouter.get('/ping', (req, res) => {
+  res.json({ pong: true });
+});
+
+apiRouter.get('/test-api', (req, res) => {
+  console.log('[API TEST] Test route hit');
+  res.json({ success: true, message: 'API is working' });
+});
+
+let dropeaCatalogCache: { data: any, timestamp: number } | null = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // Get Dropea Products (GraphQL)
 apiRouter.get('/dropea-products', async (req, res) => {
   console.log('[DROPEA] Acessando /api/dropea-products');
+  
+  // DEBUG: Return mock data instantly to test connectivity
+  // return res.json([{ id: 'test', name: 'Connectivity Test Product', pvp: 10, images: [], category: 'Test' }]);
+
+  // Use cache if available and valid
+  if (dropeaCatalogCache && (Date.now() - dropeaCatalogCache.timestamp < CACHE_DURATION)) {
+    console.log('[DROPEA] Returning cached products');
+    return res.json(dropeaCatalogCache.data);
+  }
+
   try {
     const supabase = getSupabase();
+    console.log('[DROPEA] Inicializando Supabase e variáveis...');
     
-    // 1. Fetch Dropea catalog
-    console.log(`[DROPEA] Requisitando catálogo (GraphQL) da Dropea... Key: ${DROPEA_API_KEY}`);
-    const targetUrl = 'https://api.dropea.com/graphql/dropshippers';
-    const graphqlQuery = { query: `query { products { data { id name images description pvpr } } }` };
-    if (!DROPEA_API_KEY) throw new Error("DROPEA_API_KEY não configurada");
+    // 1. Fetch Dropea catalog (Page 1 only for catalog view)
+    console.log(`[DROPEA] Requisitando catálogo (GraphQL) da Dropea... Key: ${DROPEA_API_KEY?.substring(0, 5)}...`);
+    const targetUrl = DROPEA_API_URL;
+    const graphqlQuery = { query: `query { products(page: 1) { data { id name images pvpr category } } }` };
     
-    console.log('[DROPEA] Iniciando axios.post...');
-    const response = await axios.post(targetUrl, graphqlQuery, { headers: { 'x-api-key': DROPEA_API_KEY }, timeout: 30000 });
-    console.log('[DROPEA] axios.post concluído.');
+    if (!DROPEA_API_KEY || DROPEA_API_KEY.includes('AIza')) {
+       console.warn('[DROPEA] WARNING: API Key appears to be invalid or placeholder.');
+    }
+    
+    const response = await axios.post(targetUrl, graphqlQuery, { 
+      headers: { 
+        'x-api-key': DROPEA_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'SArt-Boutique-Boutique/1.0'
+      }, 
+      timeout: 8000 // Shorter timeout for faster feedback
+    }).catch(err => {
+      console.warn('[DROPEA] API unreachable or timed out:', err.message);
+      return { data: { data: { products: { data: [] } } } };
+    });
+    
+    // Safety check on response structure
+    const rawProducts = response?.data?.data?.products?.data || [];
+    if (!Array.isArray(rawProducts)) {
+      console.error('[DROPEA] Unexpected API response format');
+      return res.json([]);
+    }
+    
+    console.log(`[DROPEA] Raw products count: ${rawProducts.length}`);
     
     // 2. Fetch Supabase overrides
-    console.log('[DROPEA] Fetching Supabase overrides...');
-    const { data: supabaseProducts, error: sbError } = await supabase
-      .from('products')
-      .select('id, title, price, dropea_id')
-      .not('dropea_id', 'is', null);
+    let supabaseProducts: any[] = [];
+    try {
+      const { data, error: sbError } = await supabase
+        .from('products')
+        .select('id, title, price, dropea_id')
+        .not('dropea_id', 'is', null);
+      if (!sbError && data) supabaseProducts = data;
+    } catch (e) {
+      console.error('[DROPEA] Supabase merge fetch failed:', e);
+    }
+    
+    // 3. Merge optimized with a Map
+    const overrideMap = new Map();
+    supabaseProducts.forEach(s => {
+      if (s.dropea_id) overrideMap.set(String(s.dropea_id), s);
+    });
 
-    if (sbError) console.error('Error fetching Supabase products:', sbError);
-    
-    const rawProducts = response.data?.data?.products?.data || [];
-    
-    // 3. Merge
-    console.log('[DROPEA] Merging products...');
     const products = rawProducts.map((p: any) => {
-      const override = Array.isArray(supabaseProducts) ? supabaseProducts?.find((s: any) => s.dropea_id == p.id) : null;
+      if (!p || typeof p !== 'object') return null;
+      const override = overrideMap.get(String(p.id));
       return {
         ...p,
+        id: String(p.id),
         name: override ? override.title : p.name,
-        pvp: override ? override.price : p.pvpr,
-        pvpr: p.pvpr // Keep original cost
+        pvp: override ? Number(override.price) : Number(p.pvpr),
+        pvpr: Number(p.pvpr)
       };
-    });
+    }).filter(Boolean);
 
-    console.log(`[DROPEA] Sucesso: ${products.length} produtos retornados.`);
-    res.json(products);
+    console.log(`[DROPEA] Success: ${products.length} products merged.`);
+    
+    // Update Cache
+    dropeaCatalogCache = { data: products, timestamp: Date.now() };
+
+    return res.json(products);
   } catch (error: any) {
-    console.error('[DROPEA FATAL ERROR]', error.response?.data ? JSON.stringify(error.response.data) : error.message);
-    res.status(500).json({ 
-      error: 'Falha na conexão com Dropea API', 
-      details: error.message 
-    });
+    console.error('[DROPEA FATAL ERROR]', error.stack || error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Falha interna ao processar produtos', details: error.message });
+    }
   }
 });
 
@@ -478,7 +617,7 @@ apiRouter.post('/dropea/sync', async (req, res) => {
   try {
     const supabase = getSupabase();
     const targetUrl = 'https://api.dropea.com/graphql/dropshippers';
-    const graphqlQuery = { query: `query { products { data { id name images description pvpr } } }` };
+    const graphqlQuery = { query: `query { products { data { id name images pvpr } } }` };
     
     console.log('[DROPEA SYNC] Iniciando sincronização de catálogo...');
     const response = await axios.post(targetUrl, graphqlQuery, { headers: { 'x-api-key': DROPEA_API_KEY }, timeout: 30000 });
@@ -515,24 +654,24 @@ apiRouter.post('/dropea/sync', async (req, res) => {
       const pId = String(p.id);
       const isNew = !existingMap.has(pId);
       
-      // If it's NOT new, we keep the existing price if it was manually changed (or even if it wasn't)
-      // Actually, we'll only update price if it's a NEW product.
-      const priceToSet = isNew ? p.pvpr : existingMap.get(pId);
+      const productToUpsert: any = {
+        dropea_id: pId,
+        price: isNew ? p.pvpr : existingMap.get(pId),
+        image_url: Array.isArray(p.images) ? p.images[0] : (typeof p.images === 'string' ? p.images : ''),
+        product_type: 'physical',
+        category: p.category || 'Dropshipping',
+        is_active: true
+      };
+
+      // ONLY set title and description if it's a NEW product to avoid overwriting local edits
+      if (isNew) {
+        productToUpsert.title = p.name;
+        productToUpsert.description = p.description || "";
+      }
 
       const { error } = await supabase
         .from('products')
-        .upsert({
-          dropea_id: pId,
-          title: p.name,
-          description: p.description,
-          price: priceToSet || p.pvpr, 
-          image_url: Array.isArray(p.images) ? p.images[0] : (typeof p.images === 'string' ? p.images : ''),
-          product_type: 'physical',
-          category: 'Dropshipping',
-          is_active: true
-        }, { 
-          onConflict: 'dropea_id'
-        });
+        .upsert(productToUpsert, { onConflict: 'dropea_id' });
       
       if (!error) syncedCount++;
       else console.error(`[DROPEA SYNC] Erro ao sincronizar produto ${p.id}:`, error);
@@ -644,13 +783,18 @@ apiRouter.get('/get-book', async (req, res) => {
 });
 
 // --- ADMIN API ---
-const adminRouter = express.Router();
+// adminRouter definition removed from here, now at top
 
 adminRouter.use(async (req, res, next) => {
-  const userId = req.body.userId || req.query.userId || req.headers['x-user-id'];
+  const userId = req.headers['x-user-id'] || req.headers['user-id'] || req.body.userId || req.query.userId;
   
+  console.log(`[ADMIN AUTH] Attempt. UserID: ${userId} | Method: ${req.method} | URL: ${req.url}`);
+  // Log body keys to debug missing userId in body
+  if (req.method === 'POST') console.log(`[ADMIN AUTH DEBUG] Body keys: ${Object.keys(req.body || {}).join(', ')}`);
+
   if (!userId) {
-    return res.status(401).json({ error: 'User ID missing in request' });
+    console.error(`[ADMIN AUTH FAIL] User ID missing for ${req.method} ${req.url}`);
+    return res.status(401).json({ error: 'User ID missing in request or headers' });
   }
 
   try {
@@ -758,25 +902,34 @@ adminRouter.post('/products', async (req, res) => {
       product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
     } = req.body;
     
-    // Prioritize pvp if it exists, otherwise use price. Ensure it's a number.
+    // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
     const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
-    const finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
+    let finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
+    
+    if (isNaN(finalPrice) || finalPrice === undefined || finalPrice === null) {
+      console.warn(`[ADMIN] Price is invalid (${rawPrice}). Defaulting to 0.`);
+      finalPrice = 0;
+    }
 
     console.log(`[ADMIN] Creating product. Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
 
     const supabase = getSupabase();
     
-    // Use upsert ONLY if dropea_id is provided to avoid unique constraint violations on nulls
-    // Use the primary key if it's an update (though POST is usually for new)
-    const { data, error } = await supabase
-      .from('products')
-      .upsert({ 
-        title, description, price: finalPrice, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, 
-        dropea_id: dropea_id || null
-      }, { onConflict: 'dropea_id' })
-      .select()
-      .single();
+    // Ensure dropea_id column exists or handle error
+    let query;
+    const upsertData: any = { 
+      title, description, price: finalPrice, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+    };
+    
+    if (dropea_id) {
+      upsertData.dropea_id = String(dropea_id);
+      query = supabase.from('products').upsert(upsertData, { onConflict: 'dropea_id' });
+    } else {
+      query = supabase.from('products').insert(upsertData);
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) {
       console.error(`[ADMIN] Error creating product:`, error);
@@ -796,19 +949,28 @@ adminRouter.put('/products/:id', async (req, res) => {
       product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
     } = req.body;
     
-    // Prioritize pvp if it exists, otherwise use price. Ensure it's a number.
+    // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
     const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
-    const finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
+    let finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
+
+    if (isNaN(finalPrice) || finalPrice === undefined || finalPrice === null) {
+      console.warn(`[ADMIN] Price is invalid (${rawPrice}) for ${id}. Defaulting to 0.`);
+      finalPrice = 0;
+    }
 
     console.log(`[ADMIN] Updating product ${id}. New Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
 
     const supabase = getSupabase();
+    const updateData: any = { 
+      title, description, price: finalPrice, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+    };
+    
+    if (dropea_id) updateData.dropea_id = String(dropea_id);
+
     const { data, error } = await supabase
       .from('products')
-      .update({ 
-        title, description, price: finalPrice, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -867,7 +1029,11 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
     const tryQuery = async (query: string, variables?: any) => {
       try {
         const res = await axios.post(targetUrl, { query, variables }, { 
-          headers: { 'x-api-key': DROPEA_API_KEY }, 
+          headers: { 
+            'x-api-key': DROPEA_API_KEY,
+            'Content-Type': 'application/json',
+            'User-Agent': 'SArt-Boutique-Boutique/1.0'
+          }, 
           timeout: 15000 
         });
         if (res.data?.errors) {
@@ -922,6 +1088,13 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
 
     const supabase = getSupabase();
     
+    // Check if it already exists to preserve local edits
+    const { data: existing } = await supabase
+      .from('products')
+      .select('title, description, price')
+      .eq('dropea_id', String(productData.id))
+      .maybeSingle();
+
     // Extrair tamanhos e cores dos variants se disponíveis
     let sizes = "";
     let colors = "";
@@ -976,9 +1149,9 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
       .from('products')
       .upsert({
         dropea_id: String(productData.id),
-        title: productData.name,
-        description: productData.description || "",
-        price: productData.pvpr || 0,
+        title: existing?.title || productData.name,
+        description: existing?.description || productData.description || "",
+        price: existing?.price || productData.pvpr || 0,
         image_url: image_url,
         extra_images: extra_images,
         product_type: 'physical',
@@ -987,20 +1160,25 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
         sizes_enabled,
         colors_enabled,
         sizes,
-        colors,
-        updated_at: new Date().toISOString()
+        colors
       }, { onConflict: 'dropea_id' })
       .select()
       .single();
 
-    if (upsertError) throw upsertError;
+    if (upsertError) {
+      console.error(`[ADMIN IMPORT DB ERROR]`, JSON.stringify(upsertError, null, 2));
+      throw upsertError;
+    }
 
     console.log(`[ADMIN] Produto ${dropeaId} importado com sucesso: ${upserted.title}`);
     res.json(upserted);
 
   } catch (error: any) {
-    console.error(`[ADMIN IMPORT ERROR]`, error);
-    res.status(500).json({ error: error.message });
+    console.error(`[ADMIN IMPORT FATAL ERROR]`, error.response?.data || error.message || error);
+    res.status(500).json({ 
+      error: error.message || 'Erro interno na importação',
+      details: error.response?.data || error
+    });
   }
 });
 
@@ -1298,9 +1476,16 @@ adminRouter.post('/orders/:id/cancel-refund', async (req, res) => {
   }
 });
 
-// Mount Routers
-app.use('/api', apiRouter);
-app.use('/api/admin', adminRouter);
+// Routers mounted at top
+
+// Global API error handler
+apiRouter.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('[API ERROR HANDLER]', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error',
+    path: req.path
+  });
+});
 
 // --- Stripe Integration ---
 let stripe: Stripe | null = null;
@@ -1308,7 +1493,7 @@ if (process.env.STRIPE_SECRET_KEY) {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
-app.post('/api/create-payment-session', express.json(), async (req, res) => {
+apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
     const { product, customer, baseUrl } = req.body;
     
@@ -1360,6 +1545,98 @@ app.post('/api/create-payment-session', express.json(), async (req, res) => {
   }
 });
 
+// --- ORDER STATUS SYNC ---
+apiRouter.post('/orders/sync-statuses', express.json(), async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId required" });
+
+    const supabase = getSupabase();
+    console.log(`[SYNC STATUS] Starting sync for user: ${userId}`);
+    
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', userId)
+      .not('dropea_order_id', 'is', null)
+      .not('shipping_status', 'eq', 'delivered');
+
+    if (error) throw error;
+    if (!orders || orders.length === 0) {
+      console.log(`[SYNC STATUS] No eligible orders found for user: ${userId}`);
+      return res.json({ updated: 0 });
+    }
+
+    let updatedCount = 0;
+    for (const order of orders) {
+      try {
+        console.log(`[SYNC STATUS] Checking Dropea status for Order ${order.id} (Dropea ID: ${order.dropea_order_id})`);
+        
+        // Buscar status na Dropea via GraphQL
+        const graphqlQuery = {
+          query: `
+            query Order($id: Int!) {
+              order(id: $id) {
+                id
+                status
+              }
+            }
+          `,
+          variables: { id: parseInt(order.dropea_order_id, 10) }
+        };
+
+        const response = await axios.post(DROPEA_API_URL, graphqlQuery, {
+          headers: { 
+            'x-api-key': DROPEA_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          timeout: 8000
+        }).catch(e => {
+          console.warn(`[SYNC STATUS] Dropea API skip for order ${order.id}:`, e.message);
+          return null;
+        });
+
+        if (!response) continue;
+
+        const dropeaOrder = response.data?.data?.order;
+        if (dropeaOrder && dropeaOrder.status) {
+          const status = dropeaOrder.status.toLowerCase();
+          console.log(`[SYNC STATUS] Order ${order.id} current status at Dropea: ${status}`);
+          
+          let newShippingStatus = order.shipping_status;
+
+          if (status === 'shipped') newShippingStatus = 'sent';
+          else if (status === 'delivered') newShippingStatus = 'delivered';
+          else if (status === 'processing' || status === 'pending') newShippingStatus = 'pending';
+          else if (status === 'cancelled' || status === 'canceled') newShippingStatus = 'canceled';
+          
+          if (newShippingStatus !== order.shipping_status) {
+            console.log(`[SYNC STATUS] Updating Order ${order.id}: ${order.shipping_status} -> ${newShippingStatus}`);
+            await supabase
+              .from('orders')
+              .update({ shipping_status: newShippingStatus })
+              .eq('id', order.id);
+            updatedCount++;
+          }
+        }
+      } catch (err) {
+        console.error(`[SYNC STATUS ERR] Order ${order.id}:`, err);
+      }
+    }
+
+    res.json({ updated: updatedCount });
+  } catch (err: any) {
+    console.error(`[SYNC STATUS FATAL]`, err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Catch-all for /api/* to return JSON instead of HTML on error
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: 'Endpoint not found', path: req.path });
+});
+
 // --- VITE MIDDLEWARE ---
 if (process.env.NODE_ENV !== 'production') {
   const { createServer: createViteServer } = await import('vite');
@@ -1402,10 +1679,16 @@ async function processOrderFulfillment(order: any) {
   console.log(`[FULFILLMENT SYSTEM] Detetada nova ordem paga: ${order.id}. Iniciando Dropea...`);
   try {
     const supabase = getSupabase();
-    const customerData = typeof order.shipping_address === 'string' ? JSON.parse(order.shipping_address) : order.shipping_address;
+    // Normalizar shipping_details (pode vir como string metadata do Stripe ou objeto do Supabase)
+    const customerData = typeof order.shipping_details === 'string' 
+      ? JSON.parse(order.shipping_details) 
+      : (order.shipping_details || {});
 
     const { data: product } = await supabase.from('products').select('dropea_id').eq('id', order.product_id).single();
-    if (!product?.dropea_id) throw new Error("Produto sem dropea_id");
+    if (!product?.dropea_id) {
+      console.error(`[FULFILLMENT ERROR] Produto ${order.product_id} não possui dropea_id. Impossível sincronizar.`);
+      return;
+    }
 
     const dropeaOrderId = await createDropeaOrderInternal(Number(DROPEA_SHOP_ID), customerData, {
       product_id: product.dropea_id,
@@ -1413,9 +1696,12 @@ async function processOrderFulfillment(order: any) {
       total_value: order.total_amount
     });
 
-    console.log(`[FULFILLMENT SUCCESS] Dropea ID: ${dropeaOrderId} para Order ID: ${order.id}`);
-
-    await supabase.from('orders').update({ dropea_order_id: dropeaOrderId }).eq('id', order.id);
+    if (dropeaOrderId) {
+      console.log(`[FULFILLMENT SUCCESS] Dropea ID: ${dropeaOrderId} para Order ID: ${order.id}`);
+      await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', order.id);
+    } else {
+      throw new Error("Dropea API não retornou um ID de pedido válido.");
+    }
   } catch (err: any) {
     console.error(`[FULFILLMENT SYSTEM ERROR] Falha na Ordem ${order.id}:`, err.message);
   }

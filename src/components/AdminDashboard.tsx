@@ -224,7 +224,11 @@ export default function AdminDashboard({
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`/api/admin/users?userId=${user.id}`);
+      const res = await fetch(`/api/admin/users?userId=${user.id}`, {
+        headers: {
+          'x-user-id': user.id
+        }
+      });
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -239,7 +243,10 @@ export default function AdminDashboard({
       const newRole = !targetUser.is_admin;
       const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-user-id": user.id
+        },
         body: JSON.stringify({ userId: user.id, is_admin: newRole }),
       });
 
@@ -297,14 +304,20 @@ export default function AdminDashboard({
     const impToast = toast.loading(`Importando produto ${importDropeaId} da Dropea...`);
     
     try {
-      const data = await DropeaService.importProduct(importDropeaId);
+      const data = await DropeaService.importProduct(importDropeaId, user.id);
       
       toast.success(`PRODUTO EXTRAÍDO COM SUCESSO!\n"${data.title}"\nID Dropea: ${data.dropea_id}\nPVP: €${data.price}`, { 
         id: impToast, 
         duration: 8000 
       });
       setImportDropeaId("");
-      fetchProducts();
+      await fetchProducts();
+      
+      // Normalizar para o editor que usa 'pvp'
+      setEditingProduct({
+        ...data,
+        pvp: data.price || 0
+      });
     } catch (e: any) {
       toast.error(e.message, { id: impToast });
     } finally {
@@ -337,7 +350,7 @@ export default function AdminDashboard({
     try {
       // 1. FETCH PARALELO: Supabase Admin API + Dropea API
       const [dropeaProducts, dbRes] = await Promise.all([
-        fetch('/api/dropea-products').then(r => r.ok ? r.json() : []),
+        DropeaService.getProducts(user.id),
         fetch(`/api/admin/products?userId=${user.id}`, {
           headers: { 'x-user-id': user.id }
         })
@@ -357,11 +370,8 @@ export default function AdminDashboard({
             (dp: any) => String(dp.id) === String(supaProduct.dropea_id)
           );
 
-          // 4. Se o 'dropProduct' não for encontrado, filtra este item
-          if (!dropProduct) return null;
-
           // Normalizar para o formato esperado pelo componente
-          const dropeaImages = Array.isArray(dropProduct.images) 
+          const dropeaImages = dropProduct && Array.isArray(dropProduct.images) 
             ? dropProduct.images.map((img: any) => typeof img === "string" ? img : (img.src || img.url || "")) 
             : [];
 
@@ -369,15 +379,15 @@ export default function AdminDashboard({
             ...dropProduct,
             id: supaProduct.id,
             supabase_id: supaProduct.id,
-            dropea_id: String(dropProduct.id),
-            title: supaProduct.title || dropProduct.name,
-            pvp: supaProduct.price || dropProduct.pvp || 0,
+            dropea_id: String(supaProduct.dropea_id),
+            title: supaProduct.title || (dropProduct ? dropProduct.name : ""),
+            pvp: supaProduct.price || (dropProduct ? (dropProduct.pvp || 0) : 0),
             price: supaProduct.price,
-            description: supaProduct.description || dropProduct.description,
-            image_url: dropeaImages[0] || supaProduct.image_url || "",
-            extra_images: dropeaImages.join(","),
+            description: supaProduct.description || (dropProduct ? dropProduct.description : ""),
+            image_url: supaProduct.image_url || (dropeaImages[0] || ""),
+            extra_images: supaProduct.extra_images || dropeaImages.join(","),
             product_type: supaProduct.product_type || "physical",
-            category: supaProduct.category || dropProduct.category,
+            category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
             is_active: supaProduct.is_active,
             file_url: supaProduct.file_url,
           };
@@ -458,7 +468,10 @@ export default function AdminDashboard({
           : `/api/admin/products/${editingProduct.id}`,
         {
           method: isNew ? "POST" : "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "x-user-id": user.id
+          },
           body: JSON.stringify({ ...editingProduct, userId: user.id }),
         },
       );
@@ -543,7 +556,10 @@ export default function AdminDashboard({
     try {
       const res = await fetch(`/api/admin/products/${productToDelete.id}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-user-id": user.id
+        },
         body: JSON.stringify({ userId: user.id }),
       });
       if (res.ok) {

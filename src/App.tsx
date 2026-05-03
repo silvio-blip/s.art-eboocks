@@ -1602,13 +1602,20 @@ export default function App() {
         const { data: order } = await supabase
           .from("orders")
           .select("*, product:products(*)")
-          .eq("dropea_order_id", sessionId)
-          .single();
+          .eq("stripe_session_id", sessionId)
+          .maybeSingle();
 
-        if (order && (order.status === "paid" || order.status === "completed")) {
+        if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
           setSuccessProduct(order.product);
           setSuccessOrderId(order.id);
           toast.success("Compra aprovada! Desfrute da sua nova obra.");
+        } else if (order) {
+          console.log("[S.ART DEBUG] Order found but status is:", order.status);
+          toast.info("Pagamento em processamento...");
+        } else {
+          console.log("[S.ART DEBUG] Order not found for session:", sessionId);
+          // Opcional: tentar novamente após uns segundos
+          setTimeout(() => checkUrlParams(), 3000);
         }
       } catch (err: any) {
         console.error("[S.ART SESSION ERROR LOG]", err);
@@ -1655,7 +1662,7 @@ export default function App() {
     try {
       // 1. FETCH PARALELO: Busca os produtos da Dropea e os do Supabase simultaneamente
       const [dropeaProducts, { data: dbProducts, error: dbError }] = await Promise.all([
-        DropeaService.getProducts(),
+        DropeaService.getProducts(user?.id),
         supabase.from("products").select("*")
       ]);
 
@@ -1674,11 +1681,8 @@ export default function App() {
             (dp: any) => String(dp.id) === String(supaProduct.dropea_id)
           );
 
-          // 4. Se o 'dropProduct' não for encontrado, filtra este item (evita imagens vazias)
-          if (!dropProduct) return null;
-
           // Normalizar imagens da Dropea (GraphQL response handling)
-          const dropeaImages = Array.isArray(dropProduct.images) 
+          const dropeaImages = dropProduct && Array.isArray(dropProduct.images) 
             ? dropProduct.images.map((img: any) => typeof img === "string" ? img : (img.src || img.url || "")) 
             : [];
 
@@ -1687,15 +1691,15 @@ export default function App() {
             ...dropProduct, // Traz imagens, descrição original, variantes, id original da Dropea
             id: supaProduct.id, // ID interno para referências
             supabase_id: supaProduct.id,
-            dropea_id: String(dropProduct.id),
-            title: supaProduct.title || dropProduct.name, // Sobrepõe o título
-            pvp: supaProduct.price || dropProduct.pvp || 0, // Sobrepõe o preço final (margem de lucro)
-            price: supaProduct.price, // Suporte extra se a UI mudar campo
-            description: supaProduct.description || dropProduct.description,
-            image_url: dropeaImages[0] || "",
-            extra_images: dropeaImages.join(","),
+            dropea_id: String(supaProduct.dropea_id),
+            title: supaProduct.title || (dropProduct ? dropProduct.name : ""),
+            pvp: supaProduct.price || (dropProduct ? (dropProduct.pvp || 0) : 0),
+            price: supaProduct.price,
+            description: supaProduct.description || (dropProduct ? dropProduct.description : ""),
+            image_url: supaProduct.image_url || (dropeaImages[0] || ""),
+            extra_images: supaProduct.extra_images || dropeaImages.join(","),
             product_type: supaProduct.product_type || "physical",
-            category: supaProduct.category || dropProduct.category,
+            category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
             is_active: supaProduct.is_active,
             file_url: supaProduct.file_url,
             sizes_enabled: supaProduct.sizes_enabled,
@@ -1729,7 +1733,18 @@ export default function App() {
   const fetchDashboardData = async (userId: string) => {
     console.log("[DEBUG] Fetching dashboard data for:", userId);
 
-    // QUERY DE SEGURANÇA (sem joins complexos para evitar PGRST200)
+    // 1. PRIMEIRO: Sincronizar com a Dropea o estado dos pedidos atuais
+    try {
+      await fetch('/api/orders/sync-statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+    } catch (err) {
+      console.warn("[DEBUG] Erro ao sincronizar status:", err);
+    }
+
+    // 2. BUSCAR ORDENS ATUALIZADAS
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
       .select("*")
