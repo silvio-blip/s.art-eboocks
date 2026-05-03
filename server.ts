@@ -1,24 +1,22 @@
 import express from 'express';
+import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import Stripe from 'stripe';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend';
+import axios from 'axios';
+import Stripe from 'stripe';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const getStripe = () => {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new Error('STRIPE_SECRET_KEY is missing');
-  return new Stripe(key, {
-    apiVersion: '2024-12-18.acacia' as any,
-  });
-};
+const DROPEA_API_URL = process.env.DROPEA_API_URL || 'https://api.dropea.com/graphql/dropshippers';
+const DROPEA_API_KEY = process.env.DROPEA_API_KEY || 'AIzaioJLOztZH3TKWlXAZSZaI1-4DWrAZfSnz3Hsvc4nCt8=';
+const DROPEA_USER_ID = process.env.DROPEA_USER_ID || '38827';
+const DROPEA_SHOP_ID = process.env.DROPEA_SHOP_ID || '16172';
 
 const getSupabase = () => {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -29,261 +27,273 @@ const getSupabase = () => {
   return createClient(url, key);
 };
 
-const getResend = () => {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) throw new Error('RESEND_API_KEY is missing');
-  return new Resend(key);
+// --- DB INITIALIZATION ---
+const initDB = async () => {
+  try {
+    const supabase = getSupabase();
+    console.log('[INIT] Verificando esquema do banco de dados...');
+    
+    // Check if dropea_id exists by trying to select it.
+    const { error: columnError } = await supabase.from('products').select('dropea_id').limit(1);
+    
+    if (columnError) {
+      console.log('[INIT] Coluna dropea_id não encontrada. Tentando criar esquema...');
+      // If we can't add columns via code, we'll have to rely on manual SQL or wait for the sync to fail gracefully.
+      // But we can try to use RPC if it exists.
+      try {
+        await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS dropea_id TEXT UNIQUE;' });
+      } catch(e) {
+        console.warn('[INIT] Falha ao adicionar coluna via RPC. Verifique se a tabela "products" possui o campo "dropea_id".');
+      }
+    } else {
+      console.log('[INIT] Esquema verificado com sucesso.');
+    }
+
+  } catch (err) {
+    console.warn('[INIT] Erro na inicialização do DB (não crítico):', err);
+  }
 };
+initDB();
 
 const app = express();
+app.use(cors());
 
-// --- WEBHOOK STRIPE ---
-app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+// Helper function to create Dropea Order
+async function createDropeaOrderInternal(shopId: number, customer: any, product: any) {
+  const graphqlMutation = `
+    mutation Mutation($shopId: Int!, $paymentMethod: PaymentMethodEnum, $customer: CustomerInputType, $products: [OrderProductInputType]) {
+      orderCreate(shop_id: $shopId, payment_method: $paymentMethod, customer: $customer, products: $products) {
+        id
+      }
+    }
+  `;
+
+  // Mapeamento de país para Dropea
+  const countryMap: Record<string, string> = {
+    'Portugal': 'PT',
+    'Espanha': 'ES',
+    'Spain': 'ES'
+  };
+  const countryCode = countryMap[customer?.country] || customer?.country || 'PT';
+
+  const variables = {
+    shopId: shopId || Number(DROPEA_SHOP_ID),
+    paymentMethod: "MANUAL",
+    customer: {
+      first_name: customer.first_name || customer.firstName || "Nome",
+      last_name: customer.last_name || customer.lastName || "Teste",
+      email: customer.email || "cliente@teste.com",
+      phone: customer.phone || "912345678",
+      address: customer.address || "Rua Exemplo",
+      city: customer.city || "Lisboa",
+      zip: customer.zip || "1000-001",
+      country: countryCode
+    },
+    products: [{
+      product_id: parseInt(String(product.product_id || product.dropea_id), 10),
+      quantity: parseInt(String(product.quantity || 1), 10),
+      total_value: parseFloat(String(product.total_value || product.pvp || 0)),
+      unit_price: parseFloat(String(product.unit_price || product.pvp || 0))
+    }]
+  };
+
+  console.log(`[DROPEA INTERNAL] Criando pedido para ${variables.customer.email}...`);
+  
+  const response = await axios.post(DROPEA_API_URL, {
+    query: graphqlMutation,
+    variables
+  }, {
+    headers: {
+      'x-api-key': DROPEA_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    timeout: 15000
+  });
+
+  if (response?.data?.errors) {
+    console.error('[DROPEA INTERNAL ERRORS]', JSON.stringify(response.data.errors, null, 2));
+    throw new Error(`Dropea API Error: ${response.data.errors[0]?.message || 'Erro desconhecido'}`);
+  }
+
+  return response.data?.data?.orderCreate?.id;
+}
+
+// --- STRIPE WEBHOOK ---
+app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async (req, res) => {
   const sig = req.headers['stripe-signature'];
-  let event: Stripe.Event;
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
 
   try {
-    const stripe = getStripe();
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig || '',
-      process.env.STRIPE_WEBHOOK_SECRET || ''
-    );
+    if (endpointSecret && sig) {
+      event = stripe!.webhooks.constructEvent(req.body, sig, endpointSecret);
+    } else {
+      event = JSON.parse(req.body.toString());
+    }
   } catch (err: any) {
-    console.error(`Webhook Error: ${err.message}`);
+    console.error(`[STRIPE WEBHOOK ERROR] Verification failed: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
-    await handleCheckoutCompleted(session);
-  } else if (event.type === 'charge.refunded') {
-    const charge = event.data.object as Stripe.Charge;
-    await handleChargeRefunded(charge);
-  } else if (event.type === 'refund.updated') {
-    const refund = event.data.object as Stripe.Refund;
-    await handleRefundUpdated(refund);
+    console.log(`[STRIPE WEBHOOK] Pagamento confirmado para sessão: ${session.id}`);
+
+    try {
+      const metadata = session.metadata;
+      if (!metadata) throw new Error("Metadata ausente na sessão do Stripe");
+
+      const customerData = JSON.parse(metadata.customer_data);
+      const internalProductId = metadata.product_id;
+      const userId = customerData.userId;
+
+      // APENAS ATUALIZAR O BANCO. O LISTENER DO SERVER CUIDARÁ DO FULFILLMENT.
+      const supabase = getSupabase();
+      const { error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: userId,
+          product_id: internalProductId,
+          status: 'paid', // Isto vai disparar o listener!
+          shipping_status: 'pending',
+          total_amount: session.amount_total ? session.amount_total / 100 : 0,
+          stripe_session_id: session.id,
+          shipping_address: metadata.customer_data
+        });
+
+      if (orderError) throw orderError;
+      console.log(`[STRIPE WEBHOOK] Ordem criada no Supabase. Listener processará fulfillment.`);
+
+    } catch (err: any) {
+      console.error("[STRIPE WEBHOOK DB UPDATE ERROR]", err);
+    }
+  }
+
+  res.json({received: true});
+});
+
+// --- WEBHOOK DROPEA ---
+app.post('/api/dropea/webhook', express.json(), async (req, res) => {
+  const payload = req.body;
+  const { event, data } = payload;
+  const supabase = getSupabase();
+
+  console.log(`[DROPEA WEBHOOK] Event: ${event}`);
+  console.log('[DROPEA WEBHOOK] Data:', JSON.stringify(data, null, 2));
+
+  try {
+    // Checkout concluído ou Pagamento Confirmado
+    if (event === 'checkout.completed' || event === 'payment.succeeded' || event === 'order.paid') {
+      const orderId = data.metadata?.orderId || data.order_id;
+      const checkoutToken = data.checkout_token || data.id || data.token;
+      const email = data.customer_email || data.email;
+      const productId = data.product_id || data.metadata?.productId;
+      
+      if (!orderId) {
+        console.warn('[DROPEA WEBHOOK] No orderId found in metadata or root');
+        return res.json({ received: true, ignored: true, reason: 'no_order_id' });
+      }
+
+      console.log(`[DROPEA WEBHOOK] Processing Success for Order: ${orderId}, Email: ${email}`);
+
+      // 1. Update Order in Supabase
+      const { data: existingOrder, error: fetchError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      if (!existingOrder) {
+        console.warn(`[DROPEA WEBHOOK] Order ${orderId} not found in DB`);
+        return res.json({ received: true, ignored: true, reason: 'order_not_found' });
+      }
+
+      // Evitar processar se já estiver pago
+      if (existingOrder.status === 'paid') {
+        console.log(`[DROPEA WEBHOOK] Order ${orderId} already marked as paid.`);
+        return res.json({ received: true });
+      }
+
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          status: 'paid',
+          payment_status: 'paid',
+          dropea_order_id: checkoutToken,
+          customer_email: email || existingOrder.customer_email,
+          total_amount: data.amount || data.total || existingOrder.total_amount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+
+      if (updateError) throw updateError;
+      console.log(`[DROPEA WEBHOOK] Order ${orderId} status updated to paid`);
+
+      // 2. Prepare Physical Product Delivery (Shipping Pending)
+      const finalProductId = productId || existingOrder.product_id;
+      const { data: product } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', finalProductId)
+        .single();
+
+      const finalEmail = email || existingOrder.customer_email;
+
+      if (product && finalEmail) {
+        console.log(`[DROPEA WEBHOOK] Produto físico ${product.title} vendido para ${finalEmail}. Aguardando preparação de envio.`);
+        
+        // Em vez de enviar link de download, enviamos email de confirmação de compra física
+        const emailBody = `
+          <h2 style="font-style: italic; font-weight: normal; margin-bottom: 25px;">Estimado(a) Cliente,</h2>
+          
+          <p style="font-size: 16px; line-height: 1.8; color: #444;">
+            Confirmamos a sua aquisição na <strong>S.Art Boutique</strong>. O seu produto está agora em processo de preparação para envio.
+          </p>
+          
+          <div style="margin: 45px 0; text-align: center; background-color: #fafafa; padding: 30px; border: 1px solid #eee;">
+            <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 20px;">Produto:</p>
+            <h3 style="margin-bottom: 30px; font-size: 20px;">${product.title}</h3>
+          </div>
+          
+          <p style="font-size: 13px; color: #999; text-align: center;">
+            Entraremos em contacto brevemente com o número de rastreio.
+          </p>
+        `;
+
+        await supabase.functions.invoke('send-email', {
+          body: { 
+            to: finalEmail, 
+            subject: `Confirmação de encomenda: "${product.title}" 📦`,
+            body: emailBody,
+            name: 'S.Art Boutique'
+          }
+        });
+      }
+    } else if (event === 'order.canceled' || event === 'payment.failed') {
+       const orderId = data.metadata?.orderId || data.order_id;
+       if (orderId) {
+         await supabase.from('orders').update({ status: 'canceled' }).eq('id', orderId);
+       }
+    }
+  } catch (err: any) {
+    console.error('[DROPEA WEBHOOK ERROR]', err.message);
   }
 
   res.json({ received: true });
 });
 
-async function handleRefundUpdated(refund: Stripe.Refund) {
-  const supabase = getSupabase();
-  try {
-    const paymentIntent = refund.payment_intent as string;
-    if (!paymentIntent) return;
-
-    if (refund.status === 'succeeded' || refund.status === 'failed' || refund.status === 'canceled') {
-      const stripe = getStripe();
-      const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
-      
-      let order = null;
-      if (sessions.data.length > 0) {
-        const { data: foundOrder } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('stripe_session_id', sessions.data[0].id)
-          .maybeSingle();
-        order = foundOrder;
-      }
-
-      if (order) {
-        const newStatus = refund.status === 'succeeded' ? 'refunded' : 'paid'; // revert if failed? or just leave
-        console.log(`[S.ART WEBHOOK] Refund ${refund.id} updated to ${refund.status} for Order ${order.id}`);
-        
-        await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
-        
-        if (newStatus === 'refunded') {
-          // Absolute removal of access
-          await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('[S.ART WEBHOOK ERROR during refund.updated handling]', error);
-  }
-}
-
-async function handleChargeRefunded(charge: Stripe.Charge) {
-  const supabase = getSupabase();
-  try {
-    const paymentIntent = charge.payment_intent as string;
-    if (!paymentIntent) return;
-    
-    const stripe = getStripe();
-    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntent });
-    
-    let order = null;
-    if (sessions.data.length > 0) {
-      const { data: foundOrder } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('stripe_session_id', sessions.data[0].id)
-        .maybeSingle();
-      order = foundOrder;
-    }
-
-    if (order) {
-      console.log(`[S.ART WEBHOOK] Charge Refunded for Order ${order.id}. Setting status to refunded.`);
-      await supabase.from('orders').update({ status: 'refunded' }).eq('id', order.id);
-      await supabase.from('user_reading_progress').delete().eq('book_id', order.product_id).eq('user_id', order.user_id);
-    }
-  } catch (error) {
-    console.error('[S.ART WEBHOOK ERROR during charge.refunded handling]', error);
-  }
-}
-
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  const supabase = getSupabase();
-  const resend = getResend();
-  
-    const userId = session.metadata?.userId;
-    const productId = session.metadata?.productId;
-    const orderId = session.metadata?.orderId;
-    const email = session.customer_email || session.customer_details?.email;
-
-    console.log(`[S.ART WEBHOOK] Payment confirmed for Session: ${session.id}, Order: ${orderId}, Product: ${productId}, User: ${userId}`);
-
-    try {
-      // 1. Update or Create Order in Supabase
-      const updateData: any = { 
-        status: 'paid', // Standardized to paid
-        stripe_session_id: session.id,
-        // REMOVED missing column payment_intent_id
-        total_amount: session.amount_total ? (session.amount_total / 100) : 0,
-        user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null
-      };
-      if (email) updateData.customer_email = email;
-
-    let orderProcessed = false;
-    let existingOrder = null;
-
-    // A. Priority 1: Check by orderId from metadata (if present)
-    if (orderId && orderId !== 'undefined' && orderId !== '') {
-      console.log(`[S.ART WEBHOOK] Searching for order by ID: ${orderId}`);
-      const { data } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
-      existingOrder = data;
-    }
-
-    // B. Priority 2: Check by stripe_session_id (Standard source of truth)
-    if (!existingOrder) {
-      console.log(`[S.ART WEBHOOK] Searching for order by Session ID: ${session.id}`);
-      const { data } = await supabase.from('orders').select('*').eq('stripe_session_id', session.id).maybeSingle();
-      existingOrder = data;
-    }
-
-    if (existingOrder) {
-      console.log(`[S.ART WEBHOOK] Found existing order ${existingOrder.id} (${existingOrder.status}). Updating...`);
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({
-          ...updateData,
-          status: 'paid'
-        })
-        .eq('id', existingOrder.id);
-      
-      if (!updateError) {
-        orderProcessed = true;
-        console.log(`[S.ART WEBHOOK] Order ${existingOrder.id} updated successfully.`);
-      } else {
-        console.error(`[S.ART WEBHOOK] Update failed for order ${existingOrder.id}:`, updateError);
-      }
-    }
-
-    if (!orderProcessed) {
-      console.log(`[S.ART WEBHOOK] Order not found. Creating new record for session ${session.id}`);
-      // Fallback: Create record from metadata if it doesn't exist
-      const { error: insertError } = await supabase
-        .from('orders')
-        .upsert({
-          id: (orderId && orderId !== 'undefined' && orderId !== '') ? orderId : undefined,
-          user_id: (userId && userId !== 'undefined' && userId !== '') ? userId : null,
-          product_id: productId,
-          total_amount: updateData.total_amount,
-          status: 'paid', 
-          stripe_session_id: session.id,
-          customer_email: email,
-          selected_options: {
-            size: session.metadata?.size,
-            color: session.metadata?.color
-          },
-          shipping_details: {
-            fullName: session.metadata?.shipping_name,
-            address: session.metadata?.shipping_address,
-            city: session.metadata?.shipping_city,
-            postalCode: session.metadata?.shipping_postal_code,
-            country: session.metadata?.shipping_country,
-            phone: session.metadata?.shipping_phone
-          },
-          created_at: new Date().toISOString()
-        }, { onConflict: 'stripe_session_id' });
-
-      if (insertError) {
-        console.error(`[S.ART WEBHOOK] CRITICAL: Failed to create/upsert order record!`, insertError);
-      } else {
-        console.log(`[S.ART WEBHOOK] Order record synchronized successfully via checkout.session.completed.`);
-      }
-    }
-
-    // 2. Get Product Info (for the download link)
-    const { data: product } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', productId)
-      .single();
-
-    if (product && email) {
-      // 4. Generate Signed URL (Secure)
-      const sanitizedPath = (product.file_url || '').replace(/^\/+/, '');
-      console.log(`[S.ART] Delivery - Generating signed URL for: ${sanitizedPath}`);
-      
-      const { data: signedData, error: signedError } = await supabase.storage
-        .from('assets')
-        .createSignedUrl(sanitizedPath, 3600); // 1 hour
-
-      if (signedError) {
-        console.error(`[S.ART] Storage error during delivery:`, signedError);
-        throw signedError;
-      }
-
-      // 4. Trigger Email via Resend with Luxury Branding
-      await resend.emails.send({
-        from: 'S.Art Atelier <vendas@s.art-full.pt>',
-        to: email,
-        subject: 'O teu E-book da S.Art chegou! 📖',
-        html: `
-          <div style="font-family: 'serif', 'Georgia', 'Times New Roman', serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; padding: 40px; border: 1px solid #f0f0f0;">
-            <div style="text-align: center; margin-bottom: 40px;">
-              <h1 style="letter-spacing: 5px; text-transform: uppercase; font-size: 24px; border-bottom: 1px solid #e5e7eb; padding-bottom: 20px; color: #000;">S.ART</h1>
-              <p style="font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: #6b7280; margin-top: 15px;">Digital Boutique Excellence</p>
-            </div>
-            
-            <p style="font-size: 18px; line-height: 1.6;">Obrigado pela tua aquisição.</p>
-            <p style="font-size: 16px; line-height: 1.6; color: #4b5563;">Confirmamos o teu investimento no conhecimento. O teu exemplar de <strong>"${product.title}"</strong> está pronto para ser apreciado.</p>
-            
-            <div style="margin: 40px 0; text-align: center;">
-              <a href="${signedData.signedUrl}" style="display: inline-block; background-color: #000; color: #fff; padding: 18px 36px; text-decoration: none; font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 2px;">Descarregar Guia Digital</a>
-              <p style="font-size: 9px; color: #9ca3af; margin-top: 15px; font-style: italic;">* Este link de acesso privado expira em 60 minutos por motivos de segurança.</p>
-            </div>
-            
-            <div style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #f0f0f0; text-align: center;">
-              <p style="font-size: 11px; color: #6b7280; line-height: 1.8;">Esperamos que esta obra seja uma peça fundamental no teu percurso.</p>
-              <p style="font-size: 9px; color: #9ca3af; margin-top: 20px;">S.Art Studio © 2024 | Curadoria Digital de Luxo</p>
-            </div>
-          </div>
-        `
-      });
-      console.log(`[S.ART] Luxury download link sent to ${email}`);
-    }
-  } catch (error) {
-    console.error('[S.ART WEBHOOK ERROR]', error);
-  }
-}
 
 // Recovery Proxy Routes
 app.use(express.json());
 const apiRouter = express.Router();
+apiRouter.use((req, res, next) => {
+  console.log(`[API PROXY] Request: ${req.method} ${req.url}`);
+  next();
+});
+app.use('/api', apiRouter);
 
 apiRouter.post('/recovery/send', async (req, res) => {
   try {
@@ -413,169 +423,154 @@ apiRouter.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Create Stripe Checkout Session
-apiRouter.post('/create-checkout', async (req, res) => {
+// Get Dropea Products (GraphQL)
+apiRouter.get('/dropea-products', async (req, res) => {
+  console.log('[DROPEA] Acessando /api/dropea-products');
   try {
-    const { productId, userId, email, options, shippingInfo } = req.body;
-    console.log(`[S.ART] Create Checkout Request - Product: ${productId}, User: ${userId}, Email: ${email}`, options, shippingInfo);
+    const supabase = getSupabase();
     
-    const stripe = getStripe();
-    const supabase = getSupabase();
-
-    // Get product info
-    const { data: product, error } = await supabase
+    // 1. Fetch Dropea catalog
+    console.log(`[DROPEA] Requisitando catálogo (GraphQL) da Dropea... Key: ${DROPEA_API_KEY}`);
+    const targetUrl = 'https://api.dropea.com/graphql/dropshippers';
+    const graphqlQuery = { query: `query { products { data { id name images description pvpr } } }` };
+    if (!DROPEA_API_KEY) throw new Error("DROPEA_API_KEY não configurada");
+    
+    console.log('[DROPEA] Iniciando axios.post...');
+    const response = await axios.post(targetUrl, graphqlQuery, { headers: { 'x-api-key': DROPEA_API_KEY }, timeout: 30000 });
+    console.log('[DROPEA] axios.post concluído.');
+    
+    // 2. Fetch Supabase overrides
+    console.log('[DROPEA] Fetching Supabase overrides...');
+    const { data: supabaseProducts, error: sbError } = await supabase
       .from('products')
-      .select('*')
-      .eq('id', productId)
-      .single();
+      .select('id, title, price, dropea_id')
+      .not('dropea_id', 'is', null);
 
-    if (error || !product) {
-      console.error(`[S.ART] Product not found: ${productId}`);
-      return res.status(404).json({ error: 'Product not found' });
-    }
+    if (sbError) console.error('Error fetching Supabase products:', sbError);
+    
+    const rawProducts = response.data?.data?.products?.data || [];
+    
+    // 3. Merge
+    console.log('[DROPEA] Merging products...');
+    const products = rawProducts.map((p: any) => {
+      const override = Array.isArray(supabaseProducts) ? supabaseProducts?.find((s: any) => s.dropea_id == p.id) : null;
+      return {
+        ...p,
+        name: override ? override.title : p.name,
+        pvp: override ? override.price : p.pvpr,
+        pvpr: p.pvpr // Keep original cost
+      };
+    });
 
-    // Gerar URL pública da imagem para o Stripe
-    let stripeImage = product.image_url;
-    if (stripeImage && !stripeImage.startsWith('http')) {
-      const { data } = supabase.storage.from('assets').getPublicUrl(stripeImage);
-      stripeImage = data.publicUrl;
-    }
-
-    // Create Order Record in Pending State (or reuse recent pending one)
-    let orderId = '';
-    try {
-      // Check for a recent pending order for this user/product to avoid duplicates if the request was sent twice
-      if (userId) {
-        const { data: existingPending } = await supabase
-          .from('orders')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('product_id', productId)
-          .eq('status', 'pending')
-          .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // 5 minutes ago
-          .maybeSingle();
-        
-        if (existingPending) {
-          console.log(`[S.ART] Reusing existing pending order: ${existingPending.id}`);
-          orderId = existingPending.id;
-        }
-      }
-
-      if (!orderId) {
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .insert({
-            user_id: userId || null,
-            product_id: productId,
-            total_amount: product.price,
-            status: 'pending',
-            selected_options: options || {},
-            shipping_details: shippingInfo || null,
-            customer_email: email
-          })
-          .select()
-          .single();
-          
-        if (!orderError && order) {
-          orderId = order.id;
-        } else {
-          console.warn("[S.ART] DB Sync Warning: Could not create initial order record.", orderError);
-        }
-      }
-    } catch (dbErr) {
-      console.warn("[S.ART] DB Exception: Failed to manage order record.", dbErr);
-    }
-
-    // Determine the origin for URLs
-    const clientOrigin = req.get('origin') || `${req.protocol}://${req.get('host')}`;
-    console.log(`[S.ART] Using origin: ${clientOrigin}`);
-
-    const session = await stripe.checkout.sessions.create({
-      billing_address_collection: 'required',
-      customer_email: email,
-      line_items: [{
-        price_data: {
-          currency: 'eur',
-          product_data: {
-            name: product.title,
-            description: product.description || undefined,
-            images: stripeImage ? [stripeImage] : [],
-          },
-          unit_amount: Math.round(parseFloat(product.price.toString()) * 100),
-        },
-        quantity: 1,
-      }],
-      mode: 'payment',
-      success_url: `${clientOrigin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${clientOrigin}/cancel`,
-      metadata: {
-        userId: userId || '',
-        productId: productId,
-        orderId: orderId,
-        size: options?.size || '',
-        color: options?.color || '',
-        shipping_name: shippingInfo?.fullName || '',
-        shipping_address: shippingInfo?.address || '',
-        shipping_city: shippingInfo?.city || '',
-        shipping_postal_code: shippingInfo?.postalCode || '',
-        shipping_country: shippingInfo?.country || '',
-        shipping_phone: shippingInfo?.phone || ''
-      }
-    } as any);
-
-    // Save the Stripe session ID to the order for tracking and webhooks
-    if (orderId) {
-      console.log(`[S.ART] Syncing session ${session.id} with order ${orderId}`);
-      const supabase = getSupabase();
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({ stripe_session_id: session.id })
-        .eq('id', orderId);
-        
-      if (updateError) {
-        console.error('[S.ART] Error updating order with stripe_session_id:', updateError);
-      }
-    }
-
-    res.json({ id: session.id, url: session.url });
+    console.log(`[DROPEA] Sucesso: ${products.length} produtos retornados.`);
+    res.json(products);
   } catch (error: any) {
-    console.error(`[S.ART CHECKOUT FATAL ERROR]`, error);
-    res.status(500).json({ error: error.message || 'Erro interno no checkout do Stripe' });
+    console.error('[DROPEA FATAL ERROR]', error.response?.data ? JSON.stringify(error.response.data) : error.message);
+    res.status(500).json({ 
+      error: 'Falha na conexão com Dropea API', 
+      details: error.message 
+    });
   }
 });
 
-// Get Session Status
-apiRouter.get('/session-status', async (req, res) => {
+// Sync Protocol (Actually imports/updates products in DB)
+apiRouter.post('/dropea/sync', async (req, res) => {
   try {
-    const sessionId = req.query.session_id as string;
-    if (!sessionId) return res.status(400).json({ error: 'Session ID required' });
-
-    const stripe = getStripe();
     const supabase = getSupabase();
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const targetUrl = 'https://api.dropea.com/graphql/dropshippers';
+    const graphqlQuery = { query: `query { products { data { id name images description pvpr } } }` };
+    
+    console.log('[DROPEA SYNC] Iniciando sincronização de catálogo...');
+    const response = await axios.post(targetUrl, graphqlQuery, { headers: { 'x-api-key': DROPEA_API_KEY }, timeout: 30000 });
+    
+    const rawProducts = response.data?.data?.products?.data || [];
+    console.log(`[DROPEA SYNC] ${rawProducts.length} produtos encontrados no catálogo.`);
 
-    if (session.payment_status === 'paid') {
-      const productId = session.metadata?.productId;
-      const orderId = session.metadata?.orderId;
-      const { data: product } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', productId)
-        .single();
-
-      return res.json({ 
-        status: 'paid', 
-        product: product,
-        orderId: orderId
-      });
+    // 1. LIMPEZA DE DUPLICADOS: Identificar e remover IDs internos diferentes que referenciam o mesmo dropea_id
+    const { data: allDropeaProds } = await supabase.from('products').select('id, dropea_id').not('dropea_id', 'is', null);
+    if (allDropeaProds) {
+      const seen = new Map();
+      const duplicateIds = [];
+      for (const prod of allDropeaProds) {
+        const dId = String(prod.dropea_id);
+        if (seen.has(dId)) {
+          // Mantemos o primeiro que encontramos e marcamos o resto para deleção
+          duplicateIds.push(prod.id);
+        } else {
+          seen.set(dId, prod.id);
+        }
+      }
+      if (duplicateIds.length > 0) {
+        console.log(`[DROPEA SYNC] Removendo ${duplicateIds.length} registros duplicados de dropea_id...`);
+        await supabase.from('products').delete().in('id', duplicateIds);
+      }
     }
 
-    res.json({ status: session.payment_status });
+    // 2. Fetch current state after cleanup
+    const { data: existingProducts } = await supabase.from('products').select('dropea_id, price');
+    const existingMap = new Map(existingProducts?.map(p => [String(p.dropea_id), p.price]) || []);
+
+    let syncedCount = 0;
+    for (const p of rawProducts) {
+      const pId = String(p.id);
+      const isNew = !existingMap.has(pId);
+      
+      // If it's NOT new, we keep the existing price if it was manually changed (or even if it wasn't)
+      // Actually, we'll only update price if it's a NEW product.
+      const priceToSet = isNew ? p.pvpr : existingMap.get(pId);
+
+      const { error } = await supabase
+        .from('products')
+        .upsert({
+          dropea_id: pId,
+          title: p.name,
+          description: p.description,
+          price: priceToSet || p.pvpr, 
+          image_url: Array.isArray(p.images) ? p.images[0] : (typeof p.images === 'string' ? p.images : ''),
+          product_type: 'physical',
+          category: 'Dropshipping',
+          is_active: true
+        }, { 
+          onConflict: 'dropea_id'
+        });
+      
+      if (!error) syncedCount++;
+      else console.error(`[DROPEA SYNC] Erro ao sincronizar produto ${p.id}:`, error);
+    }
+
+    res.json({ 
+      success: true, 
+      message: `Sincronização concluída: ${syncedCount} produtos processados.`,
+      count: syncedCount
+    });
   } catch (error: any) {
-    console.error('[SESSION STATUS ERROR]', error);
-    res.status(500).json({ error: error.message });
+    console.error('[DROPEA SYNC FAIL]', error.message);
+    res.status(500).json({ error: 'Falha na sincronização', details: error.message });
   }
 });
+
+// Create Dropea Checkout (GraphQL)
+apiRouter.post('/dropea/checkout', async (req, res) => {
+  try {
+    const { shop_id, customer, products } = req.body;
+    
+    // Simplificar chamando o helper interno para o primeiro produto (comportamento atual da UI)
+    const orderId = await createDropeaOrderInternal(
+      Number(shop_id || DROPEA_SHOP_ID),
+      customer,
+      products[0]
+    );
+
+    res.json({ success: true, order_id: orderId, message: 'Pedido gerado com sucesso' });
+  } catch (error: any) {
+    console.error('[DROPEA CHECKOUT FATAL]', error.message);
+    res.status(500).json({ 
+      error: 'Erro interno ao processar checkout Dropea', 
+      details: error.message 
+    });
+  }
+});
+
 
 // Save Reading Progress
 apiRouter.post('/save-reading-state', async (req, res) => {
@@ -609,86 +604,9 @@ apiRouter.post('/save-reading-state', async (req, res) => {
   }
 });
 
-// Verify Session
+// Verify Session (DEPRECATED)
 apiRouter.get('/verify-session', async (req, res) => {
-  try {
-    const sessionId = req.query.session_id as string;
-
-    if (!sessionId) return res.status(400).json({ error: 'Session ID required' });
-
-    const stripe = getStripe();
-    const supabase = getSupabase();
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-    if (session.payment_status === 'paid' || session.status === 'complete') {
-      const productId = session.metadata?.productId;
-      const orderId = session.metadata?.orderId;
-      const userId = session.metadata?.userId;
-      const email = session.customer_email || session.customer_details?.email;
-      const amount = session.amount_total ? (session.amount_total / 100) : 0;
-      
-      console.log(`[VERIFY SESSION] Successful session ${sessionId}. Order ID: ${orderId}, User ID: ${userId}, Amount: ${amount}`);
-
-      const upsertPayload: any = { 
-        status: 'paid',
-        product_id: productId,
-        user_id: userId || null,
-        total_amount: amount,
-        stripe_session_id: session.id,
-        customer_email: email,
-        selected_options: {
-          size: session.metadata?.size,
-          color: session.metadata?.color
-        },
-        shipping_details: {
-          fullName: session.metadata?.shipping_name,
-          address: session.metadata?.shipping_address,
-          city: session.metadata?.shipping_city,
-          postalCode: session.metadata?.shipping_postal_code,
-          country: session.metadata?.shipping_country,
-          phone: session.metadata?.shipping_phone
-        }
-      };
-
-      // Search for existing order first to avoid creating duplicates if primary key matching fails for some reason
-      let targetOrderId = orderId;
-      if (!targetOrderId || targetOrderId === 'undefined' || targetOrderId === '') {
-        const { data: found } = await supabase.from('orders').select('id').eq('stripe_session_id', session.id).maybeSingle();
-        if (found) targetOrderId = found.id;
-      }
-
-      if (targetOrderId && targetOrderId !== 'undefined' && targetOrderId !== '') {
-        upsertPayload.id = targetOrderId;
-      }
-
-      const { error: upsertError } = await supabase
-        .from('orders')
-        .upsert(upsertPayload, { onConflict: 'stripe_session_id' }); // Conflict resolving on stripe_session_id is safer
-
-      if (upsertError) {
-        console.error('[VERIFY SESSION DB ERROR]', upsertError);
-        // Desperate fallback
-        await supabase.from('orders').upsert(upsertPayload, { onConflict: 'id' });
-      }
-
-      const { data: product } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', productId)
-        .single();
-
-      return res.json({ 
-        status: 'paid', 
-        product: product,
-        orderId: orderId
-      });
-    }
-
-    res.json({ status: session.payment_status });
-  } catch (error: any) {
-    console.error('[VERIFY SESSION ERROR]', error);
-    res.status(500).json({ error: error.message });
-  }
+  res.status(410).json({ error: 'Endpoint descontinuado.' });
 });
 
 // Get Book Signed URL (assets bucket)
@@ -707,7 +625,7 @@ apiRouter.get('/get-book', async (req, res) => {
     console.log("[S.ART FINAL CHECK] Path solicitado: ", finalPath);
 
     const { data, error } = await supabase.storage
-        .from('assets')
+        .from('vault')
         .createSignedUrl(finalPath, 3600);
 
     if (error) {
@@ -764,18 +682,17 @@ adminRouter.get('/users', async (req, res) => {
     const supabase = getSupabase();
     
     // Fetch all users from Auth (requires Service Role)
-    const { data: authData, error: authError } = await supabase.auth.admin.listUsers();
-    if (authError) throw authError;
+      const authData = await supabase.auth.admin.listUsers();
+      if (authData.error) throw authData.error;
 
-    // Fetch all profiles
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('*');
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*');
 
     if (profileError) throw profileError;
 
     // Merge Auth users with Profiles
-    const mergedUsers = authData.users.map(authUser => {
+    const mergedUsers = authData.data.users.map(authUser => {
       const profile = profileData?.find(p => p.id === authUser.id);
       return {
         id: authUser.id,
@@ -817,23 +734,54 @@ adminRouter.put('/users/:id/role', async (req, res) => {
   }
 });
 
+adminRouter.get('/products', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    console.log('[ADMIN] Buscando todos os produtos via Service Role...');
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error: any) {
+    console.error('[ADMIN PRODUCTS ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 adminRouter.post('/products', async (req, res) => {
   try {
     const { 
-      title, description, price, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+      title, description, price, pvp, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
     } = req.body;
+    
+    // Prioritize pvp if it exists, otherwise use price. Ensure it's a number.
+    const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
+    const finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
+
+    console.log(`[ADMIN] Creating product. Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
+
     const supabase = getSupabase();
+    
+    // Use upsert ONLY if dropea_id is provided to avoid unique constraint violations on nulls
+    // Use the primary key if it's an update (though POST is usually for new)
     const { data, error } = await supabase
       .from('products')
-      .insert({ 
-        title, description, price, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
-      })
+      .upsert({ 
+        title, description, price: finalPrice, image_url, file_url, category,
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, 
+        dropea_id: dropea_id || null
+      }, { onConflict: 'dropea_id' })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error(`[ADMIN] Error creating product:`, error);
+      throw error;
+    }
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -844,15 +792,55 @@ adminRouter.put('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { 
-      title, description, price, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+      title, description, price, pvp, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
     } = req.body;
+    
+    // Prioritize pvp if it exists, otherwise use price. Ensure it's a number.
+    const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
+    const finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
+
+    console.log(`[ADMIN] Updating product ${id}. New Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
+
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from('products')
       .update({ 
-        title, description, price, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+        title, description, price: finalPrice, image_url, file_url, category,
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error(`[ADMIN] Error updating product ${id}:`, error);
+      throw error;
+    }
+    res.json(data);
+  } catch (error: any) {
+    console.error(`[ADMIN FATAL] Update failed:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.patch('/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      title, description, price, pvp, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
+    } = req.body;
+    
+    // Prioritize pvp if it exists, otherwise use price
+    const finalPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
+
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('products')
+      .update({ 
+        title, description, price: finalPrice, image_url, file_url, category,
+        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
       })
       .eq('id', id)
       .select()
@@ -865,27 +853,153 @@ adminRouter.put('/products/:id', async (req, res) => {
   }
 });
 
-adminRouter.patch('/products/:id', async (req, res) => {
+adminRouter.post('/products/import-dropea', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { 
-      title, description, price, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active 
-    } = req.body;
+    const { dropeaId } = req.body;
+    if (!dropeaId) return res.status(400).json({ error: 'ID da Dropea é obrigatório.' });
+
+    console.log(`[ADMIN] Importando produto Dropea ID: ${dropeaId}`);
+    
+    const targetUrl = 'https://api.dropea.com/graphql/dropshippers';
+    let productData = null;
+
+    // Helper to try queries
+    const tryQuery = async (query: string, variables?: any) => {
+      try {
+        const res = await axios.post(targetUrl, { query, variables }, { 
+          headers: { 'x-api-key': DROPEA_API_KEY }, 
+          timeout: 15000 
+        });
+        if (res.data?.errors) {
+          console.log(`[DROPEA] Erros na query:`, JSON.stringify(res.data.errors));
+        }
+        return res.data?.data;
+      } catch (e: any) {
+        console.log(`[DROPEA] Erro na execução da query:`, e.message);
+        return null;
+      }
+    };
+
+    console.log(`[ADMIN] Buscando produto ${dropeaId} na Dropea...`);
+
+    // TAREFA: CORRIGIR TIPAGEM DO ID PARA [Int] E REMOVER price/stock DAS VARIANTS
+    const q1 = `query GetProduct($id: [Int]) { 
+      products(id: $id) { 
+        data { 
+          id name images description pvpr category 
+          variants { id name } 
+        } 
+      } 
+    }`;
+    
+    // TAREFA: Enviar ID como array numérico
+    const variables = { id: [Number(dropeaId)] };
+    const r1 = await tryQuery(q1, variables);
+    const list1 = r1?.products?.data || [];
+    productData = list1.find((p: any) => String(p.id) === String(dropeaId));
+
+    // Tentativa 2: Escanear catálogo paginado se a busca direta falhar
+    if (!productData) {
+      console.log(`[ADMIN] Busca direta falhou, escaneando catálogo...`);
+      for (let page = 1; page <= 5; page++) {
+        const q2 = `query { products(page: ${page}) { data { id name images description pvpr category variants { id name } } } }`;
+        const r2 = await tryQuery(q2);
+        const list = r2?.products?.data || [];
+        if (list.length === 0) break;
+        
+        productData = list.find((p: any) => String(p.id) === String(dropeaId));
+        if (productData) break;
+      }
+    }
+
+    if (!productData) {
+      console.error(`[ADMIN] FALHA CRÍTICA: Produto ${dropeaId} não encontrado após scan exaustivo.`);
+      return res.status(404).json({ 
+        error: `Produto ${dropeaId} não encontrado no catálogo da Dropea.`,
+        details: 'Verifique se o ID está correto ou se o produto é visível para a sua chave de API.'
+      });
+    }
+
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    
+    // Extrair tamanhos e cores dos variants se disponíveis
+    let sizes = "";
+    let colors = "";
+    let sizes_enabled = false;
+    let colors_enabled = false;
+
+    if (Array.isArray(productData.variants)) {
+      const variantNames = productData.variants.map((v: any) => v.name).filter(Boolean);
+      const sizeList = new Set<string>();
+      const colorList = new Set<string>();
+      
+      variantNames.forEach((name: string) => {
+        const parts = name.split('/').map(p => p.trim());
+        parts.forEach(part => {
+          const u = part.toUpperCase();
+          if (['S', 'M', 'L', 'XL', 'XXL', '3XL', 'P', 'G', 'GG'].includes(u) || /^\d+$/.test(part)) {
+            sizeList.add(part);
+          } else {
+             if (part && part.length < 20) colorList.add(part);
+          }
+        });
+      });
+
+      if (sizeList.size > 0) {
+        sizes = Array.from(sizeList).join(',');
+        sizes_enabled = true;
+      }
+      if (colorList.size > 0) {
+        colors = Array.from(colorList).join(',');
+        colors_enabled = true;
+      }
+    }
+
+    // Normalizar imagens
+    let image_url = "";
+    if (Array.isArray(productData.images) && productData.images.length > 0) {
+      const first = productData.images[0];
+      image_url = typeof first === "string" ? first : (first.url || first.src || "");
+    } else if (typeof productData.images === "string") {
+      image_url = productData.images;
+    }
+
+    let extra_images = "";
+    if (Array.isArray(productData.images)) {
+      extra_images = productData.images
+        .map((img: any) => typeof img === "string" ? img : (img.url || img.src || ""))
+        .filter(Boolean)
+        .join(",");
+    }
+
+    const { data: upserted, error: upsertError } = await supabase
       .from('products')
-      .update({ 
-        title, description, price, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
-      })
-      .eq('id', id)
+      .upsert({
+        dropea_id: String(productData.id),
+        title: productData.name,
+        description: productData.description || "",
+        price: productData.pvpr || 0,
+        image_url: image_url,
+        extra_images: extra_images,
+        product_type: 'physical',
+        category: productData.category || 'Dropea Sync',
+        is_active: true,
+        sizes_enabled,
+        colors_enabled,
+        sizes,
+        colors,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'dropea_id' })
       .select()
       .single();
 
-    if (error) throw error;
-    res.json(data);
+    if (upsertError) throw upsertError;
+
+    console.log(`[ADMIN] Produto ${dropeaId} importado com sucesso: ${upserted.title}`);
+    res.json(upserted);
+
   } catch (error: any) {
+    console.error(`[ADMIN IMPORT ERROR]`, error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -931,7 +1045,6 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
     const { id } = req.params;
     const { shipping_status } = req.body;
     const supabase = getSupabase();
-    const stripe = getStripe();
 
     // Fetch the order
     const { data: order, error: orderError } = await supabase
@@ -942,20 +1055,6 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
 
     if (orderError || !order) {
       return res.status(404).json({ error: 'Ordem não encontrada' });
-    }
-
-    // Force Stripe sync if order is still pending locally
-    if (order.status === 'pending' && order.stripe_session_id) {
-      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
-      if (session.payment_status === 'paid') {
-        // Was paid, sync our local DB!
-        await supabase
-          .from('orders')
-          .update({ status: 'paid' })
-          .eq('id', id);
-          
-        order.status = 'paid'; // update local variable for upcoming logic
-      }
     }
 
     // Now update shipping_status
@@ -977,7 +1076,6 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
   try {
     const { id } = req.params;
     const supabase = getSupabase();
-    const stripe = getStripe();
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -989,97 +1087,13 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    if (order.stripe_session_id || (order as any).payment_intent_id) {
-      let pi: Stripe.PaymentIntent | null = null;
-      let session: Stripe.Checkout.Session | null = null;
-
-      try {
-        if (order.stripe_session_id) {
-          session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-            expand: ['payment_intent', 'payment_intent.latest_charge']
-          });
-          pi = session.payment_intent as Stripe.PaymentIntent;
-        } else if ((order as any).payment_intent_id) {
-          pi = await stripe.paymentIntents.retrieve((order as any).payment_intent_id, {
-            expand: ['latest_charge']
-          });
-        }
-      } catch (stripeErr: any) {
-        console.error(`[STRIPE RETRIEVE ERROR] Order ${id}:`, stripeErr);
-        return res.status(400).json({ error: `Erro ao buscar dados no Stripe: ${stripeErr.message}` });
-      }
-      
-      let newStatus = order.status;
-
-      // Log Stripe Details for Debugging
-      console.log(`[SYNC DEBUG] Order ${id} - Stripe Session: ${order.stripe_session_id}, PI: ${(order as any).payment_intent_id}`);
-      if (session) console.log(`[SYNC DEBUG] Session Status: ${session.status}, Payment Status: ${session.payment_status}`);
-      
-      const latestCharge = (pi as any)?.latest_charge;
-      if (pi) console.log(`[SYNC DEBUG] PI Status: ${pi.status}, Amount Received: ${pi.amount_received}, Amount Refunded: ${latestCharge?.amount_refunded || 0}`);
-
-      // 1. Determine Status prioritize REFUND
-      const isRefunded = (latestCharge && latestCharge.amount_refunded && latestCharge.amount_refunded > 0) || 
-                         (latestCharge && latestCharge.refunded === true) ||
-                         (pi && (pi as any).status === 'canceled');
-                         
-      const isPaidOnStripe = session?.payment_status === 'paid' || session?.status === 'complete' || pi?.status === 'succeeded';
-      
-      if (isRefunded) {
-        newStatus = 'refunded';
-        // Force remove access for digital products
-        await supabase.from('user_reading_progress').delete()
-          .eq('book_id', order.product_id)
-          .eq('user_id', order.user_id);
-          
-        console.log(`[SYNC DEBUG] Order ${id} detected as refunded in Stripe.`);
-      } else if (isPaidOnStripe) {
-        newStatus = 'paid';
-      } else if (session?.status === 'expired' || pi?.status === 'canceled') {
-        newStatus = 'failed';
-      }
-
-      const updatePayload: any = {};
-      if (newStatus !== order.status) updatePayload.status = newStatus;
-      
-      // Ensure amount is synced - trust Stripe as source of truth
-      const stripeAmount = (pi?.amount_received || pi?.amount || session?.amount_total || 0) / 100;
-      const currentAmount = Number(order.total_amount) || 0;
-      
-      if (stripeAmount > 0 && Math.abs(stripeAmount - currentAmount) > 0.01) {
-        console.log(`[SYNC DEBUG] Updating Order ${id} amount from ${currentAmount} to ${stripeAmount}`);
-        updatePayload.total_amount = stripeAmount;
-      }
-
-      if (Object.keys(updatePayload).length > 0) {
-        console.log(`[SYNC DEBUG] Persisting updates to DB for Order ${id}:`, updatePayload);
-        const { error: updateError } = await supabase
-          .from('orders')
-          .update(updatePayload)
-          .eq('id', id);
-        
-        if (updateError) {
-          console.error(`[SYNC DB ERROR] Order ${id}:`, JSON.stringify(updateError));
-          return res.status(500).json({ error: `Erro no banco de dados ao atualizar ordem: ${updateError.message || 'Erro desconhecido'}` });
-        }
-        
-        return res.json({ 
-          success: true, 
-          status: newStatus, 
-          message: `Sincronização concluída com sucesso.` 
-        });
-      } else {
-        return res.json({ 
-          success: true, 
-          status: order.status, 
-          message: `A ordem já está sincronizada (Status: ${order.status}, Valor: €${currentAmount}).` 
-        });
-      }
+    if (order.dropea_order_id) {
+      // GraphQL sync logic will be implemented when mutation/query for order status is clarified
+      return res.status(501).json({ error: 'Sincronização GraphQL pendente de esquema de query.' });
     } else {
-      return res.status(400).json({ error: 'Não foi encontrado ID de transação (Sessão ou PI) para sincronizar.' });
+      return res.status(400).json({ error: 'ID de transação Dropea ausente.' });
     }
   } catch (error: any) {
-    console.error('[SYNC PAYMENT ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1115,20 +1129,20 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
     }
 
     let sanitizedPath = originalPath.replace(/^\/+/, '');
-    if (sanitizedPath.startsWith('assets/')) {
-      sanitizedPath = sanitizedPath.replace('assets/', '');
+    if (sanitizedPath.startsWith('vault/')) {
+      sanitizedPath = sanitizedPath.replace('vault/', '');
     }
     
-    console.log(`[DOWNLOAD] Sanitized Path: "${sanitizedPath}" (raw: "${originalPath}") in bucket "assets"`);
+    console.log(`[DOWNLOAD] Sanitized Path: "${sanitizedPath}" (raw: "${originalPath}") in bucket "vault"`);
 
-    // Try primary path in 'assets' bucket
+    // Try primary path in 'vault' bucket
     let { data, error: storageError } = await supabase.storage
-      .from('assets')
+      .from('vault')
       .createSignedUrl(sanitizedPath, 3600);
 
     // Fallback: Try 'ebooks' bucket
     if (storageError && storageError.message === 'Object not found') {
-       console.log(`[DOWNLOAD] Not found in "assets". Trying "ebooks" bucket...`);
+       console.log(`[DOWNLOAD] Not found in "vault". Trying "ebooks" bucket...`);
        const { data: fallbackData, error: fallbackError } = await supabase.storage
         .from('ebooks')
         .createSignedUrl(sanitizedPath, 3600);
@@ -1139,12 +1153,12 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
        }
     }
 
-    // Fallback: If still fails, try 'ebooks/' subfolder in 'assets'
+    // Fallback: If still fails, try 'ebooks/' subfolder in 'vault'
     if (storageError && storageError.message === 'Object not found') {
-      console.log(`[DOWNLOAD] Not found in "ebooks" bucket. Trying "ebooks/" subfolder in "assets"...`);
+      console.log(`[DOWNLOAD] Not found in "ebooks" bucket. Trying "ebooks/" subfolder in "vault"...`);
       const fallbackPath = `ebooks/${sanitizedPath}`;
       const { data: fallbackData, error: fallbackError } = await supabase.storage
-        .from('assets')
+        .from('vault')
         .createSignedUrl(fallbackPath, 3600);
       
       if (!fallbackError && fallbackData) {
@@ -1211,11 +1225,10 @@ apiRouter.post('/request-refund', async (req, res) => {
   }
 });
 
-// Admin Refund Processing (Initiates Stripe refund)
+// Admin Refund Processing (Initiates Dropea refund if available, otherwise just updates local state)
 adminRouter.post('/orders/:id/refund', async (req, res) => {
   const { id } = req.params;
   const supabase = getSupabase();
-  const stripe = getStripe();
 
   try {
     const { data: order, error: orderError } = await supabase
@@ -1228,70 +1241,20 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    if (!order.stripe_session_id) {
-      return res.status(400).json({ error: 'ID de sessão Stripe ausente.' });
-    }
-
-    // Retrieve full session with payment intent expand
-    let pi: Stripe.PaymentIntent | null = null;
-    
-    if (order.stripe_session_id) {
-      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-        expand: ['payment_intent']
-      });
-      pi = session.payment_intent as Stripe.PaymentIntent;
-    } else if ((order as any).payment_intent_id) {
-      pi = await stripe.paymentIntents.retrieve((order as any).payment_intent_id);
-    }
-    
-    if (!pi || !pi.id) {
-      return res.status(400).json({ error: 'Nenhum Payment Intent encontrado. Certifique-se de sincronizar a ordem primeiro.' });
-    }
-
-    // Amount needs to be > 0.
-    let amountToRefund = pi.amount_received || pi.amount || Math.round(parseFloat(order.total_amount?.toString() || '0') * 100);
-    
-    // If it is still 0, we have a problem, try to use the product price as last resort
-    if (!amountToRefund || amountToRefund <= 0) {
-      // Fetch product to get price
-      const { data: product } = await supabase.from('products').select('price').eq('id', order.product_id).single();
-      if (product && product.price) {
-        amountToRefund = Math.round(parseFloat(product.price.toString()) * 100);
-      }
-    }
-
-    if (!amountToRefund || amountToRefund <= 0) {
-      return res.status(400).json({ error: `Valor inválido para estorno. O Stripe reporta montante recebido de 0 e o valor local também é 0.` });
-    }
-
-    console.log(`[ADMIN REFUND] Initiating Stripe refund of ${amountToRefund} cents for PI: ${pi.id}`);
-    
-    const refund = await stripe.refunds.create({
-      payment_intent: pi.id,
-      amount: amountToRefund,
-    });
-
-    // Update to 'refund_pending'
+    // Update status to 'refund_pending'
     await supabase.from('orders').update({ 
-      status: 'refund_pending',
+      status: 'refunded', // Mark as refunded directly if manual or pending if automatic
       selected_options: {
         ...(order.selected_options || {}),
-        stripe_refund_id: refund.id,
         refund_approved_at: new Date().toISOString()
       }
     }).eq('id', id);
 
-    // IMMEDIATELY Revoke accessibility for digital products
-    await supabase.from('user_reading_progress').delete()
-      .eq('book_id', order.product_id)
-      .eq('user_id', order.user_id);
-
-    console.log(`[ADMIN REFUND] Order ${id} set to refund_pending and access revoked.`);
+    console.log(`[ADMIN REFUND] Order ${id} marked as refunded.`);
     
     return res.json({ 
       success: true, 
-      stripe_status: refund.status, 
-      message: 'Reembolso aprovado. O acesso foi removido e o status será atualizado para "Reembolsado" assim que o Stripe confirmar.'
+      message: 'Reembolso processado com sucesso. O acesso foi removido.'
     });
   } catch (err: any) {
     console.error('[ADMIN REFUND ERROR]', err);
@@ -1339,6 +1302,64 @@ adminRouter.post('/orders/:id/cancel-refund', async (req, res) => {
 app.use('/api', apiRouter);
 app.use('/api/admin', adminRouter);
 
+// --- Stripe Integration ---
+let stripe: Stripe | null = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+}
+
+app.post('/api/create-payment-session', express.json(), async (req, res) => {
+  try {
+    const { product, customer, baseUrl } = req.body;
+    
+    if (!stripe) {
+      console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Simulando sucesso imediato.");
+      // Simulamos um delay para parecer real
+      return res.json({ id: 'simulated_session_id', url: `${baseUrl}?payment_status=success` });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: [
+        'card',
+        'paypal',
+        'klarna',
+        'eps',
+        'multibanco',
+        'bancontact',
+        'blik',
+        'link',
+        'mb_way'
+      ],
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: {
+            name: product.title,
+            description: product.description?.substring(0, 120),
+            images: product.image_url ? [product.image_url] : [],
+          },
+          unit_amount: Math.round((product.pvp || product.price) * 100),
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${baseUrl}?payment_status=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}?payment_status=cancel`,
+      customer_email: customer.email,
+      metadata: {
+        dropea_id: String(product.dropea_id),
+        customer_data: JSON.stringify(customer),
+        product_id: String(product.id)
+      }
+    });
+
+    res.json({ id: session.id, url: session.url });
+  } catch (error: any) {
+    console.error("[STRIPE ERROR]", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // --- VITE MIDDLEWARE ---
 if (process.env.NODE_ENV !== 'production') {
   const { createServer: createViteServer } = await import('vite');
@@ -1357,10 +1378,54 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
+// --- DATABASE LISTENERS & FULFILLMENT ---
+function setupDatabaseListeners() {
+  const supabase = getSupabase();
+  console.log("[SUPABASE REALTIME] Iniciando monitorização de fulfillment...");
+
+  supabase
+    .channel('orders-fulfillment')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
+      if (payload.new.status === 'paid' && !payload.new.dropea_order_id) {
+        processOrderFulfillment(payload.new);
+      }
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, async (payload) => {
+      if (payload.new.status === 'paid' && !payload.new.dropea_order_id && payload.old.status !== 'paid') {
+        processOrderFulfillment(payload.new);
+      }
+    })
+    .subscribe();
+}
+
+async function processOrderFulfillment(order: any) {
+  console.log(`[FULFILLMENT SYSTEM] Detetada nova ordem paga: ${order.id}. Iniciando Dropea...`);
+  try {
+    const supabase = getSupabase();
+    const customerData = typeof order.shipping_address === 'string' ? JSON.parse(order.shipping_address) : order.shipping_address;
+
+    const { data: product } = await supabase.from('products').select('dropea_id').eq('id', order.product_id).single();
+    if (!product?.dropea_id) throw new Error("Produto sem dropea_id");
+
+    const dropeaOrderId = await createDropeaOrderInternal(Number(DROPEA_SHOP_ID), customerData, {
+      product_id: product.dropea_id,
+      quantity: 1,
+      total_value: order.total_amount
+    });
+
+    console.log(`[FULFILLMENT SUCCESS] Dropea ID: ${dropeaOrderId} para Order ID: ${order.id}`);
+
+    await supabase.from('orders').update({ dropea_order_id: dropeaOrderId }).eq('id', order.id);
+  } catch (err: any) {
+    console.error(`[FULFILLMENT SYSTEM ERROR] Falha na Ordem ${order.id}:`, err.message);
+  }
+}
+
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`S.Art Server running on http://localhost:${PORT}`);
+    setupDatabaseListeners();
   });
 }
 

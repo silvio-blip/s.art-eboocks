@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS products (
   file_url TEXT, -- Link para o PDF no Storage/CDN
   is_active BOOLEAN DEFAULT true,
   category TEXT DEFAULT 'Geral',
-  product_type TEXT DEFAULT 'digital', -- digital, physical
+  product_type TEXT DEFAULT 'physical', -- physical, digital (legacy)
   sizes TEXT, -- comma separated sizes
   colors TEXT, -- comma separated colors
   sizes_enabled BOOLEAN DEFAULT false,
@@ -43,10 +43,10 @@ CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users(id),
   product_id UUID REFERENCES products(id), -- Direct link since it's "compra direta"
-  status TEXT DEFAULT 'pending', -- pending, completed, failed, refunded, refund_pending
+  status TEXT DEFAULT 'pending_payment', -- pending_payment, paid, failed, refunded
   shipping_status TEXT DEFAULT 'pending', -- pending, sent, delivered
   total_amount DECIMAL(10,2) NOT NULL,
-  stripe_session_id TEXT UNIQUE,
+  dropea_order_id TEXT UNIQUE,
   customer_email TEXT, -- For guest checkouts or verification
   selected_options JSONB DEFAULT '{}'::jsonb, -- Store size, color, etc.
   shipping_details JSONB DEFAULT '{}'::jsonb, -- Store address, name, phone

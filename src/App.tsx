@@ -36,8 +36,8 @@ import { toast } from "sonner";
 import { supabase } from "./lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 
+import { DropeaService } from "./services/DropeaService";
 import AdminDashboard from "./components/AdminDashboard";
-import PDFReader from "./components/PDFReader";
 import TermsAndPrivacy from "./components/TermsAndPrivacy";
 import ProfileDashboard from "./components/ProfileDashboard";
 import {
@@ -64,7 +64,7 @@ interface Product {
   id: string;
   title: string;
   description: string;
-  price: number;
+  pvp: number;
   category: string;
   image_url: string;
   file_url: string;
@@ -76,6 +76,8 @@ interface Product {
   colors_enabled?: boolean;
   admin_link?: string;
   extra_images?: string;
+  dropea_id?: string | number;
+  supabase_id?: string;
 }
 
 interface Order {
@@ -86,12 +88,6 @@ interface Order {
   total_amount: number;
   created_at: string;
   product?: Product;
-}
-
-interface ReadingProgress {
-  book_id: string;
-  last_page_read: number;
-  total_pages: number;
 }
 
 // --- Components ---
@@ -365,11 +361,12 @@ function ProductCard({
             {product.title}
           </h3>
           <span className="text-[11px] font-black tracking-tight dark:text-luxury-gold">
-            €{product.price}
+            €{product.pvp}
           </span>
         </div>
         <div className="text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 font-mono flex items-center justify-between">
-          <span>Ref: {product.id.split('-')[0].toUpperCase()}</span>
+          <span>Ref: {product.dropea_id || product.id.split('-')[0].toUpperCase()}</span>
+          {product.dropea_id && <span className="text-luxury-gold ml-2">ID: {product.dropea_id}</span>}
           {product.product_type === 'digital' && <span className="text-[#D4AF37]">Digital</span>}
         </div>
         <div className="h-[1px] w-0 group-hover:w-full bg-expensive-gold transition-all duration-700 opacity-40 bg-luxury-gold" />
@@ -676,7 +673,7 @@ const AuthDialog = ({
             <div className="py-2 space-y-4 animate-in fade-in duration-500">
               <div className="bg-luxury-gold/10 border border-luxury-gold/20 p-4 text-center">
                 <p className="text-[10px] text-luxury-gold font-medium leading-relaxed italic">
-                  "Enviámos um convite de recuperação para o seu destino digital. Siga a hiperligação no seu e-mail para definir o novo acesso."
+                  "Enviámos um convite de recuperação para o seu destino. Siga a hiperligação no seu e-mail para definir o novo acesso."
                 </p>
               </div>
               <p className="text-[9px] text-center text-black/30 dark:text-white/30 uppercase tracking-widest">
@@ -845,72 +842,61 @@ const CheckoutModal = ({
   onClose: () => void;
   product: Product | null;
   userEmail: string;
-  onConfirm: (email: string) => void;
+  onConfirm: (customerData: any) => void;
   isProcessing: boolean;
 }) => {
   if (!product) return null;
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: userEmail,
+    phone: "",
+    address: "",
+    city: "",
+    zip: "",
+    country: "PT",
+  });
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[420px] w-[95vw] rounded-none border-none dark:bg-zinc-900 p-6 md:p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
+      <DialogContent className="sm:max-w-[480px] w-[95vw] rounded-none border-none dark:bg-zinc-900 p-6 md:p-8 shadow-2xl backdrop-blur-xl bg-white/95 transition-all duration-500">
         <DialogHeader className="space-y-4">
           <DialogTitle className="text-3xl font-serif dark:text-white tracking-tight">
-            Confirmar Aquisição
+            Finalizar Aquisição
           </DialogTitle>
-          <div className="flex gap-4 items-start p-4 bg-neutral-50/50 dark:bg-zinc-800/30 border border-black/5 dark:border-white/5 overflow-hidden">
-            <div className="w-16 h-24 bg-neutral-200 dark:bg-zinc-700 flex-shrink-0 overflow-hidden shadow-md">
-              <img
-                src={getImageUrl(product.image_url)}
-                alt=""
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="space-y-2 flex-1 min-w-0">
-              <div className="space-y-1">
-                <div className="text-[9px] uppercase tracking-[0.3em] text-black/30 dark:text-white/30 font-bold">
-                  Investimento Digital
-                </div>
-                <div className="text-sm font-serif dark:text-white leading-tight truncate-multiline line-clamp-2">
-                  {product.title}
-                </div>
-                <div className="text-xs font-black tracking-tight dark:text-luxury-gold pt-1">
-                  €{product.price}
-                </div>
-              </div>
-              {product.description && (
-                <div className="pt-2 border-t border-black/5 dark:border-white/10 mt-2">
-                  <div className="text-[11px] text-zinc-600 dark:text-zinc-400 leading-relaxed line-clamp-6 whitespace-pre-wrap">
-                    {product.description}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
         </DialogHeader>
 
-        <div className="space-y-8 pt-6">
-          <div className="space-y-3">
-            <p className="text-[9px] text-black/40 dark:text-zinc-500 italic pl-1 flex items-center gap-1.5">
-              <span className="w-1 h-1 bg-luxury-gold rounded-full" />A obra
-              será desbloqueada instantaneamente na sua Biblioteca Privada após
-              o pagamento.
-            </p>
+        <div className="space-y-4 mt-6">
+          <div className="grid grid-cols-2 gap-4">
+            <input placeholder="Nome" className="col-span-1 border-b py-2 text-sm" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} />
+            <input placeholder="Apelido" className="col-span-1 border-b py-2 text-sm" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} />
           </div>
+          <input placeholder="Email" className="w-full border-b py-2 text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
+          <input placeholder="Telefone" className="w-full border-b py-2 text-sm" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
+          <input placeholder="Morada" className="w-full border-b py-2 text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+          <div className="grid grid-cols-3 gap-4">
+            <input placeholder="Cidade" className="col-span-1 border-b py-2 text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
+            <input placeholder="Código Postal" className="col-span-1 border-b py-2 text-sm" value={form.zip} onChange={e => setForm({...form, zip: e.target.value})} />
+            <select className="col-span-1 border-b py-2 text-sm" value={form.country} onChange={e => setForm({...form, country: e.target.value})}>
+              <option value="PT">PT</option>
+              <option value="ES">ES</option>
+            </select>
+          </div>
+        </div>
 
+        <div className="space-y-8 pt-6">
           <Button
-            onClick={() => onConfirm(userEmail)}
-            disabled={isProcessing}
-            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-luxury-gold dark:hover:bg-luxury-gold hover:text-white rounded-none h-14 text-[11px] font-bold uppercase tracking-[0.3em] transition-all duration-500 shadow-xl disabled:opacity-50"
+            onClick={() => onConfirm(form)}
+            disabled={isProcessing || !form.firstName || !form.address}
+            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-luxury-gold hover:text-white rounded-none h-14 text-[11px] font-bold uppercase tracking-[0.3em] transition-all duration-500 shadow-xl disabled:opacity-50"
           >
             {isProcessing ? (
               <span className="flex items-center gap-3">
-                <Loader2 size={16} className="animate-spin" />A Iniciar
-                Protocolo Stripe...
+                <Loader2 size={16} className="animate-spin" />A Processar...
               </span>
             ) : (
               <span className="flex items-center gap-2">
-                Prosseguir para Pagamento <ArrowRight size={14} />
+                Confirmar Checkout <ArrowRight size={14} />
               </span>
             )}
           </Button>
@@ -1147,16 +1133,17 @@ const ProductDetailsPage = ({
               {product.title}
             </h1>
             <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
-              €{product.price}
+              €{product.pvp}
             </p>
           </div>
 
           <Separator className="bg-black/10 dark:bg-white/10" />
 
           <div className="space-y-6">
-            <p className="text-sm text-black/70 dark:text-zinc-400 leading-relaxed font-light whitespace-pre-wrap italic">
-              {product.description}
-            </p>
+            <div 
+              className="text-sm text-black/80 dark:text-zinc-300 leading-relaxed font-normal text-justify prose prose-sm dark:prose-invert max-w-none" 
+              dangerouslySetInnerHTML={{ __html: product.description }} 
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
               {product.sizes_enabled && sizes.length > 0 && (
@@ -1259,21 +1246,12 @@ export default function App() {
     | "dashboard"
     | "success"
     | "admin"
-    | "reader"
     | "reset-password"
     | "terms"
     | "product-detail"
     | "shipping"
   >("home");
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
-  const [readingProgress, setReadingProgress] = useState<
-    Record<string, ReadingProgress>
-  >({});
-  const [activeReading, setActiveReading] = useState<{
-    orderId: string;
-    product: Product;
-    purchasedAt: string;
-  } | null>(null);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
@@ -1361,45 +1339,6 @@ export default function App() {
     }
   }, [theme]);
 
-  const handleDownload = async (orderId: string) => {
-    const downloadToast = toast.loading("A preparar o seu descarregamento...");
-    try {
-      const res = await fetch(`/api/orders/${orderId}/download`);
-      const responseContent = await res.text();
-
-      let data;
-      try {
-        data = JSON.parse(responseContent);
-      } catch (e) {
-        throw new Error("Resposta inválida do servidor.");
-      }
-
-      if (!res.ok) {
-        throw new Error(data.error || `Erro de servidor (${res.status})`);
-      }
-
-      if (data.url) {
-        // Criar um elemento link invisível para forçar o descarregamento/abertura
-        const link = document.createElement("a");
-        link.href = data.url;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        toast.success("Guia pronta para leitura.", { id: downloadToast });
-      } else {
-        throw new Error("Link de descarregamento não encontrado.");
-      }
-    } catch (err: any) {
-      console.error("[DOWNLOAD ERR]", err);
-      toast.error(err.message || "Erro na ligação ao servidor.", {
-        id: downloadToast,
-      });
-    }
-  };
-
   useEffect(() => {
     if (window.location.pathname === "/admin") {
       if (user && !ADMIN_IDS.includes(user.id)) {
@@ -1436,9 +1375,12 @@ export default function App() {
           const isNowPaid = ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(newStatus);
           const wasNotPaid = !oldStatus || !['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(oldStatus);
 
-          if (payload.event === "UPDATE" && isNowPaid && wasNotPaid) {
+          const isInsert = payload.event === "INSERT";
+          const isUpdate = payload.event === "UPDATE";
+
+          if ((isInsert || isUpdate) && isNowPaid && (isInsert || wasNotPaid)) {
             toast.success(
-              "Pagamento confirmado! O acesso à sua obra foi libertado.",
+              "Pagamento confirmado! O seu pedido foi registado com sucesso.",
               {
                 duration: 5000,
                 icon: <CheckCircle2 className="text-emerald-500" size={18} />,
@@ -1652,65 +1594,133 @@ export default function App() {
 
       setView("success");
       try {
-        console.log(`[S.ART DEBUG] Verifying Stripe session: ${sessionId}`);
-        const res = await fetch(`/api/verify-session?session_id=${sessionId}`);
+        console.log(`[S.ART DEBUG] Verifying Dropea session: ${sessionId}`);
+        // We will need a specific Dropea verification endpoint if needed
+        toast.info("A aguardar confirmação da Dropea...");
+        
+        // Check local order status
+        const { data: order } = await supabase
+          .from("orders")
+          .select("*, product:products(*)")
+          .eq("dropea_order_id", sessionId)
+          .single();
 
-        // Anti-HTML Guard (Crucial for Vercel 500s)
-        const contentType = res.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-          const rawText = await res.text();
-          console.error(
-            "[CRITICAL] API returned HTML instead of JSON:",
-            rawText.substring(0, 300),
-          );
-          throw new Error(
-            `Resposta inválida do servidor (HTML). Status: ${res.status}`,
-          );
-        }
-
-        const data = await res.json();
-
-        if (data.status === "paid") {
-          setSuccessProduct(data.product);
-          setSuccessOrderId(data.orderId);
+        if (order && (order.status === "paid" || order.status === "completed")) {
+          setSuccessProduct(order.product);
+          setSuccessOrderId(order.id);
           toast.success("Compra aprovada! Desfrute da sua nova obra.");
-
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          if (session?.user) {
-            fetchDashboardData(session.user.id);
-          }
-        } else {
-          console.warn("[S.ART DEBUG] Session not paid yet:", data);
         }
       } catch (err: any) {
-        console.error("[S.ART SESSION ERROR LOG]", {
-          message: err.message,
-          stack: err.stack,
-          timestamp: new Date().toISOString(),
-        });
-        toast.error(
-          "Erro ao validar o pagamento. Por favor, contacte o suporte se o valor foi debitado.",
-        );
+        console.error("[S.ART SESSION ERROR LOG]", err);
       }
     }
   };
 
+  useEffect(() => {
+    const handleReturnFromPayment = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const status = urlParams.get('payment_status');
+      const sessionId = urlParams.get('session_id');
+
+      if (status === 'success') {
+        const pending = localStorage.getItem('sart_pending_checkout');
+        if (pending) {
+          try {
+            const { product } = JSON.parse(pending);
+            toast.success(`Pagamento recebido! Estamos a processar o seu pedido para "${product.title}" em background.`, {
+              duration: 10000
+            });
+            // Opcional: Atualizar dashboard após uns segundos para ver se o webhook já registrou
+            setTimeout(() => fetchDashboardData(user.id), 5000);
+          } catch (e) {
+            console.error("Erro ao recuperar checkout pendente:", e);
+          } finally {
+            localStorage.removeItem('sart_pending_checkout');
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }
+      } else if (status === 'cancel') {
+        toast.error("Pagamento cancelado pelo utilizador.");
+        localStorage.removeItem('sart_pending_checkout');
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    if (user && !loading) {
+      handleReturnFromPayment();
+    }
+  }, [user, loading]);
+
   const fetchProducts = async () => {
     try {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // 1. FETCH PARALELO: Busca os produtos da Dropea e os do Supabase simultaneamente
+      const [dropeaProducts, { data: dbProducts, error: dbError }] = await Promise.all([
+        DropeaService.getProducts(),
+        supabase.from("products").select("*")
+      ]);
 
-      if (error) {
-        toast.error("Erro ao carregar produtos do atelier.");
-        console.error(error);
+      if (dbError) {
+        console.error("Erro ao carregar produtos do banco local:", dbError);
       }
-      if (data) setProducts(data.filter((p) => p.is_active !== false));
+
+      const productsFromDb = dbProducts || [];
+
+      // 2. MERGE BLINDADO: Mapeia o array do SUPABASE (admin deicide o que vender)
+      const mergedProducts = productsFromDb.map((supaProduct: any) => {
+        // Se o produto tem um vínculo com a Dropea
+        if (supaProduct.dropea_id) {
+          // Procura a correspondência na Dropea usando String() para comparação segura
+          const dropProduct = dropeaProducts.find(
+            (dp: any) => String(dp.id) === String(supaProduct.dropea_id)
+          );
+
+          // 4. Se o 'dropProduct' não for encontrado, filtra este item (evita imagens vazias)
+          if (!dropProduct) return null;
+
+          // Normalizar imagens da Dropea (GraphQL response handling)
+          const dropeaImages = Array.isArray(dropProduct.images) 
+            ? dropProduct.images.map((img: any) => typeof img === "string" ? img : (img.src || img.url || "")) 
+            : [];
+
+          // 3. ESTRUTURA DO OBJETO FINAL (Merge Supabase + Dropea)
+          return {
+            ...dropProduct, // Traz imagens, descrição original, variantes, id original da Dropea
+            id: supaProduct.id, // ID interno para referências
+            supabase_id: supaProduct.id,
+            dropea_id: String(dropProduct.id),
+            title: supaProduct.title || dropProduct.name, // Sobrepõe o título
+            pvp: supaProduct.price || dropProduct.pvp || 0, // Sobrepõe o preço final (margem de lucro)
+            price: supaProduct.price, // Suporte extra se a UI mudar campo
+            description: supaProduct.description || dropProduct.description,
+            image_url: dropeaImages[0] || "",
+            extra_images: dropeaImages.join(","),
+            product_type: supaProduct.product_type || "physical",
+            category: supaProduct.category || dropProduct.category,
+            is_active: supaProduct.is_active,
+            file_url: supaProduct.file_url,
+            sizes_enabled: supaProduct.sizes_enabled,
+            colors_enabled: supaProduct.colors_enabled,
+            sizes: supaProduct.sizes,
+            colors: supaProduct.colors,
+          } as Product;
+        }
+
+        // Produto puramente local (ex: Info-produtos)
+        return {
+          ...supaProduct,
+          supabase_id: supaProduct.id,
+          pvp: supaProduct.price || 0
+        } as Product;
+      }).filter((p): p is Product => p !== null);
+
+      if (mergedProducts.length > 0) {
+        setProducts(mergedProducts);
+      } else {
+        console.warn("Nenhum produto válido para exibição após o merge.");
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Erro no fetchProducts:", err);
+      toast.error("Ocorreu um erro ao carregar o catálogo de obras.");
     } finally {
       setLoading(false);
     }
@@ -1755,29 +1765,6 @@ export default function App() {
     }));
 
     setPurchasedProducts(mappedOrders);
-
-    // Fetch Reading Progress
-    const { data: progress, error: progressError } = await supabase
-      .from("user_reading_progress")
-      .select("*")
-      .eq("user_id", userId);
-
-    if (!progressError && progress) {
-      const progressMap: Record<string, ReadingProgress> = {};
-      progress.forEach((p: any) => {
-        progressMap[p.book_id] = p;
-      });
-      setReadingProgress(progressMap);
-    }
-  };
-
-  const handleOpenReader = (
-    product: Product,
-    orderId: string,
-    purchasedAt: string,
-  ) => {
-    setActiveReading({ orderId, product, purchasedAt });
-    setView("reader");
   };
 
   const [refundBookName, setRefundBookName] = useState("");
@@ -1831,12 +1818,12 @@ export default function App() {
       return;
     }
 
-    // Check if user already owns the product (only for digital)
+    // Check if user already owns the product
     const order = purchasedProducts.find(
       (o) => o.product_id === product.id && (o.status === "paid" || o.status === "completed"),
     );
-    if (order && product.product_type !== "physical") {
-      handleOpenReader(product, order.id, order.created_at);
+    if (order) {
+      setView("dashboard");
       return;
     }
 
@@ -1846,7 +1833,8 @@ export default function App() {
       window.scrollTo(0, 0);
     } else {
       setSelectedProduct(product);
-      setIsCheckoutModalOpen(true);
+      setView("shipping");
+      window.scrollTo(0, 0);
     }
   };
 
@@ -1862,11 +1850,7 @@ export default function App() {
     setTimeout(() => {
       setDetailLoading(false);
       setDetailProduct(null);
-      if (product.product_type === "physical") {
-        setView("shipping");
-      } else {
-        setIsCheckoutModalOpen(true);
-      }
+      setView("shipping");
     }, 500);
   };
 
@@ -1877,48 +1861,53 @@ export default function App() {
     }
   };
 
-  const handleCheckoutConfirm = async (email: string) => {
+  const handleCheckoutConfirm = async (customerData: any) => {
     if (!selectedProduct || !user) return;
 
     setCheckoutLoading(selectedProduct.id);
 
     try {
-      const res = await fetch("/api/create-checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      console.log("[CHECKOUT INIT] Criando sessão de pagamento:", selectedProduct.title);
+      
+      // Guardar dados para recuperar após o redirect
+      localStorage.setItem('sart_pending_checkout', JSON.stringify({
+        product: selectedProduct,
+        customer: customerData,
+        timestamp: Date.now()
+      }));
+
+      const res = await fetch('/api/create-payment-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          productId: selectedProduct.id,
-          userId: user.id,
-          email: email,
-          options: selectedOptions,
-          shippingInfo:
-            selectedProduct.product_type === "physical"
-              ? shippingInfo
-              : undefined,
-        }),
+          product: selectedProduct,
+          customer: { ...customerData, userId: user.id },
+          baseUrl: window.location.origin
+        })
       });
 
-      const responseText = await res.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        throw new Error(`Resposta do servidor não é JSON: ${responseText}`);
-      }
-
       if (!res.ok) {
-        throw new Error(data.error || `Erro do servidor (${res.status})`);
+        const err = await res.json();
+        throw new Error(err.error || "Erro ao conectar com gateway de pagamento.");
       }
 
-      if (data.url) {
-        window.location.href = data.url;
+      const { url } = await res.json();
+      
+      if (url) {
+        toast.info("Abrindo checkout seguro em nova aba...");
+        setTimeout(() => {
+          window.open(url, '_blank');
+          // Fechar o modal na aba original para indicar que o processo seguiu para o pagamento
+          setIsCheckoutModalOpen(false);
+          setCheckoutLoading(null);
+        }, 800);
       } else {
-        throw new Error("URL de checkout não recebida.");
+        throw new Error("Sessão de pagamento inválida.");
       }
+
     } catch (err: any) {
-      console.error("[NETWORK ERROR]", err);
-      alert(`Erro ao iniciar pagamento: ${err.message}`);
-    } finally {
+      console.error("[STRIPE INIT ERROR]", err);
+      toast.error(`Erro ao iniciar checkout: ${err.message}`);
       setCheckoutLoading(null);
     }
   };
@@ -1957,15 +1946,6 @@ export default function App() {
         }}
         onSearch={handleSearch}
         searchQuery={searchQuery}
-      />
-
-      <CheckoutModal
-        isOpen={isCheckoutModalOpen}
-        onClose={() => setIsCheckoutModalOpen(false)}
-        product={selectedProduct}
-        userEmail={user?.email || ""}
-        isProcessing={!!checkoutLoading}
-        onConfirm={handleCheckoutConfirm}
       />
 
       <Dialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
@@ -2039,7 +2019,7 @@ export default function App() {
                   className="text-4xl sm:text-5xl md:text-7xl font-serif tracking-tight px-4"
                 >
                   Boutique de <br />
-                  Conhecimento Digital
+                  Estilos & Arte
                 </motion.h1>
                 <motion.p
                   initial={{ opacity: 0 }}
@@ -2047,7 +2027,7 @@ export default function App() {
                   transition={{ delay: 0.4 }}
                   className="text-[11px] uppercase tracking-[0.3em] text-neutral-400 font-medium"
                 >
-                  Curadoria de E-Books de Alta Estirpe & Atemporalidade
+                  Curadoria de Produtos Físicos de Alta Estirpe & Atemporalidade
                 </motion.p>
               </section>
 
@@ -2088,13 +2068,7 @@ export default function App() {
                       <ProductCard
                         product={product}
                         onBuy={handleBuy}
-                        onRead={(p) => {
-                          const order = purchasedProducts.find(
-                            (o) => o.product_id === p.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(o.status?.toLowerCase()),
-                          );
-                          if (order)
-                            handleOpenReader(p, order.id, order.created_at);
-                        }}
+                        onRead={() => setView("dashboard")}
                         isOwned={purchasedProducts.some(
                           (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(p.status?.toLowerCase()),
                         )}
@@ -2282,7 +2256,7 @@ export default function App() {
                             </div>
                           )}
                         <div className="text-xs font-bold dark:text-zinc-400">
-                          €{selectedProduct.price}
+                          €{selectedProduct.pvp}
                         </div>
                       </div>
                     </div>
@@ -2292,7 +2266,7 @@ export default function App() {
                     <div className="space-y-3">
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60">
                         <span>Subtotal</span>
-                        <span>€{selectedProduct.price}</span>
+                        <span>€{selectedProduct.pvp}</span>
                       </div>
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60">
                         <span>Envio S.Art VIP</span>
@@ -2302,12 +2276,12 @@ export default function App() {
                       </div>
                       <div className="flex justify-between text-base font-serif dark:text-white pt-2 border-t border-black/5 dark:border-white/5">
                         <span>Total</span>
-                        <span>€{selectedProduct.price}</span>
+                        <span>€{selectedProduct.pvp}</span>
                       </div>
                     </div>
 
                     <Button
-                      onClick={() => {
+                      onClick={async () => {
                         if (
                           !shippingInfo.address ||
                           !shippingInfo.city ||
@@ -2319,11 +2293,29 @@ export default function App() {
                           );
                           return;
                         }
-                        setIsCheckoutModalOpen(true);
+                        
+                        // Chamada direta do checkout sem modal secundário
+                        await handleCheckoutConfirm({
+                          firstName: shippingInfo.fullName.split(' ')[0],
+                          lastName: shippingInfo.fullName.split(' ').slice(1).join(' ') || '.',
+                          email: user?.email || '',
+                          phone: shippingInfo.phone,
+                          address: shippingInfo.address,
+                          city: shippingInfo.city,
+                          zip: shippingInfo.postalCode,
+                          country: shippingInfo.country || 'PT'
+                        });
                       }}
+                      disabled={!!checkoutLoading}
                       className="w-full h-14 bg-black dark:bg-white text-white dark:text-black rounded-none text-[10px] font-bold uppercase tracking-[0.2em] hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-all shadow-xl"
                     >
-                      Prosseguir Pagamento
+                      {checkoutLoading ? (
+                        <span className="flex items-center gap-3">
+                          <Loader2 size={16} className="animate-spin" /> A Processar...
+                        </span>
+                      ) : (
+                        "Ir Para Pagamento Seguro"
+                      )}
                     </Button>
 
                     <button
@@ -2342,26 +2334,9 @@ export default function App() {
             <ProfileDashboard
               user={user}
               purchasedProducts={purchasedProducts}
-              readingProgress={readingProgress}
-              onRead={handleOpenReader}
               onProfileUpdate={(data) => setProfile(data)}
               onRefundRequest={(order) => setRefundOrder(order)}
             />
-          )}
-
-          {view === "reader" && activeReading && (
-            <div className="max-w-6xl mx-auto">
-              <PDFReader
-                orderId={activeReading.orderId}
-                bookId={activeReading.product.id}
-                bookTitle={activeReading.product.title}
-                purchasedAt={activeReading.purchasedAt}
-                onBack={() => {
-                  setView("dashboard");
-                  fetchDashboardData(user!.id);
-                }}
-              />
-            </div>
           )}
 
           {view === "terms" && (
@@ -2392,25 +2367,12 @@ export default function App() {
 
               <div className="space-y-6 md:space-y-8">
                 <h2 className="text-4xl md:text-6xl font-serif dark:text-white leading-[1.1] px-4">
-                  {successProduct?.product_type === 'physical' ? (
-                    <>
-                      Pedido <br />
-                      Confirmado.
-                    </>
-                  ) : (
-                    <>
-                      Aquisição <br />
-                      Concluída.
-                    </>
-                  )}
+                  Pedido <br />
+                  Confirmado.
                 </h2>
                 <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
                 <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed px-6">
-                  {successProduct?.product_type === 'physical' ? (
-                    "O seu pedido foi processado com sucesso. A sua morada e dados de envio foram registados e receberá em breve informações sobre a entrega."
-                  ) : (
-                    "A sua obra já está disponível para download imediato na sua biblioteca e foi enviada para o seu destino digital."
-                  )}
+                  O seu pedido foi processado com sucesso. A sua morada e dados de envio foram registados e receberá em breve informações sobre a entrega.
                 </p>
               </div>
 
@@ -2430,7 +2392,7 @@ export default function App() {
                     </div>
                     <div className="space-y-2">
                       <p className="text-[9px] uppercase tracking-[0.3em] font-bold text-luxury-gold">
-                        {successProduct.product_type === 'physical' ? 'Novo Pedido' : 'Novo Ativo'}
+                        Novo Pedido
                       </p>
                       <h4 className="font-serif text-xl dark:text-white leading-tight">
                         {successProduct.title}
@@ -2441,7 +2403,7 @@ export default function App() {
                           variant="ghost"
                           className="p-0 h-auto text-[10px] uppercase tracking-[0.2em] font-bold text-black/60 dark:text-white/60 hover:text-luxury-gold dark:hover:text-luxury-gold transition-all"
                         >
-                          {successProduct.product_type === 'physical' ? 'Ir para Encomendas' : 'Ir para Biblioteca Privada'}{" "}
+                          Acompanhar Encomenda{" "}
                           <ArrowRight size={12} className="ml-2" />
                         </Button>
                       </div>
@@ -2451,36 +2413,19 @@ export default function App() {
               )}
 
               <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
-                {successProduct && successOrderId && successProduct.product_type !== 'physical' && (
-                  <Button
-                    onClick={() =>
-                      handleOpenReader(
-                        successProduct,
-                        successOrderId,
-                        new Date().toISOString(),
-                      )
-                    }
-                    className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
-                  >
-                    Começar a Ler Agora{" "}
-                    <ArrowRight size={14} className="ml-2 animate-pulse" />
-                  </Button>
-                )}
-                {successProduct && successOrderId && successProduct.product_type === 'physical' && (
-                  <Button
-                    onClick={() => setView("dashboard")}
-                    className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
-                  >
-                    Acompanhar Pedido{" "}
-                    <ArrowRight size={14} className="ml-2" />
-                  </Button>
-                )}
                 <Button
                   onClick={() => setView("dashboard")}
-                  variant={successProduct ? "outline" : "default"}
-                  className={`${!successProduct ? "bg-black text-white" : "border-black/10 dark:border-white/10"} px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500`}
+                  className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
                 >
-                  Minha Biblioteca
+                  Acompanhar Pedido{" "}
+                  <ArrowRight size={14} className="ml-2" />
+                </Button>
+                <Button
+                  onClick={() => setView("home")}
+                  variant="outline"
+                  className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500"
+                >
+                  Voltar à Boutique
                 </Button>
               </div>
             </motion.div>
@@ -2502,7 +2447,7 @@ export default function App() {
                 O seu pedido será enviado para análise administrativa pela nossa equipa de curadoria.
               </div>
               <div className="text-center text-sm text-black/80 dark:text-white/80 leading-relaxed bg-red-50 dark:bg-red-950/20 p-4 border border-red-100 dark:border-red-900/50">
-                Atenção: A confirmar a devolução, o acesso à obra digital será bloqueado permanentemente após aprovação administrativa.
+                Atenção: A confirmar a devolução, o acesso à obra e suporte associado serão bloqueados permanentemente após aprovação administrativa.
               </div>
             </DialogHeader>
             <div className="flex flex-col gap-4 pt-4">

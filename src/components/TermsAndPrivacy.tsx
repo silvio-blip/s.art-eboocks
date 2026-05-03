@@ -9,7 +9,7 @@ export default function TermsAndPrivacy() {
         </h1>
         <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
         <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed">
-          S.Art Boutique Digital
+          S.Art Boutique
         </p>
       </div>
 
@@ -18,27 +18,24 @@ export default function TermsAndPrivacy() {
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">1. Aceitação dos Termos</h2>
           <p>
-            Ao aceder e utilizar o site S.Art, o utilizador concorda em cumprir e vincular-se aos seguintes termos. Este site é um atelier digital destinado à venda de conteúdos educativos e artísticos (E-books e Manuais).
+            Ao aceder e utilizar o site S.Art, o utilizador concorda em cumprir e vincular-se aos seguintes termos. Este site é um atelier de curadoria destinado à venda de produtos físicos exclusivos e obras de arte.
           </p>
         </section>
 
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">2. Propriedade Intelectual</h2>
           <p>
-            Todo o conteúdo disponível (textos, imagens, PDFs e design) é propriedade exclusiva da S.Art.
+            Todo o conteúdo disponível (textos, imagens e design) é propriedade exclusiva da S.Art.
           </p>
           <p>
-            É estritamente proibida a reprodução, distribuição ou revenda dos ficheiros PDF sem autorização prévia.
-          </p>
-          <p>
-            O acesso ao conteúdo é pessoal e intransmissível.
+            É estritamente proibida a reprodução ou distribuição do conteúdo sem autorização prévia.
           </p>
         </section>
 
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">3. Política de Pagamentos e Preços</h2>
           <p>
-            Os pagamentos são processados de forma segura via Stripe.
+            Os pagamentos são processados de forma segura via Dropea.
           </p>
           <p>
             A S.Art não armazena dados de cartões de crédito nos seus servidores.
@@ -49,28 +46,28 @@ export default function TermsAndPrivacy() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">4. Política de Reembolso e Garantia</h2>
+          <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">4. Política de Devolução e Garantia</h2>
           <p>
-            Em conformidade com a legislação de produtos digitais:
+            Em conformidade com a legislação de consumo:
           </p>
           <ul className="list-disc pl-5 space-y-2 mt-4">
-            <li><strong>Prazo de Garantia:</strong> O utilizador tem 14 dias a partir da data da compra para solicitar o reembolso total, caso não esteja satisfeito.</li>
-            <li><strong>Acesso após Reembolso:</strong> Assim que o reembolso é processado, o acesso ao livro na biblioteca digital é revogado imediatamente.</li>
-            <li><strong>Condição de Download:</strong> Para proteger os direitos de autor, o ficheiro PDF para download só estará disponível após o período de 14 dias de garantia. Durante este período, a leitura será feita exclusivamente através do leitor online do site.</li>
+            <li><strong>Prazo de Garantia:</strong> O utilizador tem 14 dias a partir da receção do produto para solicitar a devolução total, caso o produto se encontre em condições originais.</li>
+            <li><strong>Cancelamento:</strong> Pedidos podem ser cancelados antes do processamento de envio.</li>
           </ul>
         </section>
 
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">5. Proteção de Dados (RGPD)</h2>
           <p>
-            Respeitamos a tua privacidade. Os dados recolhidos (Nome e E-mail) servem apenas para:
+            Respeitamos a tua privacidade. Os dados recolhidos servem apenas para:
           </p>
           <ul className="list-disc pl-5 space-y-2 mt-4 mb-4">
-            <li>Gerir o teu acesso à biblioteca de produtos comprados.</li>
-            <li>Enviar faturas de compra e atualizações de segurança.</li>
+            <li>Gerir o teu acesso ao histórico de pedidos e conta.</li>
+            <li>Processar o envio físico das encomendas.</li>
+            <li>Enviar faturas e atualizações de segurança.</li>
           </ul>
           <p>
-            <strong>Partilha de Dados:</strong> Os teus dados não são vendidos a terceiros. Apenas são partilhados com a Stripe para fins de processamento de pagamento e com o Supabase para armazenamento seguro da tua conta.
+            <strong>Partilha de Dados:</strong> Os teus dados não são vendidos a terceiros. Apenas são partilhados com gateway de pagamento (Stripe) e com o Supabase para armazenamento seguro da tua conta.
           </p>
         </section>
 

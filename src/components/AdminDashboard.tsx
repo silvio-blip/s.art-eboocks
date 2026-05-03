@@ -29,6 +29,7 @@ import {
   ExternalLink,
   RefreshCw,
   Truck,
+  Check,
   X,
   Users,
   Undo2,
@@ -43,6 +44,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
+import { DropeaService } from "../services/DropeaService";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 
 const getImageUrl = (url: string) => {
@@ -61,19 +63,21 @@ interface Product {
   id: string;
   title: string;
   description: string;
-  price: number;
+  pvp: number;
   category: string;
   image_url: string;
   file_url: string;
   is_active: boolean;
   created_at?: string;
-  product_type?: "digital" | "physical";
+  product_type?: "physical" | "digital";
   sizes?: string;
   colors?: string;
   sizes_enabled?: boolean;
   colors_enabled?: boolean;
   admin_link?: string;
   extra_images?: string; // Comma separated links
+  dropea_id?: string | number;
+  supabase_id?: string;
 }
 
 interface Order {
@@ -83,6 +87,7 @@ interface Order {
   total_amount: number;
   customer_email: string;
   created_at: string;
+  dropea_order_id?: string;
   product?: Product;
   selected_options?: { size?: string; color?: string };
   shipping_status?: string;
@@ -137,6 +142,8 @@ export default function AdminDashboard({
   >("all");
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [userSearch, setUserSearch] = useState("");
+  const [importDropeaId, setImportDropeaId] = useState("");
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -257,10 +264,10 @@ export default function AdminDashboard({
       return;
     }
     
-    const syncToast = toast.loading(`Sincronizando ${ordersToSync.length} ordens com Stripe...`);
+    const syncToast = toast.loading(`Sincronizando ${ordersToSync.length} ordens com Dropea...`);
     let successCount = 0;
     
-    // Use for...of for sequential execution to avoid hitting Stripe rate limits too hard if there are many
+    // Use for...of for sequential execution to avoid hitting Dropea rate limits too hard if there are many
     for (const order of ordersToSync) {
       try {
         const res = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
@@ -280,12 +287,115 @@ export default function AdminDashboard({
     fetchDashboardData();
   };
 
+  const handleImportDropea = async () => {
+    if (!importDropeaId) {
+      toast.error("Insira um ID da Dropea.");
+      return;
+    }
+    
+    setImporting(true);
+    const impToast = toast.loading(`Importando produto ${importDropeaId} da Dropea...`);
+    
+    try {
+      const data = await DropeaService.importProduct(importDropeaId);
+      
+      toast.success(`PRODUTO EXTRAÍDO COM SUCESSO!\n"${data.title}"\nID Dropea: ${data.dropea_id}\nPVP: €${data.price}`, { 
+        id: impToast, 
+        duration: 8000 
+      });
+      setImportDropeaId("");
+      fetchProducts();
+    } catch (e: any) {
+      toast.error(e.message, { id: impToast });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDropeaHandshake = async () => {
+    const syncToast = toast.loading("Iniciando Handshake de Sincronização Dropea...");
+    try {
+      const res = await fetch('/api/dropea/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message, { id: syncToast });
+        fetchProducts(); // Refresh after sync
+      } else {
+        toast.error(data.error || "Erro no protocolo de sincronização", { id: syncToast });
+      }
+    } catch (err) {
+      toast.error("Erro crítico de rede ao contactar protocolo Dropea", { id: syncToast });
+    }
+  };
+
   const fetchProducts = async () => {
-    const { data } = await supabase
-      .from("products")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (data) setProducts(data);
+    try {
+      // 1. FETCH PARALELO: Supabase Admin API + Dropea API
+      const [dropeaProducts, dbRes] = await Promise.all([
+        fetch('/api/dropea-products').then(r => r.ok ? r.json() : []),
+        fetch(`/api/admin/products?userId=${user.id}`, {
+          headers: { 'x-user-id': user.id }
+        })
+      ]);
+      
+      if (!dbRes.ok) {
+        const errorData = await dbRes.json().catch(() => ({}));
+        throw new Error(errorData.error || "Erro ao carregar lista de produtos via API.");
+      }
+
+      const dbData = await dbRes.json();
+      
+      // 2. MERGE BLINDADO: Mapeia Supabase e une com Dropea
+      const merged = (dbData || []).map((supaProduct: any) => {
+        if (supaProduct.dropea_id) {
+          const dropProduct = dropeaProducts.find(
+            (dp: any) => String(dp.id) === String(supaProduct.dropea_id)
+          );
+
+          // 4. Se o 'dropProduct' não for encontrado, filtra este item
+          if (!dropProduct) return null;
+
+          // Normalizar para o formato esperado pelo componente
+          const dropeaImages = Array.isArray(dropProduct.images) 
+            ? dropProduct.images.map((img: any) => typeof img === "string" ? img : (img.src || img.url || "")) 
+            : [];
+
+          return {
+            ...dropProduct,
+            id: supaProduct.id,
+            supabase_id: supaProduct.id,
+            dropea_id: String(dropProduct.id),
+            title: supaProduct.title || dropProduct.name,
+            pvp: supaProduct.price || dropProduct.pvp || 0,
+            price: supaProduct.price,
+            description: supaProduct.description || dropProduct.description,
+            image_url: dropeaImages[0] || supaProduct.image_url || "",
+            extra_images: dropeaImages.join(","),
+            product_type: supaProduct.product_type || "physical",
+            category: supaProduct.category || dropProduct.category,
+            is_active: supaProduct.is_active,
+            file_url: supaProduct.file_url,
+          };
+        }
+
+        // Produto digital/local
+        return {
+          ...supaProduct,
+          supabase_id: supaProduct.id,
+          pvp: supaProduct.price || 0
+        };
+      }).filter((p: any) => p !== null);
+
+      setProducts(merged);
+    } catch (err: any) {
+      console.error("Fatal error fetching products admin:", err);
+      toast.error(`Erro ao carregar ativos: ${err.message}`);
+    }
   };
 
   const fetchDashboardData = async () => {
@@ -354,16 +464,19 @@ export default function AdminDashboard({
       );
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao salvar produto.");
+      if (!res.ok) {
+        console.error("[ADMIN SAVE ERROR]", data);
+        throw new Error(data.error || "Erro ao salvar produto.");
+      }
 
       toast.success(
-        isNew ? "E-book adicionado à boutique." : "Ativo atualizado.",
+        isNew ? "Ativo adicionado com sucesso." : "Ativo atualizado.",
       );
       setEditingProduct(null);
       fetchProducts();
     } catch (e: any) {
-      toast.error(e.message);
-      console.error("Save product error:", e);
+      toast.error(`ERRO: ${e.message}`, { duration: 5000 });
+      console.error("Save product error details:", e);
     }
   };
 
@@ -636,6 +749,17 @@ export default function AdminDashboard({
                 )}
               </button>
             ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleDropeaHandshake}
+              className="border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold hover:text-black gap-2 h-8 text-[10px] uppercase font-bold tracking-widest flex sm:flex"
+            >
+              <RefreshCw size={12} /> Sincronizar Catálogo
+            </Button>
           </div>
         </div>
 
@@ -1081,14 +1205,14 @@ export default function AdminDashboard({
                                     toast.success(data.message || 'Sincronizado!');
                                     fetchDashboardData();
                                   } else {
-                                    toast.info(data.message || 'Sem alterações no Stripe.');
+                                    toast.info(data.message || 'Sem alterações na Dropea.');
                                   }
                                 } catch (e) {
                                   toast.error('Erro de conexão.');
                                 }
                               }}
                               className="h-7 w-7 p-0 bg-white/5 border-white/10 hover:bg-luxury-gold hover:text-black rounded-none"
-                              title="Sincronizar com Stripe"
+                              title="Sincronizar com Dropea"
                             >
                               <RefreshCw size={12} />
                             </Button>
@@ -1123,7 +1247,7 @@ export default function AdminDashboard({
                     category: "Geral",
                     image_url: "",
                     file_url: "",
-                    product_type: "digital",
+                    product_type: "physical",
                     sizes_enabled: false,
                     colors_enabled: false,
                     sizes: "",
@@ -1131,6 +1255,7 @@ export default function AdminDashboard({
                     admin_link: "",
                     extra_images: "",
                     is_active: true,
+                    dropea_id: "",
                   })
                 }
                 className="w-full sm:w-auto bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold"
@@ -1139,8 +1264,40 @@ export default function AdminDashboard({
               </Button>
             </div>
 
+            {/* Import by Dropea ID Section */}
+            <div className="bg-luxury-dark border border-white/5 p-4 md:p-6 flex flex-col md:flex-row items-center gap-4">
+              <div className="flex-1 space-y-1">
+                <h3 className="text-sm font-serif text-luxury-gold">Importar por ID Dropea</h3>
+                <p className="text-[9px] uppercase tracking-widest text-white/30">Insira o ID direto do catálogo Dropea para extrair todos os dados</p>
+              </div>
+              <div className="flex w-full md:w-auto gap-2">
+                <input
+                  type="text"
+                  placeholder="Ex: 89, 1205..."
+                  value={importDropeaId}
+                  onChange={(e) => setImportDropeaId(e.target.value)}
+                  className="flex-1 md:w-48 bg-white/5 border border-white/10 px-4 py-2 text-sm focus:border-luxury-gold outline-none transition-colors"
+                />
+                <Button
+                  onClick={handleImportDropea}
+                  disabled={importing || !importDropeaId}
+                  className="bg-white/5 border border-white/10 hover:bg-luxury-gold hover:text-black transition-all h-10 px-6 text-[10px] uppercase font-bold tracking-widest"
+                >
+                  {importing ? <Loader2 size={14} className="animate-spin" /> : "Importar"}
+                </Button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {products.map((p) => (
+              {products.length === 0 ? (
+                <div className="col-span-full py-20 text-center border border-dashed border-white/10">
+                  <ShoppingBag className="mx-auto text-white/10 mb-4" size={48} />
+                  <p className="text-white/40 text-sm italic">Nenhum produto encontrado.</p>
+                  <p className="text-white/20 text-[10px] uppercase tracking-widest mt-2">
+                    Clique em "Sincronizar Catálogo" para importar da Dropea.
+                  </p>
+                </div>
+              ) : products.map((p) => (
                 <Card
                   key={p.id}
                   className="bg-luxury-dark border-white/5 rounded-none group overflow-hidden"
@@ -1152,6 +1309,26 @@ export default function AdminDashboard({
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                     />
+                    {p.dropea_id ? (
+                      <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 scale-90 origin-top-left">
+                        <div className="bg-emerald-500 text-white text-[9px] font-black px-2 py-1 uppercase tracking-tighter shadow-xl border border-white/20 flex items-center gap-1">
+                          <Check size={10} />
+                          DROPEA SYNCED
+                        </div>
+                        <div className="bg-black/90 text-luxury-gold text-[8px] px-2 py-0.5 font-bold border border-luxury-gold/30">
+                          ID: {p.dropea_id}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 scale-90 origin-top-left">
+                        <div className="bg-zinc-500/80 text-white text-[9px] font-black px-2 py-1 uppercase tracking-tighter shadow-xl border border-white/10">
+                          LOCAL ASSET
+                        </div>
+                        <div className="bg-black/90 text-white/50 text-[8px] px-2 py-0.5 font-bold">
+                          ID: {p.supabase_id?.substring(0, 8)}
+                        </div>
+                      </div>
+                    )}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                       <Button
                         variant="outline"
@@ -1174,14 +1351,12 @@ export default function AdminDashboard({
                       <h3 className="font-serif text-sm truncate flex-1">
                         {p.title}
                       </h3>
-                      {p.product_type === "physical" && (
-                        <span className="bg-luxury-gold text-black text-[7px] uppercase font-bold px-1 py-0.5 rounded-sm">
-                          Físico
-                        </span>
-                      )}
+                      <span className="bg-luxury-gold text-black text-[7px] uppercase font-bold px-1 py-0.5 rounded-sm">
+                        Curadoria
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <div className="text-luxury-gold text-xs">€{p.price}</div>
+                      <div className="text-luxury-gold text-xs">€{p.pvp}</div>
                       {p.admin_link && (
                         <a
                           href={p.admin_link}
@@ -1215,27 +1390,8 @@ export default function AdminDashboard({
                     </button>
                   </div>
 
-                  <div className="flex bg-white/5 p-1 border border-white/10 self-start">
-                    {(["digital", "physical"] as const).map((type) => (
-                      <button
-                        key={type}
-                        onClick={() =>
-                          setEditingProduct({
-                            ...editingProduct,
-                            product_type: type as any,
-                          })
-                        }
-                        className={`px-6 py-2 text-[9px] uppercase tracking-widest transition-all ${
-                          (editingProduct.product_type || "digital") === type
-                            ? "bg-luxury-gold text-black font-bold"
-                            : "text-white/40 hover:text-white"
-                        }`}
-                      >
-                        {type === "digital"
-                          ? "Produto Digital (E-Book)"
-                          : "Produto Físico"}
-                      </button>
-                    ))}
+                  <div className="flex bg-white/5 p-4 border border-white/10 self-start">
+                    <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Logística Física (S.Art Curatorship)</p>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
@@ -1258,21 +1414,39 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                          Dropea ID (Sync)
+                        </label>
+                        <input
+                          value={editingProduct.dropea_id || ""}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              dropea_id: e.target.value,
+                            })
+                          }
+                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
+                          placeholder="ID original da Dropea"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
                           Preço (€)
                         </label>
                         <input
                           type="number"
                           value={
-                            isNaN(editingProduct.price) ||
-                            editingProduct.price === undefined
+                            isNaN(editingProduct.pvp) ||
+                            editingProduct.pvp === undefined
                               ? ""
-                              : editingProduct.price
+                              : editingProduct.pvp
                           }
                           onChange={(e) => {
                             const val = e.target.value;
+                            const numVal = val === "" ? 0 : parseFloat(val);
                             setEditingProduct({
                               ...editingProduct,
-                              price: val === "" ? 0 : parseFloat(val),
+                              pvp: numVal,
+                              price: numVal
                             });
                           }}
                           className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
@@ -1521,11 +1695,11 @@ export default function AdminDashboard({
 
                         <div className="space-y-3">
                           <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">
-                            {editingProduct.product_type === "digital"
+                            {editingProduct.product_type === "physical"
                               ? "Ficheiro (PDF)"
                               : "Galeria de Fotos"}
                           </label>
-                          {editingProduct.product_type === "digital" ? (
+                          {editingProduct.product_type === "physical" ? (
                             <>
                               <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-blue-500 cursor-pointer group transition-all bg-white/5">
                                 {editingProduct.file_url ? (
@@ -1731,7 +1905,7 @@ export default function AdminDashboard({
                             </div>
                           )}
                         <div className="text-[9px] uppercase tracking-widest text-white/20 mt-1">
-                          Ref: {order.product_id.slice(0, 8)}
+                          Ref: {order.product_id?.slice(0, 8) || "N/A"}
                         </div>
                       </td>
                       <td className="px-8 py-6 text-luxury-gold/80">
@@ -1753,7 +1927,7 @@ export default function AdminDashboard({
                         €{order.total_amount}
                       </td>
                       <td className="px-8 py-6">
-                        {order.product?.product_type === "digital" ? (
+                        {order.product?.product_type === "physical" ? (
                           <span className="text-emerald-500 font-bold text-[9px] uppercase tracking-widest inline-block py-1">
                             Sem Logística (Digital)
                           </span>
@@ -1844,7 +2018,7 @@ export default function AdminDashboard({
                             {["pending", "pendente", "waiting"].includes(order.status?.toLowerCase() || "") ? "Pendente" :
                              ["paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "") ? "Pago" :
                              order.status === "refund_requested" ? "Em Análise" :
-                             order.status === "refund_pending" ? "Estornando (Stripe)" :
+                             order.status === "refund_pending" ? "Estornando" :
                              order.status === "refunded" ? "Reembolsado" :
                              order.status?.toUpperCase() || "Status"}
                           </div>
@@ -1863,16 +2037,16 @@ export default function AdminDashboard({
                                    });
                                    const data = await response.json();
                                    if (data.success) {
-                                     toast.success(data.message || 'Status sincronizado com o Stripe!');
+                                     toast.success(data.message || 'Status sincronizado com a Dropea!');
                                      fetchDashboardData();
                                    } else {
-                                     toast.info(data.message || 'Ainda não pago no Stripe.');
+                                     toast.info(data.message || 'Ainda não pago na Dropea.');
                                    }
                                  } catch(e) {
                                    toast.error('Erro de sincronização.');
                                  }
                                }}
-                               title="Forçar verificação de pagamento no Stripe"
+                               title="Forçar verificação de pagamento na Dropea"
                                className="text-white/40 hover:text-luxury-gold p-1.5 rounded-full transition-colors flex bg-white/5 hover:bg-white/10"
                              >
                                <RefreshCw size={12} />
@@ -1882,7 +2056,7 @@ export default function AdminDashboard({
                           {(order.status === 'refund_pending' || order.status === 'paid' || order.status === 'completed') && (
                             <button
                                onClick={async () => {
-                                 if (!confirm("Deseja realmente processar o reembolso total desta ordem via Stripe?")) return;
+                                 // Processar direto
                                  try {
                                    const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
                                      method: 'POST',
@@ -1893,7 +2067,7 @@ export default function AdminDashboard({
                                    });
                                    const data = await response.json();
                                    if (data.success) {
-                                     toast.success(`Reembolso Stripe processado: ${data.stripe_status}`);
+                                     toast.success(`Reembolso processado com sucesso`);
                                      fetchDashboardData();
                                    } else {
                                      toast.error(data.error || 'Erro ao processar reembolso.');
@@ -1902,7 +2076,7 @@ export default function AdminDashboard({
                                    toast.error('Erro de rede ao processar reembolso.');
                                  }
                                }}
-                               title="Processar Reembolso no Stripe"
+                               title="Processar Reembolso na Dropea"
                                className="text-red-500 hover:text-red-400 p-1.5 rounded-full transition-colors flex bg-red-500/10 hover:bg-red-500/20"
                              >
                                <Undo2 size={12} />
@@ -1935,7 +2109,7 @@ export default function AdminDashboard({
                   Gestão de <span className="text-red-500 italic">Reembolsos</span>
                 </h2>
                 <p className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
-                  Controle as solicitações de devolução de membros. A aprovação administrativa inicia o processo de estorno seguro via Stripe.
+                  Controle as solicitações de devolução de membros. A aprovação administrativa inicia o processo de estorno seguro via Dropea.
                 </p>
               </div>
 
@@ -2008,7 +2182,7 @@ export default function AdminDashboard({
                                           : 'bg-white/5 text-white/40 border border-white/10'
                                 }`}>
                                   {order.status?.toLowerCase() === 'refund_requested' ? 'Em Análise' : 
-                                   order.status?.toLowerCase() === 'refund_pending' ? 'Processando Estorno (Stripe)' : 
+                                   order.status?.toLowerCase() === 'refund_pending' ? 'Processando Estorno' : 
                                    order.status?.toLowerCase() === 'refund_rejected' ? 'Solicitação Rejeitada' : 
                                    order.status?.toLowerCase() === 'refunded' ? 'Reembolso Concluído' :
                                    order.status?.toUpperCase() || 'Pendente'}
@@ -2047,7 +2221,7 @@ export default function AdminDashboard({
                                       }}
                                       variant="outline"
                                       className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none transition-all"
-                                      title="Sincronizar estado com Stripe"
+                                      title="Sincronizar estado com Dropea"
                                     >
                                       <RefreshCw size={10} className="mr-1 sync-icon" />
                                       Sincronizar
@@ -2057,7 +2231,7 @@ export default function AdminDashboard({
                                         <>
                                           <Button
                                             onClick={async () => {
-                                              if (!confirm("Deseja realmente aprovar e processar o reembolso via Stripe?")) return;
+                                              // Aprovado sem popup de sistema
                                               try {
                                                 const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
                                                   method: 'POST',
@@ -2083,7 +2257,7 @@ export default function AdminDashboard({
                                           </Button>
                                           <Button
                                             onClick={async () => {
-                                              if (!confirm("Deseja realmente recusar esta solicitação de reembolso?")) return;
+                                              // Recusado sem popup de sistema
                                               try {
                                                 const response = await fetch(`/api/admin/orders/${order.id}/cancel-refund`, {
                                                   method: 'POST',
@@ -2115,7 +2289,7 @@ export default function AdminDashboard({
                                     <div className="flex flex-col items-end gap-1 mt-2">
                                       <div className="text-[9px] text-blue-400 uppercase tracking-widest flex items-center gap-2 font-bold bg-blue-500/5 px-2 py-1 border border-blue-500/10">
                                         <Loader2 size={10} className="animate-spin" />
-                                        Processamento Stripe
+                                        Processamento Dropea
                                       </div>
                                       <div className="text-[7px] text-white/40 uppercase tracking-[0.1em] mt-1 text-right">
                                         Clique em Sincronizar se o estorno já foi concluído
@@ -2320,7 +2494,7 @@ export default function AdminDashboard({
                 <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-2">
                   <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
                   <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
-                  <div className="select-all block"><span className="text-white/40 select-none">Stripe Session:</span> {viewingOrder.stripe_session_id || "N/A"}</div>
+                  <div className="select-all block"><span className="text-white/40 select-none">Dropea Order ID:</span> {viewingOrder.dropea_order_id || "N/A"}</div>
                 </div>
               </div>
             </div>

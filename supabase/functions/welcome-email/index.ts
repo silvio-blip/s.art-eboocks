@@ -27,10 +27,14 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const smtpHostname = Deno.env.get("SMTP_HOSTNAME") || "smtp.gmail.com";
-    const smtpUser = Deno.env.get("SMTP_USER") || "silviok5000@gmail.com";
-    const smtpPass = Deno.env.get("SMTP_PASS") || "sziofpaflypbjbce";
+    const smtpHostname = Deno.env.get("SMTP_HOSTNAME");
+    const smtpUser = Deno.env.get("SMTP_USER");
+    const smtpPass = Deno.env.get("SMTP_PASS");
     const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "465");
+
+    if (!smtpHostname || !smtpUser || !smtpPass) {
+      throw new Error("SMTP credentials not configured in Supabase secrets.");
+    }
 
     const { record } = await req.json();
     const email = record.email;

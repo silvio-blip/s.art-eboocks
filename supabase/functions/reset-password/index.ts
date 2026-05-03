@@ -47,17 +47,6 @@ Deno.serve(async (req) => {
 
     if (dbError) throw dbError;
 
-    // 3. Enviar e-mail via Nodemailer (Muito mais estável)
-    const transporter = nodemailer.createTransport({
-      host: Deno.env.get("SMTP_HOSTNAME"),
-      port: parseInt(Deno.env.get("SMTP_PORT") || "465"),
-      secure: parseInt(Deno.env.get("SMTP_PORT") || "465") === 465,
-      auth: {
-        user: Deno.env.get("SMTP_USER"),
-        pass: Deno.env.get("SMTP_PASS"),
-      },
-    });
-
     const htmlContent = `
       <!DOCTYPE html>
       <html lang="pt">
@@ -86,7 +75,7 @@ Deno.serve(async (req) => {
                     <div style="width: 30px; height: 1px; background-color: #333; margin-bottom: 40px;"></div>
                     <p style="margin: 0; font-size: 11px; letter-spacing: 4px; color: #666666; text-transform: uppercase; font-family: 'Segoe UI', Arial, sans-serif;">Avis Confidentiel</p>
                     <h2 style="margin: 45px 0 40px 0; font-size: 28px; color: #ffffff; font-style: italic; font-weight: 400; line-height: 1.4; letter-spacing: 1px;">
-                      Restauration de l'Accès au Profil
+                      Restauration de l'Accès ao Perfil
                     </h2>
                     <p style="margin: 0; font-size: 16px; line-height: 2.4; color: #a1a1a1; text-align: center; font-weight: 300;">
                       Para preservar a integridade da sua presença na <strong>maison S.ART</strong>, foi gerada uma nova chave de segurança. Este procedimento garante que apenas o legítimo detentor da curadoria possa aceder ao atelier.
@@ -124,6 +113,17 @@ Deno.serve(async (req) => {
       </body>
       </html>
     `;
+
+    // 3. Enviar e-mail via Nodemailer (Muito mais estável)
+    const transporter = nodemailer.createTransport({
+      host: Deno.env.get("SMTP_HOSTNAME"),
+      port: parseInt(Deno.env.get("SMTP_PORT") || "465"),
+      secure: parseInt(Deno.env.get("SMTP_PORT") || "465") === 465,
+      auth: {
+        user: Deno.env.get("SMTP_USER"),
+        pass: Deno.env.get("SMTP_PASS"),
+      },
+    });
 
     await transporter.sendMail({
       from: Deno.env.get("SMTP_USER"),

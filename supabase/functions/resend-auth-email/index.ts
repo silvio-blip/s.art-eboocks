@@ -1,7 +1,6 @@
 // supabase/functions/resend-auth-email/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-
-const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+import { SmtpClient } from "https://deno.land/x/smtp/mod.ts"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,6 +13,16 @@ serve(async (req) => {
   }
 
   try {
+    const smtpHostname = Deno.env.get("SMTP_HOSTNAME") || "smtp.gmail.com";
+    const smtpUser = Deno.env.get("SMTP_USER");
+    const smtpPass = Deno.env.get("SMTP_PASS");
+    const smtpPort = parseInt(Deno.env.get("SMTP_PORT") || "465");
+
+    if (!smtpUser || !smtpPass) {
+       // Se não houver SMTP configurado ainda, mostramos o erro mas não bloqueamos o boot
+       throw new Error("SMTP credentials not configured in Supabase secrets.");
+    }
+
     const payload = await req.json()
     const { email, token, token_hash, type, redirect_to } = payload
 
@@ -45,17 +54,14 @@ serve(async (req) => {
       actionText = isOTP ? token : 'CONFIRMAR E-MAIL'
     }
 
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: 'S.Art <suporte@s.art-full.pt>',
-        to: email,
-        subject: subject,
-        html: `
+    const client = new SmtpClient();
+    await client.connectTLS({ hostname: smtpHostname, port: smtpPort, username: smtpUser, password: smtpPass });
+    
+    await client.send({
+      from: smtpUser!,
+      to: email,
+      subject: subject,
+      html: `
           <!DOCTYPE html>
           <html>
             <head>
@@ -116,11 +122,11 @@ serve(async (req) => {
             </body>
           </html>
         `,
-      }),
-    })
+    });
 
-    const data = await res.json()
-    return new Response(JSON.stringify(data), {
+    await client.close();
+
+    return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
