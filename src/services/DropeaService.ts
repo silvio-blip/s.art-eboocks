@@ -20,45 +20,40 @@ export interface DropeaCheckoutSession {
 export const DropeaService = {
   async getProducts(userId?: string, retries = 2): Promise<DropeaProduct[]> {
     try {
-      const graphqlQuery = {
-        query: `query {
-          products(page: 1) {
-            data {
-              id
-              name
-              images
-              pvpr
-              category
-              description
-            }
-          }
-        }`
-      };
-
-      const fetchUrl = '/api/dropea-api/graphql/dropshippers';
+      // Usar o endpoint do servidor que já possui CACHE para evitar 429 da Dropea
+      const fetchUrl = '/api/dropea-products';
       const response = await fetch(fetchUrl, {
-        method: 'POST',
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
           'Accept': 'application/json'
-        },
-        body: JSON.stringify(graphqlQuery)
+        }
       });
       
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`--- [DropeaService] Proxy Error ${response.status} ---`, errorText);
+        
+        // Se for 429, não adianta tentar em 1s, melhor falhar ou esperar muito mais
+        if (response.status === 429 && retries > 0) {
+           console.log(`--- [DropeaService] Rate limit hit. Waiting 5s before last retry... ---`);
+           await new Promise(resolve => setTimeout(resolve, 5000));
+           return DropeaService.getProducts(userId, retries - 1);
+        }
         return [];
       }
       
-      const result = await response.json();
-      const rawProducts = result?.data?.products?.data || [];
+      const rawProducts = await response.json();
+      
+      if (!Array.isArray(rawProducts)) {
+        console.error('--- [DropeaService] Invalid data format from server ---');
+        return [];
+      }
       
       // Map to our DropeaProduct interface
       const products = rawProducts.map((p: any) => ({
         id: String(p.id),
         name: p.name,
-        pvp: Number(p.pvpr),
+        pvp: Number(p.pvp || p.pvpr),
         pvpr: Number(p.pvpr),
         description: p.description || "",
         images: Array.isArray(p.images) ? p.images : [],
@@ -68,8 +63,8 @@ export const DropeaService = {
       return products;
     } catch (error: any) {
       if (retries > 0) {
-        console.log(`--- [DropeaService] Retrying fetch in 1s... (${retries} left) ---`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(`--- [DropeaService] Retrying fetch in 2s... (${retries} left) ---`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
         return DropeaService.getProducts(userId, retries - 1);
       }
       console.error('--- [DropeaService] FATAL ERROR ---', error);

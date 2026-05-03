@@ -55,6 +55,12 @@ const initDB = async () => {
 };
 initDB();
 
+// --- Stripe Integration ---
+let stripe: Stripe | null = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+}
+
 // Global Error Handler
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception:', err);
@@ -76,10 +82,10 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
 
   try {
     const rawBody = req.body;
-    if (endpointSecret && sig) {
-      event = stripe!.webhooks.constructEvent(rawBody, sig, endpointSecret);
+    if (endpointSecret && sig && stripe) {
+      event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
     } else {
-      // Falback se não houver secret, mas o body precisa ser string ou buffer
+      // Fallback if no secret or no stripe client (dev mode)
       const bodyString = Buffer.isBuffer(rawBody) ? rawBody.toString() : (typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody));
       event = JSON.parse(bodyString);
     }
@@ -120,11 +126,11 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
         .single();
 
       if (orderError) {
-        console.error(`[STRIPE WEBHOOK DB ERROR] Falha ao inserir ordem:`, orderError);
+        console.error(`[STRIPE WEBHOOK DB ERROR] Falha ao inserir ordem para user ${userId}:`, JSON.stringify(orderError, null, 2));
         throw orderError;
       }
       
-      console.log(`[STRIPE WEBHOOK] Ordem criada no Supabase ID: ${orderData.id}. Disparando fulfillment...`);
+      console.log(`[STRIPE WEBHOOK SUCCESS] Ordem criada no Supabase ID: ${orderData.id}. Disparando fulfillment...`);
 
       // Fulfillment imediato
       if (orderData) {
@@ -219,24 +225,24 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     shopId: shopId || Number(DROPEA_SHOP_ID),
     paymentMethod: "MANUAL",
     customer: {
-      first_name: customer.first_name || customer.firstName || "Nome",
-      last_name: customer.last_name || customer.lastName || "Teste",
+      first_name: customer.firstName || customer.first_name || (customer.fullName ? customer.fullName.split(' ')[0] : "Nome"),
+      last_name: customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || '.' : "Teste"),
       email: customer.email || "cliente@teste.com",
       phone: customer.phone || "912345678",
       address: customer.address || "Rua Exemplo",
       city: customer.city || "Lisboa",
-      zip: customer.zip || "1000-001",
+      zip: customer.zip || customer.postalCode || "1000-001",
       country: countryCode
     },
     products: [{
-      product_id: parseInt(String(product.product_id || product.dropea_id), 10),
+      product_id: parseInt(String(product.product_id || product.dropea_id || 0), 10),
       quantity: parseInt(String(product.quantity || 1), 10),
       total_value: parseFloat(String(product.total_value || product.pvp || 0)),
-      unit_price: parseFloat(String(product.unit_price || product.pvp || 0))
+      unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
     }]
   };
 
-  console.log(`[DROPEA INTERNAL] Criando pedido para ${variables.customer.email}...`);
+  console.log(`[DROPEA INTERNAL] Criando pedido para ${variables.customer.email}. Dados:`, JSON.stringify(variables.customer));
   
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
@@ -257,109 +263,111 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
   return response.data?.data?.orderCreate?.id;
 }
 
+async function getDropeaOrderStatus(dropeaOrderId: string) {
+  const graphqlQuery = `
+    query Order($id: ID!) {
+      order(id: $id) {
+        id
+        status
+        shipping_status
+        tracking_number
+        tracking_url
+      }
+    }
+  `;
+
+  const variables = { id: dropeaOrderId };
+
+  console.log(`[DROPEA STATUS CHECK] Checking Dropea ID: ${dropeaOrderId}...`);
+  
+  const response = await axios.post(DROPEA_API_URL, {
+    query: graphqlQuery,
+    variables
+  }, {
+    headers: {
+      'x-api-key': DROPEA_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    timeout: 10000
+  });
+
+  if (response?.data?.errors) {
+    console.error('[DROPEA STATUS ERRORS]', JSON.stringify(response.data.errors, null, 2));
+    return null;
+  }
+
+  return response.data?.data?.order;
+}
+
 // --- WEBHOOK DROPEA ---
 app.post('/api/dropea/webhook', express.json(), async (req, res) => {
   const payload = req.body;
   const { event, data } = payload;
   const supabase = getSupabase();
 
-  console.log(`[DROPEA WEBHOOK] Event: ${event}`);
-  console.log('[DROPEA WEBHOOK] Data:', JSON.stringify(data, null, 2));
+  console.log(`[DROPEA WEBHOOK] Event received: ${event}`);
+  // Data log truncated for security/sanity if it's too big, but usually it's fine
+  // console.log('[DROPEA WEBHOOK] Data:', JSON.stringify(data, null, 2));
 
   try {
-    // Checkout concluído ou Pagamento Confirmado
+    const dropeaOrderId = data.id || data.order_id || data.token;
+    
+    // 1. Handle Payment/Creation Events
     if (event === 'checkout.completed' || event === 'payment.succeeded' || event === 'order.paid') {
       const orderId = data.metadata?.orderId || data.order_id;
       const checkoutToken = data.checkout_token || data.id || data.token;
       const email = data.customer_email || data.email;
       const productId = data.product_id || data.metadata?.productId;
       
-      if (!orderId) {
-        console.warn('[DROPEA WEBHOOK] No orderId found in metadata or root');
-        return res.json({ received: true, ignored: true, reason: 'no_order_id' });
+      if (orderId) {
+        console.log(`[DROPEA WEBHOOK] Processing Payment for Order: ${orderId}`);
+        await supabase
+          .from('orders')
+          .update({
+            status: 'paid',
+            dropea_order_id: checkoutToken,
+            customer_email: email
+          })
+          .eq('id', orderId);
+      }
+    } 
+    
+    // 2. Handle Shipping/Fulfillment Events (The "Real-time tracking")
+    else if (event === 'order.shipped' || event === 'order.fulfilled' || event === 'fulfillment.created') {
+      console.log(`[DROPEA WEBHOOK] Order Shipped event for Dropea ID: ${dropeaOrderId}`);
+      
+      const trackingNumber = data.tracking_number || (data.fulfillment?.tracking_number) || (data.tracking?.number);
+      const trackingUrl = data.tracking_url || (data.fulfillment?.tracking_url) || (data.tracking?.url);
+
+      const updateData: any = { shipping_status: 'sent' };
+      if (trackingNumber) {
+        // We'll store tracking info in selected_options or a metadata field if column doesn't exist
+        // Since we didn't add the column yet, we use JSONB shipping_details or selected_options
+        updateData.shipping_status_metadata = { trackingNumber, trackingUrl, lastUpdate: new Date().toISOString() };
       }
 
-      console.log(`[DROPEA WEBHOOK] Processing Success for Order: ${orderId}, Email: ${email}`);
-
-      // 1. Update Order in Supabase
-      const { data: existingOrder, error: fetchError } = await supabase
+      await supabase
         .from('orders')
-        .select('*')
-        .eq('id', orderId)
-        .maybeSingle();
-
-      if (fetchError) throw fetchError;
-
-      if (!existingOrder) {
-        console.warn(`[DROPEA WEBHOOK] Order ${orderId} not found in DB`);
-        return res.json({ received: true, ignored: true, reason: 'order_not_found' });
-      }
-
-      // Evitar processar se já estiver pago
-      if (existingOrder.status === 'paid') {
-        console.log(`[DROPEA WEBHOOK] Order ${orderId} already marked as paid.`);
-        return res.json({ received: true });
-      }
-
-      const { error: updateError } = await supabase
+        .update(updateData)
+        .eq('dropea_order_id', String(dropeaOrderId));
+    }
+    
+    else if (event === 'order.delivered') {
+      console.log(`[DROPEA WEBHOOK] Order Delivered for Dropea ID: ${dropeaOrderId}`);
+      await supabase
         .from('orders')
-        .update({
-          status: 'paid',
-          payment_status: 'paid',
-          dropea_order_id: checkoutToken,
-          customer_email: email || existingOrder.customer_email,
-          total_amount: data.amount || data.total || existingOrder.total_amount
-        })
-        .eq('id', orderId);
+        .update({ shipping_status: 'delivered' })
+        .eq('dropea_order_id', String(dropeaOrderId));
+    }
 
-      if (updateError) throw updateError;
-      console.log(`[DROPEA WEBHOOK] Order ${orderId} status updated to paid`);
-
-      // 2. Prepare Physical Product Delivery (Shipping Pending)
-      const finalProductId = productId || existingOrder.product_id;
-      const { data: product } = await supabase
-        .from('products')
-        .select('*')
-        .eq('id', finalProductId)
-        .single();
-
-      const finalEmail = email || existingOrder.customer_email;
-
-      if (product && finalEmail) {
-        console.log(`[DROPEA WEBHOOK] Produto físico ${product.title} vendido para ${finalEmail}. Aguardando preparação de envio.`);
-        
-        // Em vez de enviar link de download, enviamos email de confirmação de compra física
-        const emailBody = `
-          <h2 style="font-style: italic; font-weight: normal; margin-bottom: 25px;">Estimado(a) Cliente,</h2>
-          
-          <p style="font-size: 16px; line-height: 1.8; color: #444;">
-            Confirmamos a sua aquisição na <strong>S.Art Boutique</strong>. O seu produto está agora em processo de preparação para envio.
-          </p>
-          
-          <div style="margin: 45px 0; text-align: center; background-color: #fafafa; padding: 30px; border: 1px solid #eee;">
-            <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 20px;">Produto:</p>
-            <h3 style="margin-bottom: 30px; font-size: 20px;">${product.title}</h3>
-          </div>
-          
-          <p style="font-size: 13px; color: #999; text-align: center;">
-            Entraremos em contacto brevemente com o número de rastreio.
-          </p>
-        `;
-
-        await supabase.functions.invoke('send-email', {
-          body: { 
-            to: finalEmail, 
-            subject: `Confirmação de encomenda: "${product.title}" 📦`,
-            body: emailBody,
-            name: 'S.Art Boutique'
-          }
-        });
+    else if (event === 'order.canceled' || event === 'payment.failed') {
+      console.log(`[DROPEA WEBHOOK] Order Canceled for Dropea ID: ${dropeaOrderId}`);
+      const orderId = data.metadata?.orderId || data.order_id;
+      if (orderId) {
+        await supabase.from('orders').update({ status: 'canceled' }).eq('id', orderId);
+      } else if (dropeaOrderId) {
+        await supabase.from('orders').update({ status: 'canceled' }).eq('dropea_order_id', String(dropeaOrderId));
       }
-    } else if (event === 'order.canceled' || event === 'payment.failed') {
-       const orderId = data.metadata?.orderId || data.order_id;
-       if (orderId) {
-         await supabase.from('orders').update({ status: 'canceled' }).eq('id', orderId);
-       }
     }
   } catch (err: any) {
     console.error('[DROPEA WEBHOOK ERROR]', err.message);
@@ -511,15 +519,12 @@ apiRouter.get('/test-api', (req, res) => {
 });
 
 let dropeaCatalogCache: { data: any, timestamp: number } | null = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
 
 // Get Dropea Products (GraphQL)
 apiRouter.get('/dropea-products', async (req, res) => {
   console.log('[DROPEA] Acessando /api/dropea-products');
   
-  // DEBUG: Return mock data instantly to test connectivity
-  // return res.json([{ id: 'test', name: 'Connectivity Test Product', pvp: 10, images: [], category: 'Test' }]);
-
   // Use cache if available and valid
   if (dropeaCatalogCache && (Date.now() - dropeaCatalogCache.timestamp < CACHE_DURATION)) {
     console.log('[DROPEA] Returning cached products');
@@ -528,12 +533,23 @@ apiRouter.get('/dropea-products', async (req, res) => {
 
   try {
     const supabase = getSupabase();
-    console.log('[DROPEA] Inicializando Supabase e variáveis...');
     
-    // 1. Fetch Dropea catalog (Page 1 only for catalog view)
-    console.log(`[DROPEA] Requisitando catálogo (GraphQL) da Dropea... Key: ${DROPEA_API_KEY?.substring(0, 5)}...`);
+    // 1. Fetch Dropea catalog (Page 1)
     const targetUrl = DROPEA_API_URL;
-    const graphqlQuery = { query: `query { products(page: 1) { data { id name images pvpr category } } }` };
+    const graphqlQuery = { 
+      query: `query { 
+        products(page: 1) { 
+          data { 
+            id 
+            name 
+            images 
+            pvpr 
+            category 
+            description 
+          } 
+        } 
+      }` 
+    };
     
     if (!DROPEA_API_KEY || DROPEA_API_KEY.includes('AIza')) {
        console.warn('[DROPEA] WARNING: API Key appears to be invalid or placeholder.');
@@ -601,6 +617,74 @@ apiRouter.get('/dropea-products', async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: 'Falha interna ao processar produtos', details: error.message });
     }
+  }
+});
+
+// Sync Order Status manually (Client Triggered)
+apiRouter.post('/orders/:id/sync', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+
+    const { data: order, error: fetchError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    if (!order.dropea_order_id) {
+      return res.status(400).json({ error: 'Esta ordem ainda não foi enviada para a Dropea' });
+    }
+
+    const dropeaData = await getDropeaOrderStatus(order.dropea_order_id);
+
+    if (dropeaData) {
+      const updateData: any = {};
+      
+      // Mapeamento de Status da Dropea
+      // status: PAID, FULFILLED, CANCELLED, REFUNDED
+      // shipping_status: PENDING, SHIPPED, DELIVERED
+      
+      if (dropeaData.status === 'FULFILLED') {
+        updateData.status = 'completed';
+      } else if (dropeaData.status === 'CANCELLED') {
+        updateData.status = 'canceled';
+      } else if (dropeaData.status === 'REFUNDED') {
+        updateData.status = 'refunded';
+      }
+
+      if (dropeaData.shipping_status === 'SHIPPED') {
+        updateData.shipping_status = 'sent';
+      } else if (dropeaData.shipping_status === 'DELIVERED') {
+        updateData.shipping_status = 'delivered';
+      } else if (dropeaData.shipping_status === 'PENDING') {
+        updateData.shipping_status = 'pending';
+      }
+      
+      // Store full metadata including tracking
+      if (dropeaData.tracking_number) {
+        updateData.shipping_status_metadata = {
+          trackingNumber: dropeaData.tracking_number,
+          trackingUrl: dropeaData.tracking_url,
+          lastSync: new Date().toISOString()
+        };
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await supabase.from('orders').update(updateData).eq('id', id);
+      }
+      
+      return res.json({ success: true, dropea: dropeaData, localUpdated: Object.keys(updateData).length > 0 });
+    }
+
+    res.status(502).json({ error: 'Não foi possível obter dados da Dropea' });
+  } catch (err: any) {
+    console.error('[ORDER SYNC ERROR]', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1242,6 +1326,44 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
   }
 });
 
+adminRouter.post('/orders/:id/fulfill', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    if (order.status !== 'paid' && order.status !== 'completed') {
+      return res.status(400).json({ error: 'Apenas pedidos pagos podem ser enviados para a Dropea' });
+    }
+
+    // Mesmo que já tenha ID, permitimos re-enviar se o admin insistir (ou podemos bloquear se preferir)
+    // Aqui vou deixar aberto para casos de erro onde o admin quer tentar de novo.
+    
+    await processOrderFulfillment(order);
+    
+    // Buscar ordem atualizada para retornar pro front
+    const { data: updatedOrder } = await supabase.from('orders').select('*').eq('id', id).single();
+    
+    res.json({ 
+      success: true, 
+      message: 'Pedido enviado para processamento na Dropea',
+      order: updatedOrder
+    });
+  } catch (error: any) {
+    console.error(`[ADMIN FULFILL ERROR]`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1479,12 +1601,6 @@ apiRouter.use((err: any, req: express.Request, res: express.Response, next: expr
   });
 });
 
-// --- Stripe Integration ---
-let stripe: Stripe | null = null;
-if (process.env.STRIPE_SECRET_KEY) {
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-}
-
 apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
     const { product, customer, baseUrl } = req.body;
@@ -1693,21 +1809,40 @@ function setupDatabaseListeners() {
 async function processOrderFulfillment(order: any) {
   try {
     const supabase = getSupabase();
-    // Normalizar shipping_details (pode vir como string metadata do Stripe ou objeto do Supabase)
-    const customerData = typeof order.shipping_details === 'string' 
-      ? JSON.parse(order.shipping_details) 
-      : (order.shipping_details || {});
+    
+    // Verificação de segurança: Buscar o estado mais recente no DB para evitar double-tap
+    const { data: latestOrder, error: fetchErr } = await supabase
+      .from('orders')
+      .select('dropea_order_id, status, shipping_details, product_id, total_amount')
+      .eq('id', order.id)
+      .single();
 
-    const { data: product } = await supabase.from('products').select('dropea_id').eq('id', order.product_id).single();
+    if (fetchErr || !latestOrder) {
+      console.error(`[FULFILLMENT ERROR] Erro ao buscar ordem ${order.id} no DB:`, fetchErr);
+      return;
+    }
+
+    if (latestOrder.dropea_order_id) {
+      console.log(`[FULFILLMENT SKIP] Ordem ${order.id} já possui dropea_order_id: ${latestOrder.dropea_order_id}`);
+      return;
+    }
+
+    // Normalizar shipping_details
+    const customerData = typeof latestOrder.shipping_details === 'string' 
+      ? JSON.parse(latestOrder.shipping_details) 
+      : (latestOrder.shipping_details || {});
+
+    const { data: product } = await supabase.from('products').select('dropea_id').eq('id', latestOrder.product_id).single();
     if (!product?.dropea_id) {
-      console.error(`[FULFILLMENT ERROR] Produto ${order.product_id} não possui dropea_id. Impossível sincronizar.`);
+      console.error(`[FULFILLMENT ERROR] Produto ${latestOrder.product_id} não possui dropea_id. Impossível sincronizar.`);
       return;
     }
 
     const dropeaOrderId = await createDropeaOrderInternal(Number(DROPEA_SHOP_ID), customerData, {
       product_id: product.dropea_id,
       quantity: 1,
-      total_value: order.total_amount
+      total_value: latestOrder.total_amount,
+      unit_price: latestOrder.total_amount
     });
 
     if (dropeaOrderId) {

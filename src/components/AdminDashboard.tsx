@@ -91,6 +91,11 @@ interface Order {
   product?: Product;
   selected_options?: { size?: string; color?: string };
   shipping_status?: string;
+  shipping_status_metadata?: {
+    trackingNumber?: string;
+    trackingUrl?: string;
+    lastSync?: string;
+  };
   shipping_details?: {
     fullName: string;
     address: string;
@@ -697,6 +702,76 @@ export default function AdminDashboard({
 
     return true;
   });
+
+  const handleManualFulfill = async (orderId: string) => {
+    try {
+      toast.loading("A processar pedido na Dropea...", { id: "fulfill" });
+      const res = await fetch(`/api/admin/orders/${orderId}/fulfill`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        }
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao sincronizar com Dropea");
+      
+      toast.success("Pedido sincronizado com sucesso na Dropea!", { id: "fulfill" });
+      
+      // Atualizar estado local
+      if (viewingOrder && viewingOrder.id === orderId) {
+        setViewingOrder({
+          ...viewingOrder,
+          dropea_order_id: data.order.dropea_order_id
+        });
+      }
+      
+      // Recarregar dados do dashboard
+      fetchDashboardData();
+    } catch (err: any) {
+      console.error("[Manual Fulfill Error]", err);
+      toast.error(err.message, { id: "fulfill" });
+    }
+  };
+
+  const handleSyncStatus = async (orderId: string) => {
+    try {
+      toast.loading("A sincronizar status com Dropea...", { id: "sync" });
+      const res = await fetch(`/api/orders/${orderId}/sync`, {
+        method: 'POST'
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao sincronizar");
+      
+      toast.success("Status atualizado com sucesso!", { id: "sync" });
+      
+      // Atualizar estado local do visualizador
+      if (viewingOrder && viewingOrder.id === orderId) {
+        setViewingOrder({
+          ...viewingOrder,
+          status: data.dropea?.status === 'FULFILLED' ? 'completed' : 
+                  data.dropea?.status === 'CANCELLED' ? 'canceled' :
+                  data.dropea?.status === 'REFUNDED' ? 'refunded' :
+                  viewingOrder.status,
+          shipping_status: data.dropea?.shipping_status === 'SHIPPED' ? 'sent' : 
+                           data.dropea?.shipping_status === 'DELIVERED' ? 'delivered' : 
+                           data.dropea?.shipping_status === 'PENDING' ? 'pending' :
+                           viewingOrder.shipping_status,
+          shipping_status_metadata: data.localUpdated ? {
+             trackingNumber: data.dropea?.tracking_number,
+             trackingUrl: data.dropea?.tracking_url,
+             lastSync: new Date().toISOString()
+          } : viewingOrder.shipping_status_metadata
+        });
+      }
+      
+      fetchDashboardData();
+    } catch (err: any) {
+      toast.error(err.message, { id: "sync" });
+    }
+  };
 
   if (loading) {
     return (
@@ -2438,7 +2513,16 @@ export default function AdminDashboard({
       </div>
 
       {viewingOrder && (() => {
-        const shippingData = viewingOrder.shipping_details || viewingOrder.selected_options?.shipping_details;
+        const shippingData = (() => {
+          if (!viewingOrder.shipping_details) return viewingOrder.selected_options?.shipping_details;
+          if (typeof viewingOrder.shipping_details === 'object') return viewingOrder.shipping_details;
+          try {
+            return JSON.parse(viewingOrder.shipping_details);
+          } catch(e) {
+            return null;
+          }
+        })();
+        
         return (
         <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-4">
           <Card className="max-w-2xl w-full bg-luxury-dark border-white/10 rounded-sm p-8 space-y-6 animate-in zoom-in-95 duration-500 max-h-[90vh] overflow-y-auto">
@@ -2477,7 +2561,7 @@ export default function AdminDashboard({
                 <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Cliente</p>
                 <div className="text-base text-white">{viewingOrder.customer_email}</div>
                 {shippingData && (
-                  <div className="text-sm text-white/80 mt-1">{shippingData.fullName}</div>
+                  <div className="text-sm text-white/80 mt-1">{shippingData.fullName || `${shippingData.firstName || ''} ${shippingData.lastName || ''}`.trim() || shippingData.name}</div>
                 )}
               </div>
 
@@ -2487,11 +2571,11 @@ export default function AdminDashboard({
                     <Truck size={14} /> Morada de Envio Completa
                   </div>
                   <div className="text-sm space-y-1 text-white/80">
-                    <p><span className="text-white/40">Morada:</span> {shippingData.address}</p>
-                    <p><span className="text-white/40">Código Postal:</span> {shippingData.postalCode}</p>
-                    <p><span className="text-white/40">Localidade:</span> {shippingData.city}</p>
-                    <p><span className="text-white/40">País:</span> {shippingData.country}</p>
-                    <p><span className="text-white/40">Telemóvel:</span> {shippingData.phone}</p>
+                    <p><span className="text-white/40">Morada:</span> {shippingData.address || "N/A"}</p>
+                    <p><span className="text-white/40">Código Postal:</span> {shippingData.postalCode || shippingData.zip || "N/A"}</p>
+                    <p><span className="text-white/40">Localidade:</span> {shippingData.city || "N/A"}</p>
+                    <p><span className="text-white/40">País:</span> {shippingData.country || "N/A"}</p>
+                    <p><span className="text-white/40">Telemóvel:</span> {shippingData.phone || "N/A"}</p>
                   </div>
                 </div>
               ) : (
@@ -2505,12 +2589,106 @@ export default function AdminDashboard({
                 </div>
               )}
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 pt-6 border-t border-white/10">
+                <div className="p-4 bg-white/5 border border-white/10">
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Pedido</p>
+                  <div className="flex items-center gap-2">
+                     <span className={`text-[10px] uppercase font-black px-2 py-1 ${
+                       viewingOrder.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' :
+                       viewingOrder.status === 'paid' ? 'bg-luxury-gold/20 text-luxury-gold outline outline-1 outline-luxury-gold/50' :
+                       viewingOrder.status === 'canceled' ? 'bg-red-500/10 text-red-500' :
+                       viewingOrder.status === 'refunded' ? 'bg-zinc-500/10 text-zinc-500' :
+                       'bg-white/10 text-white'
+                     }`}>
+                       {viewingOrder.status === 'completed' ? 'Concluído' : 
+                        viewingOrder.status === 'paid' ? 'Pago' : 
+                        viewingOrder.status === 'canceled' ? 'Cancelado' : 
+                        viewingOrder.status === 'refunded' ? 'Reembolsado' :
+                        viewingOrder.status}
+                     </span>
+                  </div>
+                </div>
+                <div className="p-4 bg-white/5 border border-white/10">
+                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Envio</p>
+                  <div className="flex items-center gap-2">
+                     <span className={`text-[10px] uppercase font-black px-2 py-1 ${
+                       viewingOrder.shipping_status === 'delivered' ? 'bg-emerald-500/10 text-emerald-500' :
+                       viewingOrder.shipping_status === 'sent' ? 'bg-blue-500/10 text-blue-500' :
+                       'bg-white/10 text-white'
+                     }`}>
+                       {viewingOrder.shipping_status === 'delivered' ? 'Entregue' : 
+                        viewingOrder.shipping_status === 'sent' ? 'Enviado' : 
+                        viewingOrder.shipping_status === 'pending' ? 'Pendente' :
+                        viewingOrder.shipping_status || 'Aguardando'}
+                     </span>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Identificadores do Sistema</p>
-                <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-2">
+                <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-3">
                   <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
                   <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
-                  <div className="select-all block"><span className="text-white/40 select-none">Dropea Order ID:</span> {viewingOrder.dropea_order_id || "N/A"}</div>
+                  
+                  <div className="pt-2 flex items-center justify-between gap-4">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status Dropea</span>
+                      <div className="flex items-center gap-2">
+                        {viewingOrder.dropea_order_id ? (
+                          <>
+                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                            <span className="text-emerald-500 font-bold tracking-widest text-[9px] uppercase">Sincronizado (#{viewingOrder.dropea_order_id})</span>
+                          </>
+                        ) : (
+                          <>
+                            <div className="w-2 h-2 rounded-full bg-amber-500" />
+                            <span className="text-amber-500 font-bold tracking-widest text-[9px] uppercase">Não Sincronizado</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {!viewingOrder.dropea_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === 'completed') && (
+                      <Button 
+                        size="sm"
+                        onClick={() => handleManualFulfill(viewingOrder.id)}
+                        className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-8 px-4"
+                      >
+                        Enviar p/ Dropea Manualmente
+                      </Button>
+                    )}
+
+                    {viewingOrder.dropea_order_id && (
+                      <Button 
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSyncStatus(viewingOrder.id)}
+                        className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
+                      >
+                        <Clock size={10} className="mr-2" /> Sincronizar Status
+                      </Button>
+                    )}
+                  </div>
+
+                  {viewingOrder.shipping_status_metadata && (
+                    <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
+                      <p className="text-[8px] uppercase tracking-[0.2em] text-white/40">Informações de Rastreio</p>
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="text-white font-mono">{viewingOrder.shipping_status_metadata.trackingNumber || "Aguardando código..."}</span>
+                        {viewingOrder.shipping_status_metadata.trackingUrl && (
+                          <a 
+                            href={viewingOrder.shipping_status_metadata.trackingUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-luxury-gold hover:underline font-bold"
+                          >
+                            Ver no site da transportadora
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
