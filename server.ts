@@ -31,24 +31,30 @@ const getSupabase = () => {
 const initDB = async () => {
   try {
     const supabase = getSupabase();
-    // console.log('[INIT] Verificando esquema do banco de dados...');
     
-    // Check if dropea_id exists by trying to select it.
-    const { error: columnError } = await supabase.from('products').select('dropea_id').limit(1);
-    
-    if (columnError) {
-      // console.log('[INIT] Coluna dropea_id não encontrada. Tentando criar esquema...');
-      // If we can't add columns via code, we'll have to rely on manual SQL or wait for the sync to fail gracefully.
-      // But we can try to use RPC if it exists.
-      try {
-        await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS dropea_id TEXT UNIQUE;' });
-      } catch(e) {
-        console.warn('[INIT] Falha ao adicionar coluna via RPC. Verifique se a tabela "products" possui o campo "dropea_id".');
-      }
-    } else {
-      // console.log('[INIT] Esquema verificado com sucesso.');
+    // Ensure dropea_id exists in products
+    try {
+      await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS dropea_id TEXT UNIQUE;' });
+    } catch(e) {
+      // Ignore
     }
 
+    // Ensure orders table has notification tracking columns
+    const columnsToEnsure = [
+      'email_paid_sent', 
+      'email_shipped_sent', 
+      'email_review_sent', 
+      'email_canceled_sent',
+      'email_refunded_sent'
+    ];
+    
+    for (const col of columnsToEnsure) {
+      try {
+        await supabase.rpc('exec_sql', { sql: `ALTER TABLE orders ADD COLUMN IF NOT EXISTS ${col} BOOLEAN DEFAULT FALSE;` });
+      } catch(e) {
+        // Ignore
+      }
+    }
   } catch (err) {
     console.warn('[INIT] Erro na inicialização do DB (não crítico):', err);
   }
@@ -141,6 +147,52 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
 
     } catch (err: any) {
       console.error("[STRIPE WEBHOOK FATAL PROCESSING ERROR]", err);
+    }
+  } else if (event.type === 'charge.refunded') {
+    const charge = event.data.object as Stripe.Charge;
+    console.log(`[STRIPE WEBHOOK] Reembolso detetado para charge: ${charge.id}`);
+    
+    try {
+      const supabase = getSupabase();
+      
+      // Encontrar a ordem pelo checkout_session_id ou payment_intent
+      // Stripe webhooks for charge.refunded might not have the checkout session ID directly in the payload root
+      // but it's usually linked via the payment_intent.
+      const paymentIntentId = charge.payment_intent as string;
+      
+      // We can also check by stripe_session_id if we have it in metadata or something.
+      // Easiest is to identify using the customer email and product if needed, but let's try to query by session.
+      // Stripe sessions don't always appear in charge.refunded easily.
+      // Let's use a workaround: identifying by payment_intent or metadata if charge has it.
+      
+      const { data: order, error } = await supabase
+        .from('orders')
+        .select('id, status, shipping_status, stripe_session_id')
+        .eq('status', 'canceled') // It should already be canceled from the Dropea trigger
+        .filter('stripe_session_id', 'not.is', null)
+        .limit(10); // Check recent canceled ones
+
+      if (order && order.length > 0) {
+        // Find the right one based on amount or search by session
+        // For now, let's just use the paymentIntent to be sure if possible.
+        // Actually, Stripe passes the payment_intent.
+        
+        // We'll update ALL orders that might be related to this PI if needed, but usually it's 1:1
+        for (const o of order) {
+             // Retrieve session to check PI
+             if (stripe) {
+               const session = await stripe.checkout.sessions.retrieve(o.stripe_session_id!);
+               if (session.payment_intent === paymentIntentId) {
+                  console.log(`[STRIPE WEBHOOK] Atualizando ordem ${o.id} para "refunded"`);
+                  await supabase.from('orders').update({ status: 'refunded' }).eq('id', o.id);
+                  triggerOrderNotification(o.id, 'refunded', o.shipping_status).catch(e => console.error('[REFUND NOTIF ERROR]', e));
+                  break;
+               }
+             }
+        }
+      }
+    } catch (err: any) {
+      console.error("[STRIPE WEBHOOK REFUND PROCESSING ERROR]", err);
     }
   }
 
@@ -403,8 +455,16 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       let finalOrderId = orderId;
 
       if (!finalOrderId && dropeaOrderId) {
-        const { data: foundOrder } = await supabase.from('orders').select('id').eq('dropea_order_id', String(dropeaOrderId)).single();
-        if (foundOrder) finalOrderId = foundOrder.id;
+        const { data: foundOrder } = await supabase.from('orders').select('id, stripe_session_id, status').eq('dropea_order_id', String(dropeaOrderId)).single();
+        if (foundOrder) {
+          finalOrderId = foundOrder.id;
+          
+          // Se a ordem estava 'paid', iniciamos o reembolso automático no Stripe
+          if (foundOrder.status === 'paid' && foundOrder.stripe_session_id && stripe) {
+            console.log(`[DROPEA WEBHOOK] Autorrefund process for Order: ${finalOrderId}`);
+            processRefundInternal(finalOrderId).catch(e => console.error('[AUTORREFUND ERROR]', e));
+          }
+        }
       }
 
       if (finalOrderId) {
@@ -418,6 +478,56 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
 
   res.json({ received: true });
 });
+
+// Helper function to handle Stripe Refund
+async function processRefundInternal(orderId: string) {
+  const supabase = getSupabase();
+  try {
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (error || !order || !order.stripe_session_id || !stripe) {
+      console.error(`[REFUND INTERNAL] Cannot refund order ${orderId}: Missing Stripe session or client`);
+      return false;
+    }
+
+    // 1. Get PaymentIntent from Checkout Session
+    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+    const paymentIntentId = session.payment_intent as string;
+
+    if (!paymentIntentId) {
+      console.error(`[REFUND INTERNAL] No payment intent found for session ${order.stripe_session_id}`);
+      return false;
+    }
+
+    // 2. Create Refund on Stripe
+    console.log(`[REFUND INTERNAL] Initiating Stripe refund for PaymentIntent: ${paymentIntentId}`);
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+      reason: 'requested_by_customer'
+    });
+
+    if (refund.status === 'succeeded' || refund.status === 'pending') {
+      console.log(`[REFUND INTERNAL] Stripe refund ${refund.status} for Order: ${orderId}`);
+      
+      // Update local state to refunded if successful, or leave it as canceled if pending
+      // If it's pending, we'll wait for the Stripe webhook to finalize it.
+      if (refund.status === 'succeeded') {
+        await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
+        triggerOrderNotification(orderId, 'refunded', order.shipping_status).catch(e => console.error('[REFUND NOTIF ERROR]', e));
+      }
+      return true;
+    }
+    
+    return false;
+  } catch (err: any) {
+    console.error(`[REFUND INTERNAL FATAL] for order ${orderId}:`, err.message);
+    return false;
+  }
+}
 
 
 // Recovery Proxy Routes
@@ -878,19 +988,29 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     }
     // Status: CANCELED
     else if (status === 'canceled' && !order.email_canceled_sent) {
-       subject = `Pedido Cancelado - Pedido #${orderId.slice(0, 8)}`;
+       subject = `Pedido Cancelado e Reembolso Iniciado - Pedido #${orderId.slice(0, 8)}`;
        body = `
          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
-           <h1 style="font-size: 24px; color: #d32f2f; margin-bottom: 20px;">Atualização importante do Pedido</h1>
+           <div style="text-align: center; margin-bottom: 30px;">
+             <h1 style="font-size: 24px; color: #d32f2f; margin-bottom: 10px;">Pedido Cancelado</h1>
+             <p style="color: #666;">O seu pedido do produto <strong>${productName}</strong> foi cancelado.</p>
+           </div>
+           
            <p>Olá,</p>
-           <p>Lamentamos informar que o seu pedido do produto <strong>${productName}</strong> foi cancelado.</p>
+           <p>Lamentamos informar que, por motivos logísticos ou de rutura de stock no fornecedor (Dropê), o seu pedido não poderá ser processado e foi cancelado.</p>
            
            <div style="margin: 30px 0; padding: 25px; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px;">
              <strong>Número do Pedido:</strong> #${orderId}<br/>
-             <strong>Estado Final:</strong> <span style="color: #c53030; font-weight: bold;">Cancelado</span>
+             <strong>Estado:</strong> <span style="color: #c53030; font-weight: bold;">Cancelado</span><br/>
+             <strong>Reembolso:</strong> <span style="color: #c53030; font-weight: bold;">Processamento Iniciado</span>
            </div>
 
-           <p>Se não solicitou este cancelamento ou se tiver qualquer dúvida sobre o reembolso, por favor entre em contacto com a nossa equipa de suporte.</p>
+           <div style="background: #fdfdfd; border: 1px solid #eee; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+             <p style="margin: 0; font-weight: bold; color: #000;">⚠️ Informação sobre o Reembolso:</p>
+             <p style="margin: 10px 0 0 0; font-size: 14px;">O estorno do valor total da sua compra já foi solicitado ao Stripe. Dependendo da sua entidade bancária, o valor deverá estar disponível no seu saldo num prazo de <strong>5 a 10 dias úteis</strong>.</p>
+           </div>
+
+           <p>Iremos enviar-lhe uma nova confirmação assim que o reembolso for concluído com sucesso.</p>
            
            ${settingsMessage}
            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
@@ -898,6 +1018,36 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
          </div>
        `;
        await supabase.from('orders').update({ email_canceled_sent: true }).eq('id', orderId);
+    }
+    // Status: REFUNDED
+    else if (status === 'refunded' && !order.email_refunded_sent) {
+       subject = `Reembolso Concluído com Sucesso - Pedido #${orderId.slice(0, 8)}`;
+       body = `
+         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
+           <div style="text-align: center; margin-bottom: 30px;">
+             <h1 style="font-size: 24px; color: #2e7d32; margin-bottom: 10px;">Reembolso Concluído!</h1>
+             <p style="color: #666;">O valor foi devolvido com sucesso.</p>
+           </div>
+           
+           <p>Olá,</p>
+           <p>Confirmamos que o reembolso relativo ao pedido do produto <strong>${productName}</strong> foi processado com sucesso pelo nosso sistema de pagamentos.</p>
+           
+           <div style="margin: 30px 0; padding: 25px; background: #e8f5e9; border: 1px solid #c8e6c9; border-radius: 8px;">
+             <strong>Número do Pedido:</strong> #${orderId}<br/>
+             <strong>Estado:</strong> <span style="color: #2e7d32; font-weight: bold;">Reembolsado</span><br/>
+             <strong>Valor:</strong> ${order.total_amount ? order.total_amount.toFixed(2) : '0.00'}€
+           </div>
+
+           <p>O crédito deverá agora aparecer no extrato do cartão ou método de pagamento que utilizou originalmente. Caso ainda não veja o valor após 48h, por favor contacte o seu banco.</p>
+
+           <p>Lamentamos mais uma vez o inconveniente e esperamos poder servi-lo melhor no futuro.</p>
+           
+           ${settingsMessage}
+           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
+           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Equipa de Suporte.</p>
+         </div>
+       `;
+       await supabase.from('orders').update({ email_refunded_sent: true }).eq('id', orderId);
     }
 
     if (subject && body) {
