@@ -1558,6 +1558,19 @@ export default function App() {
   const sendWelcomeEmail = async (userObj: SupabaseUser, profileData: any) => {
     console.log("[WELCOME] Iniciando envio de e-mail de boas-vindas...");
     try {
+      // Tentar marcar como welcomed primeiro, para evitar duplicidade
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from("profiles")
+        .update({ welcomed: true })
+        .eq("id", userObj.id)
+        .eq("welcomed", false)
+        .select();
+      
+      if (updateError || !updatedProfile || updatedProfile.length === 0) {
+        console.log("[WELCOME] Perfil já marcado como acolhido ou erro, abortando envio.");
+        return;
+      }
+      
       const { error: functionError } = await supabase.functions.invoke("welcome-email", {
         body: { 
           record: { 
@@ -1569,14 +1582,12 @@ export default function App() {
         }
       });
 
-      if (!functionError) {
-        await supabase
-          .from("profiles")
-          .update({ welcomed: true })
-          .eq("id", userObj.id);
-        console.log("[WELCOME] E-mail enviado e perfil marcado como acolhido.");
-      } else {
+      if (functionError) {
         console.error("[WELCOME] Erro na Edge Function:", functionError);
+        // Opcional: Reverter para welcomed = false se o email falhar? 
+        // O usuário pediu apenas para resolver a duplicação.
+      } else {
+        console.log("[WELCOME] E-mail enviado com sucesso.");
       }
     } catch (err) {
       console.error("[WELCOME] Erro inesperado:", err);

@@ -896,7 +896,19 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     `;
 
     // Status: PAID
-    if (status === 'paid' && !order.email_paid_sent) {
+    if (status === 'paid') {
+       const { data: updatedOrder, error: updateError } = await supabase
+         .from('orders')
+         .update({ email_paid_sent: true })
+         .eq('id', orderId)
+         .eq('email_paid_sent', false)
+         .select();
+       
+       if (updateError || !updatedOrder || updatedOrder.length === 0) {
+           console.log(`[NOTIFICATIONS] Email paid already sent or error for ${orderId}`);
+           return;
+       }
+
        subject = `Confirmação de Pagamento - Pedido #${orderId.slice(0, 8)}`;
        body = `
          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
@@ -924,10 +936,21 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
            <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
          </div>
        `;
-       await supabase.from('orders').update({ email_paid_sent: true }).eq('id', orderId);
     } 
     // Shipping: SENT (SENT is usually updated when we get a tracking number)
-    else if (shippingStatus === 'sent' && !order.email_shipped_sent) {
+    else if (shippingStatus === 'sent') {
+       const { data: updatedOrder, error: updateError } = await supabase
+         .from('orders')
+         .update({ email_shipped_sent: true })
+         .eq('id', orderId)
+         .eq('email_shipped_sent', false)
+         .select();
+       
+       if (updateError || !updatedOrder || updatedOrder.length === 0) {
+           console.log(`[NOTIFICATIONS] Email shipped already sent or error for ${orderId}`);
+           return;
+       }
+
        const trackingUrl = order.shipping_status_metadata?.trackingUrl || "#";
        const trackingNumber = order.shipping_status_metadata?.trackingNumber || "N/A";
        
@@ -957,7 +980,19 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
        await supabase.from('orders').update({ email_shipped_sent: true }).eq('id', orderId);
     }
     // Shipping: DELIVERED -> Evaluation Email
-    else if (shippingStatus === 'delivered' && !order.email_review_sent) {
+    else if (shippingStatus === 'delivered') {
+       const { data: updatedOrder, error: updateError } = await supabase
+         .from('orders')
+         .update({ email_review_sent: true })
+         .eq('id', orderId)
+         .eq('email_review_sent', false)
+         .select();
+       
+       if (updateError || !updatedOrder || updatedOrder.length === 0) {
+           console.log(`[NOTIFICATIONS] Email review already sent or error for ${orderId}`);
+           return;
+       }
+       
        const siteUrl = process.env.site || 'https://sart-boutique.com';
        const evaluationUrl = `${siteUrl}/evaluate/${orderId}`;
        
@@ -984,10 +1019,21 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
            <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
          </div>
        `;
-       await supabase.from('orders').update({ email_review_sent: true }).eq('id', orderId);
     }
     // Status: CANCELED
-    else if (status === 'canceled' && !order.email_canceled_sent) {
+    else if (status === 'canceled') {
+       const { data: updatedOrder, error: updateError } = await supabase
+         .from('orders')
+         .update({ email_canceled_sent: true })
+         .eq('id', orderId)
+         .eq('email_canceled_sent', false)
+         .select();
+       
+       if (updateError || !updatedOrder || updatedOrder.length === 0) {
+           console.log(`[NOTIFICATIONS] Email canceled already sent or error for ${orderId}`);
+           return;
+       }
+
        subject = `Pedido Cancelado e Reembolso Iniciado - Pedido #${orderId.slice(0, 8)}`;
        body = `
          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
@@ -1017,10 +1063,21 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
            <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Equipa de Suporte.</p>
          </div>
        `;
-       await supabase.from('orders').update({ email_canceled_sent: true }).eq('id', orderId);
     }
     // Status: REFUNDED
-    else if (status === 'refunded' && !order.email_refunded_sent) {
+    else if (status === 'refunded') {
+       const { data: updatedOrder, error: updateError } = await supabase
+         .from('orders')
+         .update({ email_refunded_sent: true })
+         .eq('id', orderId)
+         .eq('email_refunded_sent', false)
+         .select();
+       
+       if (updateError || !updatedOrder || updatedOrder.length === 0) {
+           console.log(`[NOTIFICATIONS] Email refunded already sent or error for ${orderId}`);
+           return;
+       }
+
        subject = `Reembolso Concluído com Sucesso - Pedido #${orderId.slice(0, 8)}`;
        body = `
          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
@@ -1047,7 +1104,6 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
            <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Equipa de Suporte.</p>
          </div>
        `;
-       await supabase.from('orders').update({ email_refunded_sent: true }).eq('id', orderId);
     }
 
     if (subject && body) {
@@ -2175,15 +2231,17 @@ function setupDatabaseListeners() {
 
   supabase
     .channel('orders-fulfillment')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-      if (payload.new.status === 'paid' && !payload.new.dropea_order_id) {
-        processOrderFulfillment(payload.new);
-      }
-    })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, async (payload) => {
-      if (payload.new.status === 'paid' && !payload.new.dropea_order_id && payload.old.status !== 'paid') {
-        processOrderFulfillment(payload.new);
-      }
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async (payload) => {
+      const newOrder = payload.new as any;
+      const oldOrder = payload.old as any;
+      
+      // Só processamos se o status for 'paid', ainda não tiver sido processado pela Dropea
+      if (newOrder.status !== 'paid' || newOrder.dropea_order_id) return;
+      
+      // Se for um evento de UPDATE, garantimos que ele acabou de mudar para 'paid'
+      if (payload.eventType === 'UPDATE' && oldOrder && oldOrder.status === 'paid') return;
+
+      processOrderFulfillment(newOrder);
     })
     .subscribe();
 }
