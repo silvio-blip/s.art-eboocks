@@ -1615,16 +1615,31 @@ export default function App() {
         toast.info("A aguardar confirmação da Dropea...");
         
         // Check local order status
-        const { data: order } = await supabase
+        const { data: order, error: orderErr } = await supabase
           .from("orders")
-          .select("*, products(*)")
+          .select("*")
           .eq("stripe_session_id", sessionId)
           .maybeSingle();
 
+        if (orderErr) {
+          console.error("[S.ART DEBUG] Erro ao buscar pedido:", orderErr);
+          toast.error("Erro técnico ao recuperar detalhes do pedido.");
+          return;
+        }
+
         if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
-          setSuccessProduct(Array.isArray(order.products) ? order.products[0] : order.products);
+          // Buscar produto separadamente para evitar erro de join 400
+          if (order.product_id) {
+            const { data: prodData } = await supabase
+              .from("products")
+              .select("*")
+              .eq("id", order.product_id)
+              .single();
+            if (prodData) setSuccessProduct(prodData);
+          }
+          
           setSuccessOrderId(order.id);
-          toast.success("Compra aprovada! Verifique a sua caixa de correio ou Gmail para o comprovativo oficial.", { duration: 8000 });
+          toast.success("Compra aprovada! Verifique agora a sua caixa de entrada ou Gmail para o comprovativo oficial.", { duration: 10000 });
         } else if (order) {
           console.log("[S.ART DEBUG] Order found but status is:", order.status);
           toast.info("Pagamento em processamento...");
