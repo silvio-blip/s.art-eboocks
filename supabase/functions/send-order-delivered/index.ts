@@ -1,12 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createTransport } from "npm:nodemailer";
 
-const SMTP_HOST = Deno.env.get("SMTP_HOST") || Deno.env.get("SMTP_HOSTNAME");
+const SMTP_HOST = Deno.env.get("SMTP_HOSTNAME");
 const SMTP_PORT = Number(Deno.env.get("SMTP_PORT"));
 const SMTP_USER = Deno.env.get("SMTP_USER");
 const SMTP_PASS = Deno.env.get("SMTP_PASS");
-const SMTP_FROM_NAME = Deno.env.get("SMTP_FROM_NAM") || Deno.env.get("SMTP_FROM_NAME") || "SArt Boutique";
-const SMTP_FROM_EMAIL = Deno.env.get("SMTP_FROM_EMA") || Deno.env.get("SMTP_FROM_EMAIL") || SMTP_USER;
+const SMTP_FROM_NAME = Deno.env.get("SMTP_FROM_NAME") || "SArt Boutique";
+const SMTP_FROM_EMAIL = Deno.env.get("SMTP_FROM_EMAIL") || SMTP_USER;
 const SITE_URL = Deno.env.get("SITE_URL") || "https://sart-boutique.com";
 
 const transporter = createTransport({
