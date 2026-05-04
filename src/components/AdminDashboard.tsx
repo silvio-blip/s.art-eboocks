@@ -843,9 +843,9 @@ export default function AdminDashboard({
     }
   };
 
-  const handleResendEmail = async (orderId: string, type: string) => {
+  const handleRetriggerEmail = async (orderId: string, type: string) => {
     try {
-      toast.loading("A reenviar e-mail de notificação...", { id: "resend" });
+      toast.loading("A disparar e-mail de notificação...", { id: "retrigger" });
       const res = await fetch(`/api/admin/orders/${orderId}/resend-notification`, {
         method: 'POST',
         headers: {
@@ -856,12 +856,12 @@ export default function AdminDashboard({
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao reenviar e-mail");
+      if (!res.ok) throw new Error(data.error || "Erro ao disparar e-mail");
       
-      toast.success("E-mail reenviado com sucesso (Bypass Ativo)!", { id: "resend" });
+      toast.success("E-mail disparado com sucesso!", { id: "retrigger" });
     } catch (err: any) {
-      console.error("[Resend Email Error]", err);
-      toast.error(`Falha ao disparar e-mail: ${err.message}`, { id: "resend" });
+      console.error("[Email Notification Error]", err);
+      toast.error(`Falha ao disparar e-mail: ${err.message}`, { id: "retrigger" });
     }
   };
 
@@ -2719,20 +2719,20 @@ export default function AdminDashboard({
                        <Button 
                         size="sm"
                         variant="ghost"
-                        onClick={() => handleResendEmail(viewingOrder.id, 'payment')}
+                        onClick={() => handleRetriggerEmail(viewingOrder.id, 'payment')}
                         className="bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-emerald-500/20"
                       >
-                        <Mail size={10} className="mr-2" /> Reenviar Confirm. Pagamento
+                        <Mail size={10} className="mr-2" /> Disparar Notif. Pagamento
                       </Button>
                       
                       {viewingOrder.shipping_status === 'sent' && (
                         <Button 
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleResendEmail(viewingOrder.id, 'shipping')}
+                          onClick={() => handleRetriggerEmail(viewingOrder.id, 'shipping')}
                           className="bg-blue-500/5 hover:bg-blue-500/10 text-blue-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-blue-500/20"
                         >
-                          <Truck size={10} className="mr-2" /> Reenviar Rastreio
+                          <Truck size={10} className="mr-2" /> Disparar Notif. Envio
                         </Button>
                       )}
                     </div>

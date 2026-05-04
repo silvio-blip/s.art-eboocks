@@ -1001,9 +1001,8 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     let order = orderData;
 
     // 1. Garantir que temos os dados completos
-    if (!order || !order.customer_email || !order.products) {
-      console.log(`[AUTOMAÇÃO MONITOR] Buscando detalhes completos no banco para ${orderId}...`);
-      const { data, error: fetchErr } = await supabase
+    if (!order || !order.customer_email || !order.product_id) {
+      const { data: fetchData, error: fetchErr } = await supabase
         .from('orders')
         .select('*, profiles(*)')
         .eq('id', orderId)
@@ -1013,16 +1012,17 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         console.error(`[AUTOMAÇÃO MONITOR] Erro ao buscar dados:`, fetchErr);
         return;
       }
-      if (!data) {
+      if (!fetchData) {
         console.error(`[AUTOMAÇÃO MONITOR] Pedido ${orderId} não encontrado!`);
         return;
       }
-      order = data;
+      order = fetchData;
+    }
 
-      if (!order.products && order.product_id) {
-        const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
-        if (prod) order.products = prod;
-      }
+    // Buscar produto se não estiver presente na carga
+    if (!order.products && order.product_id) {
+      const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
+      if (prod) order.products = prod;
     }
 
     const profile = Array.isArray(order.profiles) ? order.profiles[0] : order.profiles;
@@ -1159,12 +1159,14 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     });
 
     if (invokeErr) {
-      console.error(`[AUTOMAÇÃO MONITOR] ERRO AO INVOCAR SEND-CUSTOM-EMAIL:`, invokeErr);
+      console.error(`[AUTOMAÇÃO MONITOR] ❌ ERRO AO INVOCAR SEND-CUSTOM-EMAIL:`, JSON.stringify(invokeErr));
+      // Se der erro, tentaremos logar o erro detalhado se disponível
     } else {
-      console.log(`[AUTOMAÇÃO MONITOR] ✅ SUCESSO! E-mail disparado.`);
+      console.log(`[AUTOMAÇÃO MONITOR] ✅ SUCESSO! Resposta da Edge Function:`, JSON.stringify(invokeData));
       
       // Marcar como enviado no banco
       if (flagField) {
+        console.log(`[AUTOMAÇÃO MONITOR] Marcando ${flagField} como enviado para o pedido ${orderId}`);
         await supabase.from('orders').update({ [flagField]: true }).eq('id', orderId);
       }
     }
@@ -1414,19 +1416,65 @@ adminRouter.post('/test-email', async (req, res) => {
 adminRouter.post('/orders/:id/resend-notification', async (req, res) => {
   try {
     const { id } = req.params;
-    const { type } = req.body; // 'payment' | 'shipping' | 'canceled' | 'refunded'
+    const { type } = req.body; // 'payment' | 'shipping' | 'delivered' | 'canceled' | 'refunded'
     
-    console.log(`[ADMIN RESEND] Forçando reenvio de ${type} para ordem ${id}`);
+    console.log(`[AUTOMAÇÃO ADMIN] ========================================================`);
+    console.log(`[AUTOMAÇÃO ADMIN] REQUISIÇÃO RECEBIDA: Tipo=${type} | ID=${id}`);
     
     const supabase = getSupabase();
-    // BUSCAR DADOS COMPLETOS PARA O EMAIL
-    const { data: order, error } = await supabase
+    
+    // 1. Tentar buscar por ID (UUID) de forma simples (sem joins que podem falhar)
+    console.log(`[AUTOMAÇÃO ADMIN] Buscando ordem por ID UUID: ${id}`);
+    let { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, profiles(*), products(*)')
+      .select('*')
       .eq('id', id)
       .maybeSingle();
 
-    if (error || !order) return res.status(404).json({ error: 'Ordem não encontrada' });
+    if (orderError) {
+      console.error(`[AUTOMAÇÃO ADMIN] Erro na query por ID UUID:`, orderError);
+    }
+
+    // 2. Fallback para stripe_session_id se não encontrou por ID
+    if (!order) {
+      console.log(`[AUTOMAÇÃO ADMIN] Não encontrado por UUID. Tentando por stripe_session_id: ${id}`);
+      const { data: altOrder, error: altError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('stripe_session_id', id)
+        .maybeSingle();
+      
+      if (altError) {
+        console.error(`[AUTOMAÇÃO ADMIN] Erro na query por stripe_session_id:`, altError);
+      }
+      order = altOrder;
+    }
+
+    if (!order) {
+      console.error(`[AUTOMAÇÃO ADMIN] FALHA CRÍTICA: Ordem ${id} não localizada em nenhuma busca.`);
+      
+      // DEBUG: Listar as últimas 5 ordens para ver se o banco está respondendo
+      const { data: recentOrders } = await supabase.from('orders').select('id, created_at').limit(5).order('created_at', { ascending: false });
+      console.log(`[AUTOMAÇÃO ADMIN] Últimas ordens no banco:`, JSON.stringify(recentOrders));
+      
+      return res.status(404).json({ 
+        error: `Ordem ${id} não localizada no banco de dados. Verifique se o ID existe na lista de pedidos.` 
+      });
+    }
+
+    console.log(`[AUTOMAÇÃO ADMIN] ✅ Ordem localizada com sucesso!`);
+
+    // 3. Buscar Perfil (Opcional)
+    if (order.user_id) {
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', order.user_id).maybeSingle();
+      if (profile) order.profiles = profile;
+    }
+
+    // 4. Buscar Produto (Necessário)
+    if (order.product_id) {
+      const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
+      if (prod) order.products = prod;
+    }
 
     let status = order.status;
     let shippingStatus = order.shipping_status;
