@@ -151,8 +151,12 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       
       console.log(`[STRIPE WEBHOOK SUCCESS] Ordem ${orderData.id} criada. Iniciando Sincronização e Email...`);
 
-      // 3. DISPARAR TUDO AUTOMATICAMENTE PELO CÓDIGO (SEM TRIGGERS)
-      processOrderFulfillment(orderData).catch(e => console.error(`[AUTO-FULFILL OVERFLOW ERROR]`, e));
+      // 3. DISPARAR TUDO AUTOMATICAMENTE (SEM TRIGGERS DO BANCO)
+      // Enviar e-mail de confirmação de pagamento IMEDIATAMENTE
+      triggerOrderNotification(orderData.id, 'paid', 'pending').catch(e => console.error(`[AUTO-EMAIL ERROR]`, e));
+      
+      // Sincronizar com a Dropea IMEDIATAMENTE
+      processOrderFulfillment(orderData).catch(e => console.error(`[AUTO-FULFILL ERROR]`, e));
 
     } catch (err: any) {
       console.error("[STRIPE WEBHOOK FATAL PROCESSING ERROR]", err);
@@ -881,19 +885,22 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     let functionName = '';
     let flagField = '';
 
-    if (status === 'paid') {
+    const lowerStatus = (status || '').toLowerCase();
+    const lowerShipping = (shippingStatus || '').toLowerCase();
+
+    if (lowerStatus === 'paid' || lowerStatus === 'pago') {
       functionName = 'send-payment-confirmed';
       flagField = 'email_paid_sent';
-    } else if (shippingStatus === 'sent') {
+    } else if (lowerShipping === 'sent' || lowerShipping === 'enviado' || lowerShipping === 'shipped') {
       functionName = 'send-order-shipped';
       flagField = 'email_shipped_sent';
-    } else if (shippingStatus === 'delivered') {
+    } else if (lowerShipping === 'delivered' || lowerShipping === 'entregue') {
       functionName = 'send-order-delivered';
       flagField = 'email_review_sent';
-    } else if (status === 'canceled') {
+    } else if (lowerStatus === 'canceled' || lowerStatus === 'cancelado' || lowerStatus === 'cancelled') {
       functionName = 'send-order-canceled';
       flagField = 'email_canceled_sent';
-    } else if (status === 'refunded') {
+    } else if (lowerStatus === 'refunded' || lowerStatus === 'reembolsado') {
       functionName = 'send-order-refunded';
       flagField = 'email_refunded_sent';
     }
@@ -1542,6 +1549,10 @@ adminRouter.put('/orders/:id/status', async (req, res) => {
       .single();
 
     if (error) throw error;
+    
+    // Disparar notificação automática por e-mail
+    triggerOrderNotification(id, status, data.shipping_status || 'pending').catch(e => console.error('[ADM STATUS EMAIL ERROR]', e));
+    
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1572,6 +1583,9 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
       .eq('id', id);
 
     if (updateError) throw updateError;
+    
+    // Disparar notificação automática
+    triggerOrderNotification(id, order.status, shipping_status).catch(e => console.error('[ADM SHIPPING EMAIL ERROR]', e));
     
     // Respond with updated final status and shipping
     res.json({ success: true, status: order.status, shipping_status });
