@@ -1611,25 +1611,43 @@ export default function App() {
       setView("success");
       try {
         console.log(`[S.ART DEBUG] Verifying Dropea session: ${sessionId}`);
-        // We will need a specific Dropea verification endpoint if needed
-        toast.info("A aguardar confirmação da Dropea...");
+        toast.info("A processar a sua compra... Por favor, aguarde um momento.", { id: "loading-order" });
         
-        // Check local order status
-        const { data: order, error: orderErr } = await supabase
-          .from("orders")
-          .select("*")
-          .eq("stripe_session_id", sessionId)
-          .maybeSingle();
+        let attempts = 0;
+        let order = null;
+        let orderErr = null;
+
+        // Tentar encontrar a ordem no banco (webhook pode demorar um pouco)
+        while (attempts < 10 && !order) {
+          console.log(`[S.ART DEBUG] Tentativa ${attempts + 1} de encontrar pedido...`);
+          const { data, error } = await supabase
+            .from("orders")
+            .select("*")
+            .eq("stripe_session_id", sessionId)
+            .maybeSingle();
+          
+          order = data;
+          orderErr = error;
+
+          if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
+             break;
+          }
+
+          attempts++;
+          if (!order) await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar 2s entre tentativas
+        }
 
         if (orderErr) {
           console.error("[S.ART DEBUG] Erro ao buscar pedido:", orderErr);
-          toast.error("Erro técnico ao recuperar detalhes do pedido.");
+          toast.error("Erro técnico ao recuperar detalhes do pedido.", { id: "loading-order" });
           return;
         }
 
         if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
+          toast.dismiss("loading-order");
           // Buscar produto separadamente para evitar erro de join 400
           if (order.product_id && !successProduct) {
+
             const { data: prodData } = await supabase
               .from("products")
               .select("*")

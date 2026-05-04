@@ -81,6 +81,7 @@ app.use(cors());
 
 // --- STRIPE WEBHOOK (MUST BE BEFORE GLOBAL JSON PARSER) ---
 app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async (req, res) => {
+  console.log(`\n[STRIPE MONITOR] Evento recebido as ${new Date().toISOString()}`);
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -992,173 +993,186 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
  * Sends order status update emails to customers
  */
 async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string, orderData?: any, force: boolean = false) {
+  console.log(`\n[AUTOMAÇÃO MONITOR] ========================================================`);
+  console.log(`[AUTOMAÇÃO MONITOR] INICIANDO DISPARO: Pedido=${orderId} | Status=${status}`);
+  
   try {
-    console.log(`[AUTOMAÇÃO DEBUG] === INICIANDO PROCESSO DE NOTIFICAÇÃO ===`);
-    console.log(`[AUTOMAÇÃO DEBUG] ID do Pedido: ${orderId} | Status: ${status} | Shipping: ${shippingStatus} | Repetir: ${force}`);
-
-    let order = orderData;
     const supabase = getSupabase();
+    let order = orderData;
 
-    // 1. Garantir que temos os dados da ordem ativos
-    if (!order || (!order.products && !order.items && !order.profiles)) {
-      console.log(`[AUTOMAÇÃO DEBUG] Dados incompletos. Buscando detalhes no banco para ${orderId}...`);
-      const { data, error: orderErr } = await supabase
+    // 1. Garantir que temos os dados completos
+    if (!order || !order.customer_email || !order.products) {
+      console.log(`[AUTOMAÇÃO MONITOR] Buscando detalhes completos no banco para ${orderId}...`);
+      const { data, error: fetchErr } = await supabase
         .from('orders')
         .select('*, profiles(*)')
         .eq('id', orderId)
         .maybeSingle();
-      
-      if (orderErr) {
-        console.error(`[AUTOMAÇÃO DEBUG] Erro ao buscar ordem ${orderId}:`, orderErr);
+
+      if (fetchErr) {
+        console.error(`[AUTOMAÇÃO MONITOR] Erro ao buscar dados:`, fetchErr);
         return;
       }
-      
       if (!data) {
-        console.warn(`[AUTOMAÇÃO DEBUG] Ordem ${orderId} não encontrada no banco.`);
+        console.error(`[AUTOMAÇÃO MONITOR] Pedido ${orderId} não encontrado!`);
         return;
       }
-
-      // Buscar produto separado para evitar joins complexos que podem dar timeout ou erro 400
-      if (!data.products && data.product_id) {
-        console.log(`[AUTOMAÇÃO DEBUG] Buscando produto ID: ${data.product_id}...`);
-        const { data: prod } = await supabase.from('products').select('*').eq('id', data.product_id).single();
-        if (prod) {
-          console.log(`[AUTOMAÇÃO DEBUG] Produto encontrado: ${prod.title || prod.name}`);
-          data.products = prod;
-        }
-      }
-
       order = data;
+
+      if (!order.products && order.product_id) {
+        const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
+        if (prod) order.products = prod;
+      }
     }
 
-    // Normalização básica de perfis e produtos
-    if (Array.isArray(order.profiles)) order.profiles = order.profiles[0];
-    if (Array.isArray(order.products)) order.products = order.products[0];
+    const profile = Array.isArray(order.profiles) ? order.profiles[0] : order.profiles;
+    const product = Array.isArray(order.products) ? order.products[0] : order.products;
 
-    // 2. Identificar Destinatário
-    const customerEmail = (order.customer_email && order.customer_email.trim().length > 3) 
-      ? order.customer_email.trim() 
-      : (order.profiles?.notification_email || order.profiles?.email || '');
-    
-    console.log(`[AUTOMAÇÃO DEBUG] Email destino resolvido: "${customerEmail}"`);
+    // 2. Resolver Email
+    const targetEmail = (order.customer_email || profile?.notification_email || profile?.email || '').trim();
+    console.log(`[AUTOMAÇÃO MONITOR] Email Destinatário: "${targetEmail}"`);
 
-    if (!customerEmail || !customerEmail.includes('@')) {
-      console.error(`[AUTOMAÇÃO FATAL] E-mail de destino inválido ou ausente para o pedido ${orderId}`);
+    if (!targetEmail || !targetEmail.includes('@')) {
+      console.error(`[AUTOMAÇÃO MONITOR] Abortando: Email inválido.`);
       return;
     }
 
-    // 3. Mapear Função
-    const lowerStatus = (status || '').toLowerCase().trim();
-    const lowerShipping = (shippingStatus || '').toLowerCase().trim();
-    let functionName = '';
+    // 3. Mapear Assunto e Template
+    const lowerS = (status || '').toLowerCase().trim();
+    const lowerShip = (shippingStatus || '').toLowerCase().trim();
+    
+    let subject = '';
+    let emailBody = '';
     let flagField = '';
 
-    if (['paid', 'pago', 'completed', 'concluido', 'concluído', 'aprovado', 'suceso'].includes(lowerStatus)) {
-      functionName = 'send-payment-confirmed';
+    const customerName = profile?.full_name || (typeof order.shipping_details === 'string' ? JSON.parse(order.shipping_details).name : order.shipping_details?.name) || 'Cliente S.Art';
+    const productName = product?.name || product?.title || 'Obra de Arte';
+    const formattedId = `SART-${order.id.split('-')[0].toUpperCase()}`;
+
+    if (['paid', 'pago', 'completed', 'succeeded'].includes(lowerS)) {
+      subject = `Pagamento Confirmado! Pedido ${formattedId}`;
       flagField = 'email_paid_sent';
-    } else if (['sent', 'enviado', 'shipped', 'em trânsito', 'despachado'].includes(lowerShipping)) {
-      functionName = 'send-order-shipped';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #10b981;">Olá, ${customerName}!</h2>
+          <p>Temos ótimas notícias: o seu pagamento para o pedido <strong>${formattedId}</strong> foi processado com sucesso.</p>
+          <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
+            <p style="margin: 5px 0 0 0;"><strong>Valor:</strong> €${order.total_amount}</p>
+          </div>
+          <p>O seu produto já está a ser preparado para envio. Assim que for despachado, enviaremos um novo e-mail com os detalhes do rastreio.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['sent', 'enviado', 'shipped'].includes(lowerShip)) {
+      subject = `O seu pedido ${formattedId} está a caminho!`;
       flagField = 'email_shipped_sent';
-    } else if (['delivered', 'entregue', 'finalizado'].includes(lowerShipping)) {
-      functionName = 'send-order-delivered';
+      const trackingInfo = order.shipping_status_metadata?.trackingNumber 
+        ? `<p>Código de Rastreio: <strong>${order.shipping_status_metadata.trackingNumber}</strong></p>` 
+        : '';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #3b82f6;">Boas notícias!</h2>
+          <p>Olá, ${customerName}. O seu pedido <strong>${formattedId}</strong> já foi enviado e está em trânsito.</p>
+          <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
+            ${trackingInfo}
+          </div>
+          <p>Em breve receberá a sua obra de arte. Obrigado pela confiança!</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['delivered', 'entregue'].includes(lowerShip)) {
+      subject = `O seu pedido ${formattedId} foi entregue!`;
       flagField = 'email_review_sent';
-    } else if (['canceled', 'cancelado', 'cancelled', 'abortado'].includes(lowerStatus)) {
-      functionName = 'send-order-canceled';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #10b981;">Pedido Entregue!</h2>
+          <p>Olá, ${customerName}. O seu pedido <strong>${formattedId}</strong> foi entregue com sucesso.</p>
+          <p>Esperamos que tenha gostado da sua nova obra de arte: <strong>${productName}</strong>.</p>
+          <p>Se puder, adoraríamos ouvir a sua opinião. Sinta-se à vontade para responder a este e-mail ou deixar um comentário no nosso site.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['canceled', 'cancelado'].includes(lowerS)) {
+      subject = `Atualização sobre o seu pedido ${formattedId}`;
       flagField = 'email_canceled_sent';
-    } else if (['refunded', 'reembolsado', 'estornado'].includes(lowerStatus)) {
-      functionName = 'send-order-refunded';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #ef4444;">Pedido Cancelado</h2>
+          <p>Olá, ${customerName}. Informamos que o seu pedido <strong>${formattedId}</strong> foi cancelado.</p>
+          <p>Se o cancelamento foi inesperado ou se tiver alguma dúvida, por favor contacte o nosso suporte.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['refunded', 'reembolsado'].includes(lowerS)) {
+      subject = `Reembolso Processado - Pedido ${formattedId}`;
       flagField = 'email_refunded_sent';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #6366f1;">Reembolso Concluído</h2>
+          <p>Olá, ${customerName}. Informamos que o reembolso relativo ao pedido <strong>${formattedId}</strong> foi processado.</p>
+          <p>O valor de €${order.total_amount} deverá aparecer no seu extrato bancário nos próximos dias, dependendo do seu banco.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
     }
 
-    if (!functionName) {
-      console.log(`[AUTOMAÇÃO DEBUG] Sem mapeamento de e-mail para Status=${status}/Envio=${shippingStatus}. Encerrando.`);
+    if (!subject) {
+      console.log(`[AUTOMAÇÃO MONITOR] Status ${status}/${shippingStatus} não exige e-mail automático.`);
       return;
     }
 
-    console.log(`[AUTOMAÇÃO DEBUG] Função mapeada: ${functionName} | Lock Field: ${flagField}`);
-
-    // 4. Lógica de Bloqueio (Lock)
+    // 4. Lock de Duplicidade
     if (flagField && !force) {
-      console.log(`[AUTOMAÇÃO DEBUG] Verificando se e-mail já foi enviado anteriormente...`);
-      try {
-        const { data: lock, error: lockErr } = await supabase
-          .from('orders')
-          .update({ [flagField]: true })
-          .eq('id', orderId)
-          .or(`${flagField}.eq.false,${flagField}.is.null`)
-          .select();
+      const { data: alreadySent } = await supabase
+        .from('orders')
+        .select(flagField)
+        .eq('id', orderId)
+        .eq(flagField, true)
+        .maybeSingle();
 
-        if (lockErr) {
-          console.warn(`[AUTOMAÇÃO DEBUG] Coluna ${flagField} ausente. Disparando sem lock para garantir entrega.`);
-        } else if (lock && lock.length === 0 && !lockErr) {
-          console.log(`[AUTOMAÇÃO DEBUG] E-mail ${functionName} já foi marcado como enviado para o pedido ${orderId}. Bloqueando duplicidade.`);
-          return;
-        }
-      } catch (e) {
-        console.warn(`[AUTOMAÇÃO DEBUG] Falha no sistema de lock, prosseguindo com o disparo por segurança.`);
+      if (alreadySent) {
+        console.log(`[AUTOMAÇÃO MONITOR] E-mail já enviado anteriormente. Ignorando.`);
+        return;
       }
     }
 
-    // 5. Preparar Payload
-    const rawProd = Array.isArray(order.products) ? order.products[0] : order.products;
+    // 5. Preparar Payload EXATAMENTE como no teste administrativo que funciona
     const payload = {
-      orderId: order.id,
-      email: customerEmail,
-      customerName: order.profiles?.full_name || order.shipping_details?.name || 'Cliente S.Art',
-      total: order.total_amount,
-      status: status,
-      shippingStatus: shippingStatus,
-      product: {
-        name: rawProd?.name || rawProd?.title || 'Obra de Arte S.Art',
-        image: rawProd?.image_url,
-        price: order.total_amount,
-        id: rawProd?.id
-      },
-      trackingNumber: order.shipping_status_metadata?.trackingNumber,
-      trackingUrl: order.shipping_status_metadata?.trackingUrl
+      to: targetEmail,
+      subject: subject,
+      body: emailBody,
+      name: customerName
     };
 
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
+    console.log(`[AUTOMAÇÃO MONITOR] Chamando send-custom-email via Supabase Invoke...`);
+    
+    // USANDO O MÉTODO "OFICIAL" QUE O USUÁRIO DISSE QUE FUNCIONA NO TESTE
+    const { data: invokeData, error: invokeErr } = await supabase.functions.invoke('send-custom-email', {
+      body: payload
+    });
 
-    console.log(`[AUTOMAÇÃO DEBUG] === DETALHES DA REQUISIÇÃO ===`);
-    console.log(`[AUTOMAÇÃO DEBUG] DESTINO: ${functionUrl}`);
-    console.log(`[AUTOMAÇÃO DEBUG] PAYLOAD:`, JSON.stringify(payload, null, 2));
-
-    if (!serviceRoleKey) {
-      console.error("[AUTOMAÇÃO DEBUG] ERRO CRÍTICO: SUPABASE_SERVICE_ROLE_KEY NÃO CONFIGURADA!");
-      return;
-    }
-
-    // Chamada Axios
-    try {
-      console.log(`[AUTOMAÇÃO DEBUG] Chamando Edge Function agora...`);
-      const response = await axios.post(functionUrl, payload, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceRoleKey}`,
-          'apikey': serviceRoleKey
-        },
-        timeout: 20000
-      });
-
-      console.log(`[AUTOMAÇÃO DEBUG] ✅ RESPOSTA RECEBIDA! Status: ${response.status}`);
-      console.log(`[AUTOMAÇÃO DEBUG] Corpo da Resposta:`, JSON.stringify(response.data));
-      console.log(`[AUTOMAÇÃO DEBUG] FINALIZADO COM SUCESSO.`);
-    } catch (invokeErr: any) {
-      console.error(`[AUTOMAÇÃO DEBUG] ❌ FALHA NA CHAMADA DA FUNÇÃO:`);
-      if (invokeErr.response) {
-        console.error(`[AUTOMAÇÃO DEBUG] STATUS HTTP: ${invokeErr.response.status}`);
-        console.error(`[AUTOMAÇÃO DEBUG] DADOS DO ERRO:`, JSON.stringify(invokeErr.response.data));
-      } else if (invokeErr.request) {
-        console.error(`[AUTOMAÇÃO DEBUG] SEM RESPOSTA DO SERVIDOR (TIMEOUT OU REDE)`);
-      } else {
-        console.error(`[AUTOMAÇÃO DEBUG] MENSAGEM: ${invokeErr.message}`);
+    if (invokeErr) {
+      console.error(`[AUTOMAÇÃO MONITOR] ERRO AO INVOCAR SEND-CUSTOM-EMAIL:`, invokeErr);
+    } else {
+      console.log(`[AUTOMAÇÃO MONITOR] ✅ SUCESSO! E-mail disparado.`);
+      
+      // Marcar como enviado no banco
+      if (flagField) {
+        await supabase.from('orders').update({ [flagField]: true }).eq('id', orderId);
       }
     }
+
+    console.log(`[AUTOMAÇÃO MONITOR] ========================================================\n`);
+
   } catch (err) {
-    console.error(`[AUTOMAÇÃO DEBUG] EXCEÇÃO NO CÓDIGO DA TRIGGER:`, err);
+    console.error(`[AUTOMAÇÃO MONITOR] ERRO FATAL NA CADEIA:`, err);
   }
 }
 
