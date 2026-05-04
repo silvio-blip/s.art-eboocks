@@ -1217,10 +1217,10 @@ adminRouter.post('/test-email', async (req, res) => {
     
     const { data, error } = await supabase.functions.invoke('send-custom-email', {
       body: {
-        email,
+        to: email,
         subject: 'Teste de Configuração SMTP - SArt Boutique',
-        message: 'Este é um e-mail de teste disparado pelo painel administrativo para validar a configuração do seu servidor SMTP (Porta 465). Se recebeu isto, está tudo correto!',
-        customerName: 'Administrador'
+        body: 'Este é um e-mail de teste disparado pelo painel administrativo para validar a configuração do seu servidor SMTP (Porta 465). Se recebeu isto, está tudo correto!',
+        name: 'Administrador'
       }
     });
 

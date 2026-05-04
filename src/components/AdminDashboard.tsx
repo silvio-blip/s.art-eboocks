@@ -149,6 +149,8 @@ export default function AdminDashboard({
   const [userSearch, setUserSearch] = useState("");
   const [importDropeaId, setImportDropeaId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
+  const [testEmailInput, setTestEmailInput] = useState("");
 
   useEffect(() => {
     checkAdminAccess();
@@ -243,11 +245,20 @@ export default function AdminDashboard({
     }
   };
 
-  const sendTestEmail = async () => {
-    const email = prompt("Insira o email para o teste:");
-    if (!email) return;
+  const sendTestEmail = () => {
+    setTestEmailInput(user.email || "");
+    setIsTestEmailModalOpen(true);
+  };
 
-    const testToast = toast.loading(`Enviando email de teste para ${email}...`);
+  const handleConfirmTestEmail = async () => {
+    if (!testEmailInput) {
+      toast.error("Por favor, insira um e-mail válido.");
+      return;
+    }
+
+    setIsTestEmailModalOpen(false);
+    const testToast = toast.loading(`Enviando e-mail de teste para ${testEmailInput}...`);
+    
     try {
       const res = await fetch("/api/admin/test-email", {
         method: "POST",
@@ -255,11 +266,11 @@ export default function AdminDashboard({
           "Content-Type": "application/json",
           "x-user-id": user.id,
         },
-        body: JSON.stringify({ email, userId: user.id }),
+        body: JSON.stringify({ email: testEmailInput, userId: user.id }),
       });
       const data = await res.json();
       if (res.ok) {
-        toast.success("Email de teste enviado com sucesso!", { id: testToast });
+        toast.success("E-mail de teste enviado com sucesso!", { id: testToast });
       } else {
         toast.error(`Falha: ${data.error}`, { id: testToast });
       }
@@ -2754,6 +2765,65 @@ export default function AdminDashboard({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {isTestEmailModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsTestEmailModalOpen(false)} />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#1A1A1A] border border-luxury-gold/20 w-full max-w-md p-8 relative z-10 space-y-6 shadow-2xl overflow-hidden"
+          >
+            <div className="absolute top-0 left-0 w-full h-1 bg-luxury-gold shadow-[0_0_10px_rgba(212,175,55,0.5)]" />
+            
+            <div className="space-y-2 text-center">
+              <h3 className="text-2xl font-serif text-luxury-gold tracking-tight">Testar SMTP</h3>
+              <p className="text-xs text-white/40 uppercase tracking-[0.2em]">
+                Validação do Servidor de E-mail
+              </p>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase tracking-widest text-white/20 font-bold">E-mail de Destino</label>
+                <input
+                  type="email"
+                  value={testEmailInput}
+                  onChange={(e) => setTestEmailInput(e.target.value)}
+                  autoFocus
+                  placeholder="exemplo@email.com"
+                  className="w-full bg-black/50 border border-white/10 p-4 text-sm text-white focus:border-luxury-gold focus:outline-none transition-all placeholder:text-white/10"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleConfirmTestEmail();
+                    }
+                  }}
+                />
+                <p className="text-[9px] text-white/20 mt-2 leading-relaxed">
+                  Isto enviará um e-mail real utilizando a configuração de porta 465 definida no servidor. Verifique a sua caixa de entrada (e SPAM).
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  onClick={() => setIsTestEmailModalOpen(false)}
+                  variant="ghost"
+                  className="flex-1 text-white/40 hover:text-white hover:bg-white/5 rounded-none h-12 uppercase tracking-widest text-[9px]"
+                >
+                  Voltar
+                </Button>
+                <Button 
+                  onClick={handleConfirmTestEmail}
+                  className="flex-1 bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none h-12 uppercase tracking-widest text-[10px] font-black shadow-lg shadow-luxury-gold/20"
+                >
+                  Enviar Teste
+                </Button>
+              </div>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>
