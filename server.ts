@@ -1023,16 +1023,16 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
        order.products = order.products_data; 
     }
 
-    // Prioridade de e-mail para garantir que vai para quem comprou (especialmente em casos de guest ou admin-debug)
-    // Usamos ?.trim() para evitar strings vazias
+    // Prioridade absoluta: E-mail capturado no ato da compra (Guest checkout ou Stripe info)
     const customerEmail = (order.customer_email && order.customer_email.trim().length > 3) 
       ? order.customer_email.trim() 
-      : (order.profiles?.notification_email || order.profiles?.email);
+      : (order.profiles?.notification_email || order.profiles?.email || '');
     
-    console.log(`[AUTOMAÇÃO DEBUG] Email resolvido para ${orderId}: "${customerEmail}" (Prioridade: ${order.customer_email ? 'Checkout/Guest' : 'Perfil'})`);
+    console.log(`[AUTOMAÇÃO DEBUG] >>> Ordem: ${orderId} | Email Alvo: "${customerEmail}" | Status: ${status}/${shippingStatus}`);
 
     if (!customerEmail || !customerEmail.includes('@')) {
-      console.error(`[AUTOMAÇÃO ERROR] Email inválido ou ausente para o pedido ${orderId}: "${customerEmail}"`);
+      console.error(`[AUTOMAÇÃO FATAL] Identificamos um pedido sem e-mail de destino válido! ID: ${orderId}`);
+      // Se não houver e-mail no pedido, tentamos buscar o e-mail do admin para alertar? Melhor apenas logar o erro crítico de dados.
       return;
     }
 
@@ -1065,7 +1065,9 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       return;
     }
 
-    // 4. Lógica de Bloqueio (Lock) para evitar e-mails duplicados
+    // 4. Lógica de Bloqueio (Lock)
+    // IMPORTANTE: Cada ordem tem seu próprio ID. Se o cliente comprar 10 vezes, serão 10 IDs diferentes.
+    // O lock é apenas para evitar que UM ÚNICO pedido dispare o MESMO e-mail 2 vezes (ex: refresh de webhook).
     if (flagField && !force) {
       try {
         const { data: lock, error: lockErr } = await supabase
@@ -1076,18 +1078,17 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           .select();
 
         if (lockErr) {
-          console.warn(`[AUTOMAÇÃO WARN] Coluna ${flagField} erro no lock, prosseguindo com disparo:`, lockErr.message);
-          // Se houver erro, NÃO retornamos. Queremos que o e-mail seja enviado.
+          console.warn(`[AUTOMAÇÃO] Alerta de Infra: Coluna ${flagField} ausente no banco. Enviando sem lock para garantir o serviço.`, lockErr.message);
         } else if (!lock || lock.length === 0) {
-          console.log(`[AUTOMAÇÃO] Notificação ${functionName} já foi disparada ou está marcada como enviada para ${orderId}.`);
+          console.log(`[AUTOMAÇÃO] Bloqueio de Duplicidade: E-mail ${functionName} já enviado para esta ordem ${orderId}.`);
           return;
         }
       } catch (e) {
-        console.warn(`[AUTOMAÇÃO ERROR] Falha bypassada no lock de e-mail ${flagField}:`, e);
+        console.warn(`[AUTOMAÇÃO] Erro no sistema de lock, prosseguindo com o disparo por segurança.`, e);
       }
     }
 
-    console.log(`[AUTOMAÇÃO] >>> EXECUTANDO DISPARO AGORA: '${functionName}' para: ${customerEmail}`);
+    console.log(`[AUTOMAÇÃO] >>> EXECUTANDO CHAMADA DA EDGE FUNCTION: '${functionName}' para: ${customerEmail}`);
     
     // Obter infos básicas do produto (seja via item ou products join)
     const firstProduct = order.products || (order.items && order.items.length > 0 ? order.items[0].product : null);
