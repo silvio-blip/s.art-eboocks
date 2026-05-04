@@ -87,6 +87,7 @@ interface Order {
   product_id: string;
   status: string;
   shipping_status: string;
+  payment_status?: string;
   total_amount: number;
   created_at: string;
   product?: Product;

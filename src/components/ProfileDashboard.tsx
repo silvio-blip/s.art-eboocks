@@ -40,6 +40,7 @@ interface Order {
   product_id: string;
   status: string;
   shipping_status: string;
+  payment_status?: string;
   shipping_status_metadata?: {
     trackingNumber?: string;
     trackingUrl?: string;
@@ -49,7 +50,10 @@ interface Order {
   total_amount: number;
   created_at: string;
   product?: Product;
-  selected_options?: { size?: string, color?: string };
+  customer_email?: string;
+  user_id?: string;
+  selected_options?: { size?: string, color?: string, shipping_details?: any };
+  stripe_session_id?: string;
 }
 
 interface Profile {
@@ -235,7 +239,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const filteredOrders = purchasedProducts.filter(o => {
     if (orderFilter === 'all') return true;
     if (orderFilter === 'refunded') return o.status === 'refunded' || o.status === 'refund_pending';
-    if (orderFilter === 'canceled') return o.status === 'canceled' || o.status === 'cancelled';
+    if (orderFilter === 'canceled') return ['canceled', 'cancelled', 'refunded', 'refund_pending'].includes(o.status || '');
     return o.shipping_status === orderFilter;
   });
 
@@ -436,66 +440,39 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                           <p className="text-[10px] dark:text-zinc-300">{new Date(order.created_at).toLocaleDateString()}</p>
                         </div>
                         
-                        <div className="flex justify-end md:justify-center flex-wrap gap-2">
-                          {order.shipping_status === 'delivered' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-black bg-emerald-500 text-white shadow-sm border border-emerald-400">
-                              Entregue
+                        <div className="md:col-span-1 flex flex-col items-center gap-1">
+                          {/* Order Status */}
+                          <div className="flex flex-col items-center gap-1 w-full">
+                            <p className="text-[7px] uppercase tracking-widest text-black/40 dark:text-white/40">Pedido</p>
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-black w-full justify-center border ${
+                              order.status === 'canceled' || order.status === 'cancelled'
+                                ? "bg-red-500/10 text-red-500 border-red-500/20"
+                                : order.status === 'refunded'
+                                  ? "bg-slate-500/10 text-slate-500 border-slate-500/20"
+                                  : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                            }`}>
+                              {order.shipping_status === 'delivered' ? 'Concluído' : 
+                               order.shipping_status === 'sent' ? 'Enviado' : 
+                               order.status === 'canceled' || order.status === 'cancelled' ? 'Cancelado' :
+                               order.status === 'refunded' ? 'Cancelado' : 'Em Processamento'}
                             </span>
-                          ) : order.shipping_status === 'sent' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-black bg-blue-500 text-white shadow-sm border border-blue-400">
-                              Enviado
+                          </div>
+
+                          {/* Payment Status (Only show if paid or refunded or canceled) */}
+                          <div className="flex flex-col items-center gap-1 w-full">
+                            <p className="text-[7px] uppercase tracking-widest text-black/40 dark:text-white/40">Pagamento</p>
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-black w-full justify-center border ${
+                              (order.payment_status === 'refunded' || order.status === 'refunded')
+                                ? "bg-red-500 text-white border-red-600"
+                                : (order.payment_status === 'paid' || order.status === 'paid' || order.status === 'completed' || order.status === 'succeeded')
+                                  ? "bg-emerald-500 text-white border-emerald-600"
+                                  : "bg-amber-500 text-white border-amber-600"
+                            }`}>
+                              {(order.payment_status === 'refunded' || order.status === 'refunded') ? 'Reembolsado' :
+                               (order.payment_status === 'paid' || order.status === 'paid' || order.status === 'completed' || order.status === 'succeeded') ? 'Pago' :
+                               order.status === 'refund_pending' ? 'Estornando' : 'Pendente'}
                             </span>
-                          ) : order.status === 'completed' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-black bg-zinc-800 text-white dark:bg-white dark:text-black shadow-sm border border-zinc-700 dark:border-zinc-200">
-                              Concluído
-                            </span>
-                          ) : order.status === 'paid' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-black bg-luxury-gold text-black shadow-sm border border-luxury-gold/50">
-                              Pago
-                            </span>
-                          ) : order.status === 'refund_requested' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-sm border border-amber-100 dark:border-amber-900/50">
-                              Em Análise
-                            </span>
-                          ) : order.status === 'refund_pending' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-sm border border-blue-100 dark:border-blue-900/50 animate-pulse">
-                              Estornando
-                            </span>
-                          ) : order.status === 'refunded' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 shadow-sm border border-zinc-200 dark:border-zinc-700">
-                              Reembolsado
-                            </span>
-                          ) : order.status === 'canceled' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-black bg-red-500 text-white shadow-sm border border-red-400">
-                              Cancelado
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold bg-neutral-100 text-neutral-500 dark:bg-zinc-800 dark:text-zinc-500 shadow-sm border border-neutral-200 dark:border-zinc-700">
-                              Pendente
-                            </span>
-                          )}
-                        </div>
-                        {(order.status === 'paid' || order.status === 'completed') && (() => {
-                            const effectiveStatus = order.shipping_status || 'pending';
-                            
-                            return (
-                              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[8px] uppercase tracking-widest font-bold shadow-sm ${
-                                effectiveStatus === 'delivered' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 shadow-emerald-500/5' :
-                                effectiveStatus === 'sent' ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/20 shadow-blue-500/5' :
-                                effectiveStatus === 'processing' ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/20 shadow-amber-500/5' :
-                                effectiveStatus === 'pago' || order.status === 'paid' ? 'bg-emerald-50 text-emerald-500 dark:bg-emerald-950/20 shadow-emerald-500/5' :
-                                'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
-                              }`}>
-                                {(effectiveStatus === 'delivered' || order.status === 'paid' || effectiveStatus === 'pago') ? <CheckCircle2 size={10} /> : 
-                                 effectiveStatus === 'sent' ? <Truck size={10} /> : 
-                                 <Clock size={10} />}
-                                {effectiveStatus === 'delivered' ? 'Concluído' : 
-                                 effectiveStatus === 'sent' ? 'Em Trânsito' : 
-                                 effectiveStatus === 'processing' ? 'Armazém / Processando' :
-                                 (effectiveStatus === 'pago' || order.status === 'paid') ? 'Pago' : 'Pendente'}
-                              </span>
-                            );
-                          })()}
+                          </div>
                         </div>
                         
                         <Button variant="ghost" size="icon" className="hidden md:flex text-black/20 dark:text-white/20 group-hover:text-luxury-gold transition-colors">
@@ -503,7 +480,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         </Button>
                       </div>
                     </div>
-                  ))
+                  </div>
+                ))
                 )}
             </div>
           </motion.div>

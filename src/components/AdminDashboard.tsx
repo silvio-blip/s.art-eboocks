@@ -85,13 +85,14 @@ interface Order {
   id: string;
   product_id: string;
   status: string;
+  shipping_status?: string;
+  payment_status?: string;
   total_amount: number;
   customer_email: string;
   created_at: string;
   dropea_order_id?: string;
   product?: Product;
-  selected_options?: { size?: string; color?: string };
-  shipping_status?: string;
+  selected_options?: { size?: string; color?: string; shipping_details?: any };
   shipping_status_metadata?: {
     trackingNumber?: string;
     trackingUrl?: string;
@@ -2188,28 +2189,41 @@ export default function AdminDashboard({
                         )}
                       </td>
                       <td className="px-8 py-6">
-                        <div className="flex items-center gap-3">
-                          <div className={`px-3 py-1.5 rounded-full text-[9px] uppercase tracking-widest font-black border ${
-                            ["paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "")
-                              ? "text-emerald-500 border-emerald-500/20"
-                              : order.status?.toLowerCase() === "refunded"
-                                ? "text-red-500 border-red-500/20"
-                                : ["pending", "pendente", "waiting"].includes(order.status?.toLowerCase() || "")
-                                  ? "text-amber-500 border-amber-500/20"
-                                  : "text-blue-500 border-blue-500/20"
+                        <div className="flex flex-col gap-2">
+                          {/* Order Status */}
+                          <div className={`px-3 py-1 rounded-full text-[8px] uppercase tracking-widest font-black border text-center ${
+                            ["deposited", "paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "")
+                              ? "text-emerald-500 border-emerald-500/20 bg-emerald-500/5"
+                              : ["canceled", "cancelled", "refunded"].includes(order.status?.toLowerCase() || "")
+                                ? "text-red-400 border-red-500/20 bg-red-500/5"
+                                : "text-amber-500 border-amber-500/20 bg-amber-500/5"
                           }`}>
-                            {["pending", "pendente", "waiting"].includes(order.status?.toLowerCase() || "") ? "Pendente" :
-                             ["paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "") ? "Pago" :
-                             order.status === "refund_requested" ? "Em Análise" :
-                             order.status === "refund_pending" ? "Estornando" :
-                             order.status === "refunded" ? "Reembolsado" :
-                             order.status?.toUpperCase() || "Status"}
+                            {order.status === "refunded" ? "Cancelado (Reembolsado)" :
+                             ["canceled", "cancelled"].includes(order.status) ? "Cancelado" :
+                             order.status?.toUpperCase() || "PENDENTE"}
                           </div>
-
-                          {(["pending", "pendente", "waiting", "refund_pending"].includes(order.status?.toLowerCase() || "") || 
-                            (order.status?.toLowerCase() === "paid" && (Number(order.total_amount) || 0) === 0)) && (
+                          
+                          {/* Payment Status */}
+                          <div className={`px-3 py-1 rounded-full text-[8px] uppercase tracking-widest font-black border text-center ${
+                            order.payment_status === "refunded" || order.status === "refunded"
+                              ? "bg-red-500 text-white border-red-600"
+                              : order.payment_status === "paid" || order.status === "paid" || order.status === "completed"
+                                ? "bg-emerald-500 text-white border-emerald-600"
+                                : "bg-amber-500 text-white border-amber-600"
+                          }`}>
+                            { (order.payment_status === "refunded" || order.status === "refunded") ? "PAGAMENTO: REEMBOLSADO" :
+                              (order.payment_status === "paid" || order.status === "paid" || order.status === "completed" || order.status === "succeeded") ? "PAGAMENTO: PAGO" :
+                               order.status === "refund_pending" ? "ESTORNANDO..." :
+                               "PAGAMENTO: PENDENTE"}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex items-center gap-2">
+                          {!["refunded", "delivered"].includes(order.status?.toLowerCase() || "") && (
                             <button
                                onClick={async () => {
+                                 const syncToast = toast.loading('Sincronizando com Stripe e Dropea...');
                                  try {
                                    const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
                                      method: 'POST',
@@ -2220,16 +2234,16 @@ export default function AdminDashboard({
                                    });
                                    const data = await response.json();
                                    if (data.success) {
-                                     toast.success(data.message || 'Status sincronizado com a Dropea!');
+                                     toast.success(data.message || 'Dados sincronizados com sucesso!', { id: syncToast });
                                      fetchDashboardData();
                                    } else {
-                                     toast.info(data.message || 'Ainda não pago na Dropea.');
+                                     toast.info(data.message || 'Sincronização concluída. Nenhuma alteração detectada.', { id: syncToast });
                                    }
                                  } catch(e) {
-                                   toast.error('Erro de sincronização.');
+                                   toast.error('Erro de sincronização.', { id: syncToast });
                                  }
                                }}
-                               title="Forçar verificação de pagamento na Dropea"
+                               title="Sincronizar com Stripe/Dropea"
                                className="text-white/40 hover:text-luxury-gold p-1.5 rounded-full transition-colors flex bg-white/5 hover:bg-white/10"
                              >
                                <RefreshCw size={12} />
@@ -2310,7 +2324,7 @@ export default function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {orders.filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status?.toLowerCase() || "")).length === 0 ? (
+                      {orders.filter(o => ['refund_requested', 'refund_pending', 'refunded', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || "")).length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-8 py-20 text-center text-white/20 text-xs uppercase tracking-[0.2em]">
                             Nenhuma solicitação de reembolso encontrada.
@@ -2318,7 +2332,7 @@ export default function AdminDashboard({
                         </tr>
                       ) : (
                         orders
-                          .filter(o => ['refund_requested', 'refund_pending', 'refunded'].includes(o.status?.toLowerCase() || ""))
+                          .filter(o => ['refund_requested', 'refund_pending', 'refunded', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || ""))
                           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                           .map((order) => (
                             <tr key={order.id} className="group hover:bg-white/[0.02] transition-colors">
@@ -2379,6 +2393,7 @@ export default function AdminDashboard({
                                         btn.disabled = true;
                                         const icon = btn.querySelector('.sync-icon');
                                         icon?.classList.add('animate-spin');
+                                        const syncToast = toast.loading('Verificando status com Stripe...');
                                         
                                         try {
                                           const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
@@ -2390,13 +2405,13 @@ export default function AdminDashboard({
                                           });
                                           const data = await response.json();
                                           if (data.success) {
-                                            toast.success(data.message);
+                                            toast.success(data.message || 'Dados atualizados!', { id: syncToast });
                                             fetchDashboardData();
                                           } else {
-                                            toast.error(data.error || "Erro de sincronização");
+                                            toast.info(data.message || 'Sincronização concluída.', { id: syncToast });
                                           }
                                         } catch (e) {
-                                          toast.error("Erro de rede");
+                                          toast.error("Erro de rede", { id: syncToast });
                                         } finally {
                                           btn.disabled = false;
                                           icon?.classList.remove('animate-spin');
@@ -2404,7 +2419,7 @@ export default function AdminDashboard({
                                       }}
                                       variant="outline"
                                       className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none transition-all"
-                                      title="Sincronizar estado com Dropea"
+                                      title="Sincronizar com Stripe/Dropea"
                                     >
                                       <RefreshCw size={10} className="mr-1 sync-icon" />
                                       Sincronizar

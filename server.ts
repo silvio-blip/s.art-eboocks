@@ -39,22 +39,25 @@ const initDB = async () => {
       // Ignore
     }
 
-    // Ensure orders table has notification tracking columns
+    // Ensure orders table has notification tracking and payment status columns
     const columnsToEnsure = [
       'email_paid_sent', 
       'email_shipped_sent', 
       'email_review_sent', 
       'email_canceled_sent',
-      'email_refunded_sent'
+      'email_refunded_sent',
+      'stripe_payment_intent'
     ];
     
     for (const col of columnsToEnsure) {
       try {
         await supabase.rpc('exec_sql', { sql: `ALTER TABLE orders ADD COLUMN IF NOT EXISTS ${col} BOOLEAN DEFAULT FALSE;` });
-      } catch(e) {
-        // Ignore
-      }
+      } catch(e) { /* Ignore */ }
     }
+
+    try {
+      await supabase.rpc('exec_sql', { sql: "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending';" });
+    } catch(e) { /* Ignore */ }
   } catch (err) {
     console.warn('[INIT] Erro na inicialização do DB (não crítico):', err);
   }
@@ -144,9 +147,11 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
           user_id: userId,
           product_id: internalProductId,
           status: 'paid',
+          payment_status: 'paid',
           shipping_status: 'pending',
           total_amount: session.amount_total ? session.amount_total / 100 : 0,
           stripe_session_id: session.id,
+          stripe_payment_intent: session.payment_intent as string,
           shipping_details: customerDataRaw,
           customer_email: session.customer_details?.email || customerData?.email || metadata?.email // Tripla redundância de e-mail
         })
@@ -170,42 +175,43 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
   } else if (event.type === 'charge.refunded') {
     const charge = event.data.object as Stripe.Charge;
     const paymentIntentId = charge.payment_intent as string;
-    console.log(`[STRIPE WEBHOOK] Reembolso detetado para PI: ${paymentIntentId}`);
+    console.log(`[STRIPE WEBHOOK] Reembolso detectado para PI: ${paymentIntentId}`);
     
     try {
       const supabase = getSupabase();
-      if (stripe && paymentIntentId) {
-        // Buscar ordens recentes "canceled" ou "paid" para identificar a qual este PI pertence
-        const { data: recentOrders } = await supabase
+      if (paymentIntentId) {
+        // Busca direta pela Ordem que possui este Payment Intent
+        const { data: order, error: findError } = await supabase
           .from('orders')
-          .select('id, status, stripe_session_id, shipping_status')
-          .in('status', ['paid', 'canceled', 'completed'])
-          .order('created_at', { ascending: false })
-          .limit(20);
+          .select('id, status, shipping_status, stripe_payment_intent')
+          .eq('stripe_payment_intent', paymentIntentId)
+          .maybeSingle();
 
-        if (recentOrders) {
-           for (const o of recentOrders) {
-             if (o.stripe_session_id) {
-               try {
-                 const session = await stripe.checkout.sessions.retrieve(o.stripe_session_id);
-                 if (session.payment_intent === paymentIntentId) {
-                    console.log(`[STRIPE WEBHOOK] Ordem ${o.id} identificada. Atualizando para reembolsada.`);
-                    
-                    const { data: updated } = await supabase
-                      .from('orders')
-                      .update({ status: 'refunded' })
-                      .eq('id', o.id)
-                      .select()
-                      .single();
+        if (findError) {
+          console.error(`[STRIPE WEBHOOK] Erro ao buscar ordem por PI ${paymentIntentId}:`, findError);
+        } else if (order) {
+          console.log(`[STRIPE WEBHOOK] Ordem ${order.id} identificada. Atualizando para reembolsada.`);
+          
+          const { data: updated, error: updateErr } = await supabase
+            .from('orders')
+            .update({ 
+              status: 'refunded', 
+              payment_status: 'refunded' 
+            })
+            .eq('id', order.id)
+            .select()
+            .single();
 
-                    if (updated) {
-                      triggerOrderNotification(o.id, 'refunded', updated.shipping_status || o.shipping_status, updated).catch(e => console.error(e));
-                    }
-                    break;
-                 }
-               } catch (e) { /* skip */ }
-             }
-           }
+          if (updateErr) {
+            console.error(`[STRIPE WEBHOOK] Erro ao atualizar ordem ${order.id}:`, updateErr);
+          } else if (updated) {
+            console.log(`[STRIPE WEBHOOK] Ordem ${order.id} marcada como reembolsada. Disparando e-mail...`);
+            triggerOrderNotification(order.id, 'refunded', updated.shipping_status || order.shipping_status, updated).catch(e => 
+              console.error(`[STRIPE WEBHOOK] Erro ao disparar notificação:`, e)
+            );
+          }
+        } else {
+          console.log(`[STRIPE WEBHOOK] Nenhuma ordem encontrada para o PI: ${paymentIntentId}. Talvez um pedido antigo ou manual.`);
         }
       }
     } catch (err: any) {
@@ -481,7 +487,7 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
                 statusChanged = true;
               }
             } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(ds)) {
-              if (order.status !== 'canceled') {
+              if (!['canceled', 'cancelled', 'refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
                 updateData.status = 'canceled';
                 statusChanged = true;
                 // AUTO-REFUND
@@ -492,8 +498,20 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
             } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(ds)) {
               if (order.status !== 'refunded') {
                 updateData.status = 'refunded';
+                updateData.payment_status = 'refunded';
                 statusChanged = true;
               }
+            } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP'].includes(ds)) {
+               if (!['completed', 'canceled', 'refunded', 'refund_pending'].includes(order.status) && order.status !== 'paid') {
+                 updateData.status = 'paid';
+                 updateData.payment_status = 'paid';
+                 statusChanged = true;
+               }
+            }
+
+            if ((updateData.status === 'paid' || order.status === 'paid' || order.status === 'completed') && !order.payment_status) {
+              updateData.payment_status = 'paid';
+              statusChanged = true;
             }
 
             if (dropeaData.tracking_number && (!order.shipping_status_metadata || order.shipping_status_metadata.trackingNumber !== dropeaData.tracking_number)) {
@@ -686,11 +704,11 @@ async function processRefundInternal(orderId: string) {
       console.log(`[REFUND INTERNAL] Stripe refund ${refund.status} for Order: ${orderId}`);
       
       if (refund.status === 'succeeded') {
-        await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
+        await supabase.from('orders').update({ status: 'refunded', payment_status: 'refunded' }).eq('id', orderId);
         triggerOrderNotification(orderId, 'refunded', order.shipping_status).catch(e => console.error('[REFUND NOTIF ERROR]', e));
       } else {
         // Se estiver pendente, marcamos como refund_pending para feedback visual no dashboard
-        await supabase.from('orders').update({ status: 'refund_pending' }).eq('id', orderId);
+        await supabase.from('orders').update({ status: 'refund_pending', payment_status: 'refund_pending' }).eq('id', orderId);
         // Opcional: Enviar email avisando que o reembolso foi disparado
         triggerOrderNotification(orderId, 'canceled', order.shipping_status).catch(e => console.error('[CANCEL NOTIF ERROR]', e));
       }
@@ -1002,6 +1020,32 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
         updated_at: new Date().toISOString()
       };
       
+      // VERIFICAÇÃO STRIPE
+      if (stripe && order.stripe_session_id) {
+        try {
+          const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+            expand: ['payment_intent', 'payment_intent.latest_charge']
+          });
+          
+          if (session.payment_status === 'paid') {
+             updateData.payment_status = 'paid';
+          }
+
+          const pi = session.payment_intent as Stripe.PaymentIntent;
+          if (pi && pi.latest_charge) {
+             const charge = pi.latest_charge as Stripe.Charge;
+             if (charge.refunded) {
+               updateData.payment_status = 'refunded';
+               updateData.status = 'refunded';
+             }
+          } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
+             updateData.payment_status = 'paid';
+          }
+        } catch (stripeErr) {
+          console.error(`[USER SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+        }
+      }
+
       const dropeaStatus = String(dropeaData.status).toUpperCase();
       
       // Mapeamento Robusto de Status (Dropea -> SArt)
@@ -1047,9 +1091,10 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       // Detetar mudanças para gravar e notificar
       const hasStatusChange = updateData.status && updateData.status !== order.status;
       const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
+      const hasPaymentStatusChange = updateData.payment_status && updateData.payment_status !== order.payment_status;
       const hasMetadataChange = !!updateData.shipping_status_metadata;
 
-      const hasChanges = hasStatusChange || hasShippingChange || hasMetadataChange;
+      const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasMetadataChange;
 
       if (hasChanges) {
         const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
@@ -1059,8 +1104,9 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
         }
         
         // Disparar e-mail se mudou algo visível para o cliente
-        if (hasStatusChange) {
-          triggerOrderNotification(order.id, updateData.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC NOTIF ERR]', e));
+        if (hasStatusChange || hasPaymentStatusChange) {
+          const notifyStatus = updateData.status || order.status;
+          triggerOrderNotification(order.id, notifyStatus, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC NOTIF ERR]', e));
         } else if (hasShippingChange) {
           triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC SHIP NOTIF ERR]', e));
         }
@@ -2129,27 +2175,70 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
     if (!dropeaData) return res.status(502).json({ error: 'Dropea não retornou dados.' });
 
     const updateData: any = { updated_at: new Date().toISOString() };
+    
+    // VERIFICAÇÃO STRIPE (Sincronização com a fonte da verdade financeira)
+    if (stripe && order.stripe_session_id) {
+      try {
+        const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+          expand: ['payment_intent', 'payment_intent.latest_charge']
+        });
+        
+        // Se a Stripe diz que foi pago, garantimos isso no nosso lado
+        if (session.payment_status === 'paid') {
+           updateData.payment_status = 'paid';
+        }
+
+        // VERIFICAR REEMBOLSOS (Crucial para o que o usuário está pedindo)
+        const pi = session.payment_intent as Stripe.PaymentIntent;
+        if (pi && pi.latest_charge) {
+           const charge = pi.latest_charge as Stripe.Charge;
+           if (charge.refunded) {
+             console.log(`[SYNC STRIPE] Detetado reembolso na Stripe para ordem ${id}`);
+             updateData.payment_status = 'refunded';
+             updateData.status = 'refunded';
+           }
+        } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
+           // Se não tem charge expandida mas o PI foi um sucesso, pelo menos sabemos que foi pago
+           updateData.payment_status = 'paid';
+        }
+      } catch (stripeErr) {
+        console.error(`[SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+      }
+    }
+
     const dropeaStatus = String(dropeaData.status).toUpperCase();
     
-    // Mapeamento
+    // Mapeamento Refinado
     if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus)) {
       updateData.shipping_status = 'sent';
-      if (dropeaStatus === 'FULFILLED') updateData.status = 'completed';
+      if (['paid', 'completed'].includes(order.status)) {
+        updateData.status = (dropeaStatus === 'FULFILLED') ? 'completed' : order.status;
+      }
     } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
       updateData.shipping_status = 'delivered';
       updateData.status = 'completed';
     } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
-      updateData.status = 'canceled';
-      // AUTO-REFUND
-      if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
-        processRefundInternal(order.id).catch(e => console.error('[ADM SYNC REFUND ERROR]', e));
+      // Somente mudamos para cancelado se NÃO estiver já em processo de reembolso
+      if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
+        updateData.status = 'canceled';
+        // AUTO-REFUND
+        if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
+          processRefundInternal(order.id).catch(e => console.error('[ADM SYNC REFUND ERROR]', e));
+        }
       }
     } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
       updateData.status = 'refunded';
+      updateData.payment_status = 'refunded';
     } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP'].includes(dropeaStatus)) {
-       if (order.status !== 'completed' && order.status !== 'canceled') {
+       if (!['completed', 'canceled', 'refunded', 'refund_pending'].includes(order.status)) {
          updateData.status = 'paid';
+         updateData.payment_status = 'paid';
        }
+    }
+    
+    // Fallback de payment_status se a ordem estiver paga mas sem o campo preenchido
+    if ((updateData.status === 'paid' || order.status === 'paid' || order.status === 'completed') && !order.payment_status) {
+      updateData.payment_status = 'paid';
     }
 
     if (dropeaData.tracking_number) {
@@ -2164,12 +2253,20 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
 
     const hasStatusChange = updateData.status && updateData.status !== order.status;
     const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
-    const hasChanges = hasStatusChange || hasShippingChange || !!updateData.shipping_status_metadata;
+    const hasPaymentStatusChange = updateData.payment_status && updateData.payment_status !== order.payment_status;
+    const hasTrackingChange = !!updateData.shipping_status_metadata;
+    const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasTrackingChange;
 
     if (hasChanges) {
       await supabase.from('orders').update(updateData).eq('id', id);
-      if (hasStatusChange) triggerOrderNotification(order.id, updateData.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
-      else if (hasShippingChange) triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
+      
+      // Prioridade para notificação de status de pagamento/ordem geral
+      if (hasStatusChange || hasPaymentStatusChange) {
+        const notifyStatus = updateData.status || order.status;
+        triggerOrderNotification(order.id, notifyStatus, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
+      } else if (hasShippingChange) {
+        triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
+      }
     }
 
     res.json({ success: true, dropea_status: dropeaStatus, synced: hasChanges });
@@ -2323,9 +2420,10 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    // Update status to 'refund_pending'
+    // Update status to 'refunded'
     await supabase.from('orders').update({ 
-      status: 'refunded', // Mark as refunded directly if manual or pending if automatic
+      status: 'refunded', 
+      payment_status: 'refunded',
       selected_options: {
         ...(order.selected_options || {}),
         refund_approved_at: new Date().toISOString()
@@ -2441,121 +2539,6 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     console.error("[STRIPE ERROR]", error);
     res.status(500).json({ error: error.message });
   }
-});
-
-// --- ORDER STATUS SYNC ---
-apiRouter.post('/orders/sync-statuses', async (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  try {
-    const { userId } = req.body || {};
-    if (!userId) return res.status(400).json({ error: "userId required" });
-
-    const supabase = getSupabase();
-    
-    // First, try a simple select to see if the column exists
-    const { data: testData, error: testError } = await supabase
-      .from('orders')
-      .select('id')
-      .limit(1);
-
-    if (testError) throw testError;
-
-    // Check for dropea_order_id explicitly to avoid fatal error on first fetch
-    const { data: orders, error } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('user_id', userId)
-      .not('shipping_status', 'eq', 'delivered');
-
-    if (error) {
-       if (error.code === '42703') {
-         // Column missing, skip sync silently to avoid log spam
-         return res.json({ updated: 0, warning: "Database schema update required (missing dropea_order_id)" });
-       }
-       throw error;
-    }
-
-    if (!orders || orders.length === 0) {
-      return res.json({ updated: 0 });
-    }
-
-    // Filter orders that have a dropea_order_id mapping
-    const eligibleOrders = orders.filter(o => o.dropea_order_id);
-    if (eligibleOrders.length === 0) {
-      return res.json({ updated: 0 });
-    }
-
-    if (!DROPEA_API_KEY) {
-      return res.status(500).json({ error: "Dropea configuration missing" });
-    }
-
-    let updatedCount = 0;
-    for (const order of eligibleOrders) {
-      try {
-        const dropeaId = parseInt(order.dropea_order_id, 10);
-        if (isNaN(dropeaId)) continue;
-
-        // Buscar status na Dropea via GraphQL
-        const graphqlQuery = {
-          query: `
-            query Order($id: Int!) {
-              order(id: $id) {
-                id
-                status
-              }
-            }
-          `,
-          variables: { id: dropeaId }
-        };
-
-        const response = await axios.post(DROPEA_API_URL, graphqlQuery, {
-          headers: { 
-            'x-api-key': DROPEA_API_KEY,
-            'Content-Type': 'application/json',
-            'User-Agent': 'SArt-Boutique-Boutique/1.0'
-          },
-          timeout: 8000
-        }).catch(() => null);
-
-        if (!response) continue;
-
-        const dropeaOrder = response.data?.data?.order;
-        if (dropeaOrder && dropeaOrder.status) {
-          const status = dropeaOrder.status.toLowerCase();
-          
-          let newShippingStatus = order.shipping_status;
-
-          if (status === 'shipped') newShippingStatus = 'sent';
-          else if (status === 'delivered') newShippingStatus = 'delivered';
-          else if (status === 'processing' || status === 'pending') newShippingStatus = 'pending';
-          else if (status === 'cancelled' || status === 'canceled') newShippingStatus = 'canceled';
-          
-          if (newShippingStatus !== order.shipping_status) {
-            await supabase
-              .from('orders')
-              .update({ shipping_status: newShippingStatus })
-              .eq('id', order.id);
-            updatedCount++;
-          }
-        }
-      } catch (err) {
-        // Silently skip individual order errors to avoid spam
-      }
-    }
-
-    res.json({ updated: updatedCount });
-  } catch (err: any) {
-    if (err.code === '42703') {
-       return res.json({ updated: 0, error: "Database needs migration (dropea_order_id missing)" });
-    }
-    // console.error(`[SYNC FATAL]`, err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Catch-all for /api/* to return JSON instead of HTML on error
-app.all('/api/*', (req, res) => {
-  res.status(404).json({ error: 'Endpoint not found', path: req.path });
 });
 
 // --- VITE MIDDLEWARE ---
