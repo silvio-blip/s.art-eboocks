@@ -399,30 +399,46 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
   const supabase = getSupabase();
 
   console.log(`[DROPEA WEBHOOK] Event received: ${event}`);
-  // Data log truncated for security/sanity if it's too big, but usually it's fine
-  // console.log('[DROPEA WEBHOOK] Data:', JSON.stringify(data, null, 2));
 
   try {
-    const dropeaOrderId = data.id || data.order_id || data.token;
+    const dropeaOrderId = data.id || data.order_id || data.token || (data.order && data.order.id);
     
+    if (!dropeaOrderId) {
+      console.warn('[DROPEA WEBHOOK] Webhook ignorado: dropeaOrderId não encontrado no payload.');
+      return res.status(200).json({ received: true });
+    }
+
+    // Identificar a ordem local vinculada pelo Dropea ID
+    const { data: linkedOrder } = await supabase
+      .from('orders')
+      .select('id, status, stripe_session_id, shipping_status, total_amount, customer_email')
+      .eq('dropea_order_id', String(dropeaOrderId))
+      .maybeSingle();
+
     // 1. Handle Payment/Creation Events
     if (event === 'checkout.completed' || event === 'payment.succeeded' || event === 'order.paid') {
-      const orderId = data.metadata?.orderId || data.order_id;
-      const checkoutToken = data.checkout_token || data.id || data.token;
-      const email = data.customer_email || data.email;
-      const productId = data.product_id || data.metadata?.productId;
-      if (orderId) {
-        console.log(`[DROPEA WEBHOOK] Processing Payment for Order: ${orderId}`);
-        await supabase
+      console.log(`[DROPEA WEBHOOK] Payment Confirmed for Dropea ID: ${dropeaOrderId}`);
+      // Fallback para metadata se o link direto falhar
+      const orderIdFromMetadata = data.metadata?.orderId || data.order_id;
+      const finalOrderId = linkedOrder?.id || orderIdFromMetadata;
+      
+      if (finalOrderId) {
+        console.log(`[DROPEA WEBHOOK] Sincronizando pagamento para ordem: ${finalOrderId}`);
+        const { data: updated } = await supabase
           .from('orders')
-          .update({
+          .update({ 
             status: 'paid',
-            dropea_order_id: checkoutToken,
-            customer_email: email
+            dropea_order_id: String(dropeaOrderId)
           })
-          .eq('id', orderId);
+          .eq('id', finalOrderId)
+          .select()
+          .single();
           
-        triggerOrderNotification(orderId, 'paid', 'pending').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+        if (updated) {
+          triggerOrderNotification(finalOrderId, 'paid', updated.shipping_status || 'pending', updated).catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+        }
+      } else {
+        console.warn(`[DROPEA WEBHOOK] Ordem não encontrada para pagamento: ${dropeaOrderId}`);
       }
     } 
     
@@ -430,59 +446,68 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
     else if (event === 'order.shipped' || event === 'order.fulfilled' || event === 'fulfillment.created') {
       console.log(`[DROPEA WEBHOOK] Order Shipped event for Dropea ID: ${dropeaOrderId}`);
       
-      const trackingNumber = data.tracking_number || (data.fulfillment?.tracking_number) || (data.tracking?.number);
-      const trackingUrl = data.tracking_url || (data.fulfillment?.tracking_url) || (data.tracking?.url);
+      const trackingNumber = data.tracking_number || (data.fulfillment?.tracking_number) || (data.tracking?.number) || (data.order?.tracking_number);
+      const trackingUrl = data.tracking_url || (data.fulfillment?.tracking_url) || (data.tracking?.url) || (data.order?.tracking_url);
 
-      const updateData: any = { shipping_status: 'sent' };
-      if (trackingNumber) {
-        updateData.shipping_status_metadata = { trackingNumber, trackingUrl, lastUpdate: new Date().toISOString() };
-      }
+      if (linkedOrder) {
+        const updateData: any = { shipping_status: 'sent' };
+        if (trackingNumber) {
+          updateData.shipping_status_metadata = { 
+            trackingNumber, 
+            trackingUrl, 
+            lastUpdate: new Date().toISOString() 
+          };
+        }
 
-      const { data: updatedOrders } = await supabase
-        .from('orders')
-        .update(updateData)
-        .eq('dropea_order_id', String(dropeaOrderId))
-        .select('id, status');
+        const { data: order } = await supabase
+          .from('orders')
+          .update(updateData)
+          .eq('id', linkedOrder.id)
+          .select()
+          .single();
 
-      if (updatedOrders && updatedOrders.length > 0) {
-        triggerOrderNotification(updatedOrders[0].id, updatedOrders[0].status, 'sent').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+        if (order) {
+          triggerOrderNotification(order.id, order.status, 'sent', order).catch(e => console.error('[WEBHOOK SHIP EMAIL ERROR]', e));
+        }
       }
     } 
     
     else if (event === 'order.delivered') {
       console.log(`[DROPEA WEBHOOK] Order Delivered for Dropea ID: ${dropeaOrderId}`);
-      const { data: updatedOrders } = await supabase
-        .from('orders')
-        .update({ shipping_status: 'delivered' })
-        .eq('dropea_order_id', String(dropeaOrderId))
-        .select('id, status');
+      if (linkedOrder) {
+        const { data: order } = await supabase
+          .from('orders')
+          .update({ shipping_status: 'delivered' })
+          .eq('id', linkedOrder.id)
+          .select()
+          .single();
 
-      if (updatedOrders && updatedOrders.length > 0) {
-        triggerOrderNotification(updatedOrders[0].id, updatedOrders[0].status, 'delivered').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+        if (order) {
+          triggerOrderNotification(order.id, order.status, 'delivered', order).catch(e => console.error('[WEBHOOK DELIVERED EMAIL ERROR]', e));
+        }
       }
     }
 
-    else if (event === 'order.canceled' || event === 'payment.failed') {
-      console.log(`[DROPEA WEBHOOK] Order Canceled for Dropea ID: ${dropeaOrderId}`);
-      const orderId = data.metadata?.orderId || data.order_id;
-      let finalOrderId = orderId;
-
-      if (!finalOrderId && dropeaOrderId) {
-        const { data: foundOrder } = await supabase.from('orders').select('id, stripe_session_id, status').eq('dropea_order_id', String(dropeaOrderId)).single();
-        if (foundOrder) {
-          finalOrderId = foundOrder.id;
-          
-          // Se a ordem estava 'paid', iniciamos o reembolso automático no Stripe
-          if (foundOrder.status === 'paid' && foundOrder.stripe_session_id && stripe) {
-            console.log(`[DROPEA WEBHOOK] Autorrefund process for Order: ${finalOrderId}`);
-            processRefundInternal(finalOrderId).catch(e => console.error('[AUTORREFUND ERROR]', e));
-          }
+    else if (event === 'order.canceled' || event === 'order.cancelled' || event === 'payment.failed') {
+      console.log(`[DROPEA WEBHOOK] Order Canceled/Failed for Dropea ID: ${dropeaOrderId}`);
+      
+      if (linkedOrder) {
+        // Se a ordem estava 'paid', iniciamos o reembolso automático no Stripe
+        if ((linkedOrder.status === 'paid' || linkedOrder.status === 'completed') && linkedOrder.stripe_session_id && stripe) {
+          console.log(`[DROPEA WEBHOOK] Autorrefund process for Order: ${linkedOrder.id}`);
+          processRefundInternal(linkedOrder.id).catch(e => console.error('[AUTORREFUND ERROR]', e));
         }
-      }
 
-      if (finalOrderId) {
-        await supabase.from('orders').update({ status: 'canceled' }).eq('id', finalOrderId);
-        triggerOrderNotification(finalOrderId, 'canceled', 'pending').catch(e => console.error('[WEBHOOK EMAIL ERROR]', e));
+        const { data: order } = await supabase
+          .from('orders')
+          .update({ status: 'canceled' })
+          .eq('id', linkedOrder.id)
+          .select()
+          .single();
+
+        if (order) {
+          triggerOrderNotification(order.id, 'canceled', order.shipping_status || 'pending', order).catch(e => console.error('[WEBHOOK CANCELED EMAIL ERROR]', e));
+        }
       }
     }
   } catch (err: any) {
@@ -897,7 +922,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     const lowerStatus = (status || '').toLowerCase();
     const lowerShipping = (shippingStatus || '').toLowerCase();
 
-    if (lowerStatus === 'paid' || lowerStatus === 'pago') {
+    if (lowerStatus === 'paid' || lowerStatus === 'pago' || lowerStatus === 'completed' || lowerStatus === 'concluido' || lowerStatus === 'concluído') {
       functionName = 'send-payment-confirmed';
       flagField = 'email_paid_sent';
     } else if (lowerShipping === 'sent' || lowerShipping === 'enviado' || lowerShipping === 'shipped') {
@@ -956,9 +981,9 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     });
 
     if (invokeErr) {
-      console.error(`[AUTOMAÇÃO ERROR] Erro ao chamar ${functionName}:`, invokeErr);
+      console.error(`[AUTOMAÇÃO ERROR] Erro ao chamar ${functionName} para ${orderId}:`, invokeErr);
     } else {
-      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado com sucesso. Resposta:`, invokeData);
+      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado ao cliente ${customerEmail} para pedido ${orderId}.`);
     }
 
   } catch (err) {
@@ -1172,6 +1197,31 @@ adminRouter.use(async (req, res, next) => {
   } catch (err) {
     console.error('[ADMIN AUTH ERROR]', err);
     res.status(500).json({ error: 'Internal server error during admin validation' });
+  }
+});
+
+adminRouter.post('/test-email', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email é obrigatório' });
+    
+    console.log(`[ADMIN TEST EMAIL] Enviando teste para: ${email}`);
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase.functions.invoke('send-custom-email', {
+      body: {
+        email,
+        subject: 'Teste de Configuração SMTP - SArt Boutique',
+        message: 'Este é um e-mail de teste disparado pelo painel administrativo para validar a configuração do seu servidor SMTP (Porta 465). Se recebeu isto, está tudo correto!',
+        customerName: 'Administrador'
+      }
+    });
+
+    if (error) throw error;
+    res.json({ success: true, response: data });
+  } catch (error: any) {
+    console.error('[ADMIN TEST EMAIL ERROR]', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

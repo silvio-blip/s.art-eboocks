@@ -243,6 +243,31 @@ export default function AdminDashboard({
     }
   };
 
+  const sendTestEmail = async () => {
+    const email = prompt("Insira o email para o teste:");
+    if (!email) return;
+
+    const testToast = toast.loading(`Enviando email de teste para ${email}...`);
+    try {
+      const res = await fetch("/api/admin/test-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user.id,
+        },
+        body: JSON.stringify({ email, userId: user.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("Email de teste enviado com sucesso!", { id: testToast });
+      } else {
+        toast.error(`Falha: ${data.error}`, { id: testToast });
+      }
+    } catch (e) {
+      toast.error("Erro na comunicação com o servidor.", { id: testToast });
+    }
+  };
+
   const toggleAdminRole = async (targetUser: Profile) => {
     try {
       const newRole = !targetUser.is_admin;
@@ -265,6 +290,18 @@ export default function AdminDashboard({
       toast.error("Erro na comunicação com o servidor.");
     }
   };
+
+  useEffect(() => {
+    // Background sync every 5 minutes while admin is open
+    const backgroundSync = setInterval(() => {
+      if (tab === "orders" || tab === "overview") {
+        console.log("[BACKGROUND SYNC] Checking for order updates...");
+        syncAllPayments();
+      }
+    }, 300000);
+
+    return () => clearInterval(backgroundSync);
+  }, [tab, orders.length]);
 
   const syncAllPayments = async () => {
     const ordersToSync = orders.filter(o => 
@@ -843,6 +880,14 @@ export default function AdminDashboard({
           </div>
 
           <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={sendTestEmail}
+              className="border-white/10 text-white/60 hover:bg-white/5 gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden md:flex"
+            >
+              <FileText size={12} /> Testar E-mail
+            </Button>
             <Button 
               variant="outline" 
               size="sm" 
@@ -2018,81 +2063,39 @@ export default function AdminDashboard({
                         €{order.total_amount}
                       </td>
                       <td className="px-8 py-6">
-                        {order.product?.product_type === "physical" ? (
+                        {order.product?.product_type === "digital" ? (
                           <span className="text-emerald-500 font-bold text-[9px] uppercase tracking-widest inline-block py-1">
                             Sem Logística (Digital)
                           </span>
-                        ) : (
-                          <select
-                            value={order.shipping_status || "pending"}
-                            onChange={async (e) => {
-                              const newStatus = e.target.value;
-                              try {
-                                const response = await fetch(
-                                  `/api/admin/orders/${order.id}/shipping`,
-                                  {
-                                    method: "PUT",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                      "x-user-id": user.id,
-                                    },
-                                    body: JSON.stringify({
-                                      shipping_status: newStatus,
-                                    }),
-                                  },
-                                );
-
-                                if (!response.ok) {
-                                  const errInfo = await response.json();
-                                  throw new Error(
-                                    errInfo.error ||
-                                      "Erro ao atualizar a ordem.",
-                                  );
-                                }
-
-                                const data = await response.json();
-                                if (
-                                  order.status === "pending" &&
-                                  (data.status === "paid" || data.status === "completed")
-                                ) {
-                                  toast.success(
-                                    "Status logístico atualizado (e pagamento sincronizado auto).",
-                                  );
-                                } else {
-                                  toast.success("Status logístico atualizado.");
-                                }
-                                fetchDashboardData();
-                              } catch (err: any) {
-                                toast.error(err.message);
-                              }
-                            }}
-                            className={`bg-luxury-dark border border-white/5 py-1 px-2 text-[9px] uppercase tracking-widest font-bold outline-none cursor-pointer hover:border-luxury-gold transition-colors selection:bg-luxury-black ${
-                              order.shipping_status === "delivered"
-                                ? "text-emerald-500"
-                                : order.shipping_status === "sent"
-                                  ? "text-blue-500"
-                                  : order.shipping_status === "processing"
-                                    ? "text-amber-500"
-                                    : "text-white/50"
-                            }`}
-                            style={{ WebkitAppearance: "none" }}
+                        ) : order.dropea_order_id ? (
+                          <div className="flex flex-col gap-1">
+                            <span className={`text-[10px] uppercase font-black ${
+                              order.shipping_status === "delivered" ? "text-emerald-500" :
+                              order.shipping_status === "sent" ? "text-blue-500" :
+                              "text-amber-500"
+                            }`}>
+                              {order.shipping_status === "delivered" ? "Entregue" : 
+                               order.shipping_status === "sent" ? "Em Trânsito" : 
+                               "Pendente / Em Separação"}
+                            </span>
+                            {order.shipping_status_metadata?.trackingNumber && (
+                              <span className="text-[8px] text-white/30 font-mono tracking-tighter">
+                                {order.shipping_status_metadata.trackingNumber}
+                              </span>
+                            )}
+                          </div>
+                        ) : (["paid", "pago", "completed", "succeeded"].includes(order.status?.toLowerCase() || "")) ? (
+                          <Button 
+                            size="sm"
+                            onClick={() => handleManualFulfill(order.id)}
+                            className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3"
                           >
-                            <option value="pending" className="bg-luxury-black">
-                              Pendente
-                            </option>
-                            <option value="processing" className="bg-luxury-black">
-                              Armazém / Processamento
-                            </option>
-                            <option value="sent" className="bg-luxury-black">
-                              Em Trânsito
-                            </option>
-                            <option
-                              value="delivered"
-                              className="bg-luxury-black"
-                            >
-                              Entregue
-                            </option>
-                          </select>
+                            Enviar p/ Dropea
+                          </Button>
+                        ) : (
+                          <span className="text-white/20 text-[9px] uppercase tracking-widest font-bold">
+                            Aguardando Pagamento
+                          </span>
                         )}
                       </td>
                       <td className="px-8 py-6">
@@ -2631,45 +2634,47 @@ export default function AdminDashboard({
                   <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
                   <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
                   
-                  <div className="pt-2 flex items-center justify-between gap-4">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status Dropea</span>
-                      <div className="flex items-center gap-2">
-                        {viewingOrder.dropea_order_id ? (
-                          <>
-                            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                            <span className="text-emerald-500 font-bold tracking-widest text-[9px] uppercase">Sincronizado (#{viewingOrder.dropea_order_id})</span>
-                          </>
-                        ) : (
-                          <>
-                            <div className="w-2 h-2 rounded-full bg-amber-500" />
-                            <span className="text-amber-500 font-bold tracking-widest text-[9px] uppercase">Não Sincronizado</span>
-                          </>
-                        )}
+                    <div className="pt-2 flex items-center justify-between gap-4">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status Dropea</span>
+                        <div className="flex items-center gap-2">
+                          {viewingOrder.dropea_order_id ? (
+                            <>
+                              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                              <span className="text-emerald-500 font-bold tracking-widest text-[9px] uppercase font-mono">Sincronizado (#{viewingOrder.dropea_order_id})</span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-2 h-2 rounded-full bg-amber-500" />
+                              <span className="text-amber-500 font-bold tracking-widest text-[9px] uppercase">Aguardando Envio</span>
+                            </>
+                          )}
+                        </div>
                       </div>
+
+                      {!viewingOrder.dropea_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === 'pago' || viewingOrder.status === 'completed') && (
+                        <Button 
+                          size="sm"
+                          onClick={() => handleManualFulfill(viewingOrder.id)}
+                          className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
+                        >
+                          Enviar Pedido Agora
+                        </Button>
+                      )}
+
+                      {viewingOrder.dropea_order_id && (
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSyncStatus(viewingOrder.id)}
+                            className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
+                          >
+                            <RefreshCw size={10} className="mr-2" /> Sincronizar
+                          </Button>
+                        </div>
+                      )}
                     </div>
-
-                    {!viewingOrder.dropea_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === 'completed') && (
-                      <Button 
-                        size="sm"
-                        onClick={() => handleManualFulfill(viewingOrder.id)}
-                        className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-8 px-4"
-                      >
-                        Enviar p/ Dropea Manualmente
-                      </Button>
-                    )}
-
-                    {viewingOrder.dropea_order_id && (
-                      <Button 
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleSyncStatus(viewingOrder.id)}
-                        className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
-                      >
-                        <Clock size={10} className="mr-2" /> Sincronizar Status
-                      </Button>
-                    )}
-                  </div>
 
                   {viewingOrder.shipping_status_metadata && (
                     <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
