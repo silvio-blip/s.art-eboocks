@@ -1102,11 +1102,22 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       }
     }
 
-    console.log(`[AUTOMAÇÃO] >>> EXECUTANDO CHAMADA DA EDGE FUNCTION: '${functionName}' para: ${customerEmail}`);
+    console.log(`[AUTOMAÇÃO] >>> EXECUTANDO CHAMADA DIRETA (AXIOS) PARA: '${functionName}' | Email: ${customerEmail}`);
     
-    // Obter infos básicas do produto (seja via item ou products join)
-    const firstProduct = order.products || (order.items && order.items.length > 0 ? order.items[0].product : null);
+    // Obter infos básicas do produto
+    let productInfo = { name: 'Produto S.Art Boutique', price: order.total_amount, id: '', image: '' };
     
+    // Se temos order.products (que buscamos via maybeSingle ou separadamente)
+    const rawProd = Array.isArray(order.products) ? order.products[0] : order.products;
+    if (rawProd) {
+      productInfo = {
+        name: rawProd.name || rawProd.title || productInfo.name,
+        price: rawProd.price || order.total_amount,
+        id: rawProd.id,
+        image: rawProd.image_url
+      };
+    }
+
     const payload = {
       orderId: order.id,
       email: customerEmail,
@@ -1115,44 +1126,37 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       total: order.total_amount,
       status: status,
       shippingStatus: shippingStatus,
-      product: {
-        name: firstProduct?.name || firstProduct?.title || 'Produto S.Art Boutique',
-        image: firstProduct?.image_url,
-        price: order.total_amount,
-        id: firstProduct?.id
-      },
+      product: productInfo,
       trackingNumber: order.shipping_status_metadata?.trackingNumber,
       trackingUrl: order.shipping_status_metadata?.trackingUrl
     };
 
     console.log(`[AUTOMAÇÃO] >>> PAYLOAD PREPARADO:`, JSON.stringify(payload, null, 2));
 
-    const { data: invokeData, error: invokeErr } = await supabase.functions.invoke(functionName, {
-      body: payload
-    });
+    // CHAMADA DIRETA VIA HTTP PARA A URL DA EDGE FUNCTION
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
 
-    if (invokeErr) {
-      console.error(`[AUTOMAÇÃO FATAL ERROR] Falha ao invocar ${functionName}:`, invokeErr);
-      if (invokeErr.message?.includes('404')) {
-        console.error(`[AUTOMAÇÃO] >>> FUNÇÃO '${functionName}' NÃO ENCONTRADA NO SUPABASE!`);
-      }
-    } else {
-      console.log(`[AUTOMAÇÃO SUCCESS] Resposta Bruta da Função ${functionName}:`, JSON.stringify(invokeData));
+    try {
+      const response = await axios.post(functionUrl, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceRoleKey}`,
+          'apikey': serviceRoleKey
+        },
+        timeout: 10000 // 10 segundos de timeout
+      });
+
+      console.log(`[AUTOMAÇÃO SUCCESS] Status: ${response.status} | Resposta:`, JSON.stringify(response.data));
+      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado com sucesso para ${customerEmail}.`);
+    } catch (invokeErr: any) {
+      console.error(`[AUTOMAÇÃO FATAL ERROR] Falha Crítica ao chamar ${functionName}:`, invokeErr.response?.data || invokeErr.message);
       
-      // Checar se o corpo da resposta diz que deu erro (padrão comum em Edge Functions)
-      if (invokeData && (invokeData.error || invokeData.status === 'error')) {
-        console.error(`[AUTOMAÇÃO REGRESSÃO] A função ${functionName} retornou um erro interno:`, invokeData.message || invokeData.error);
-      } else {
-        console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado ao cliente ${customerEmail}.`);
+      if (invokeErr.response?.status === 404) {
+        console.error(`[AUTOMAÇÃO] >>> ERRO 404: Verifique se o nome '${functionName}' está correto no Supabase.`);
       }
     }
-
-    if (invokeErr) {
-      console.error(`[AUTOMAÇÃO ERROR] Erro ao chamar ${functionName} para ${orderId}:`, invokeErr);
-    } else {
-      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado ao cliente ${customerEmail} para pedido ${orderId}.`);
-    }
-
   } catch (err) {
     console.error(`[AUTOMAÇÃO FATAL]`, err);
   }
