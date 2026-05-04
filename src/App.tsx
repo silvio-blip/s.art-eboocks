@@ -1629,17 +1629,21 @@ export default function App() {
 
         if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
           // Buscar produto separadamente para evitar erro de join 400
-          if (order.product_id) {
+          if (order.product_id && !successProduct) {
             const { data: prodData } = await supabase
               .from("products")
               .select("*")
               .eq("id", order.product_id)
-              .single();
+              .maybeSingle();
             if (prodData) setSuccessProduct(prodData);
           }
           
           setSuccessOrderId(order.id);
-          toast.success("Compra aprovada! Verifique agora a sua caixa de entrada ou Gmail para o comprovativo oficial.", { duration: 10000 });
+          // MENSAGEM DE SUCESSO AGRESSIVA E DIRETA
+          toast.success("🔥 Compra confirmada! Verifique agora sua CAIXA DE ENTRADA ou GMAIL para o seu comprovativo oficial.", { 
+            duration: 15000,
+            id: "payment-success-final"
+          });
         } else if (order) {
           console.log("[S.ART DEBUG] Order found but status is:", order.status);
           toast.info("Pagamento em processamento...");

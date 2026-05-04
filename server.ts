@@ -115,12 +115,13 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
         .maybeSingle();
 
       if (existingOrder) {
-        console.log(`[STRIPE WEBHOOK] Pedido já existe: ${existingOrder.id}. Verificando status e disparando e-mail se necessário...`);
+        console.log(`[STRIPE WEBHOOK] Pedido já existe: ${existingOrder.id}. Forçando disparo direto de e-mail agora.`);
         
-        // Garantir que o e-mail de confirmação seja enviado mesmo se já existir a ordem
-        triggerOrderNotification(existingOrder.id, 'paid', existingOrder.shipping_status || 'pending', existingOrder).catch(e => console.error('[AUTO-EMAIL RETRY ERROR]', e));
+        // Disparo DIRETO sem passar por triggers de banco
+        triggerOrderNotification(existingOrder.id, 'paid', existingOrder.shipping_status || 'pending', existingOrder, true).catch(err => 
+          console.error('[STRIPE WEBHOOK ERROR] Falha no disparo direto:', err)
+        );
         
-        // Se já existe mas não foi para Dropea, tentamos novamente
         if (!existingOrder.dropea_order_id) {
            processOrderFulfillment(existingOrder).catch(e => console.error('[RETRY FULFILLMENT ERROR]', e));
         }
@@ -1000,7 +1001,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     if (!order || (!order.products && !order.items && !order.profiles)) {
       const { data, error: orderErr } = await supabase
         .from('orders')
-        .select('*, profiles(*), products(*)')
+        .select('*, profiles(*)')
         .eq('id', orderId)
         .maybeSingle();
       
@@ -1010,9 +1011,16 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       }
       
       if (!data) {
-        console.warn(`[AUTOMAÇÃO WARN] Ordem ${orderId} não encontrada no banco após tentativa.`);
+        console.warn(`[AUTOMAÇÃO WARN] Ordem ${orderId} não encontrada no banco.`);
         return;
       }
+
+      // Se não tem produtos no select original, buscar separadamente para evitar Erro 400 (Bad Gateway) em joins complexos
+      if (!data.products && data.product_id) {
+        const { data: prod } = await supabase.from('products').select('*').eq('id', data.product_id).single();
+        if (prod) data.products = prod;
+      }
+
       order = data;
     }
 
