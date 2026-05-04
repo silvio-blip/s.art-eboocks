@@ -1617,14 +1617,14 @@ export default function App() {
         // Check local order status
         const { data: order } = await supabase
           .from("orders")
-          .select("*, product:products(*)")
+          .select("*, products(*)")
           .eq("stripe_session_id", sessionId)
           .maybeSingle();
 
         if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
-          setSuccessProduct(order.product);
+          setSuccessProduct(Array.isArray(order.products) ? order.products[0] : order.products);
           setSuccessOrderId(order.id);
-          toast.success("Compra aprovada! Desfrute da sua nova obra.");
+          toast.success("Compra aprovada! Verifique a sua caixa de correio ou Gmail para o comprovativo oficial.", { duration: 8000 });
         } else if (order) {
           console.log("[S.ART DEBUG] Order found but status is:", order.status);
           toast.info("Pagamento em processamento...");

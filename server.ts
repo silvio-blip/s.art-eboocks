@@ -1117,15 +1117,26 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       trackingUrl: order.shipping_status_metadata?.trackingUrl
     };
 
+    console.log(`[AUTOMAÇÃO] >>> PAYLOAD PREPARADO:`, JSON.stringify(payload, null, 2));
+
     const { data: invokeData, error: invokeErr } = await supabase.functions.invoke(functionName, {
       body: payload
     });
 
     if (invokeErr) {
       console.error(`[AUTOMAÇÃO FATAL ERROR] Falha ao invocar ${functionName}:`, invokeErr);
-      // Opcional: Reverter a flag se falhar? Melhor não para evitar loops se o erro for persistente.
+      if (invokeErr.message?.includes('404')) {
+        console.error(`[AUTOMAÇÃO] >>> FUNÇÃO '${functionName}' NÃO ENCONTRADA NO SUPABASE!`);
+      }
     } else {
-      console.log(`[AUTOMAÇÃO SUCCESS] Resposta da função ${functionName}:`, invokeData);
+      console.log(`[AUTOMAÇÃO SUCCESS] Resposta Bruta da Função ${functionName}:`, JSON.stringify(invokeData));
+      
+      // Checar se o corpo da resposta diz que deu erro (padrão comum em Edge Functions)
+      if (invokeData && (invokeData.error || invokeData.status === 'error')) {
+        console.error(`[AUTOMAÇÃO REGRESSÃO] A função ${functionName} retornou um erro interno:`, invokeData.message || invokeData.error);
+      } else {
+        console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado ao cliente ${customerEmail}.`);
+      }
     }
 
     if (invokeErr) {
@@ -1923,7 +1934,7 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
     const supabase = getSupabase();
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, product:products(*) ')
+      .select('*, products(*) ')
       .eq('id', orderId)
       .in('status', ['paid', 'completed'])
       .single();
@@ -1933,7 +1944,8 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
       return res.status(404).json({ error: `Ordem não encontrada: ${orderError.message}` });
     }
 
-    if (!order || !order.product) {
+    const productData = Array.isArray(order.products) ? order.products[0] : order.products;
+    if (!order || !productData) {
       return res.status(404).json({ error: 'Produto não associado a esta ordem.' });
     }
 
