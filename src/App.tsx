@@ -1803,7 +1803,7 @@ export default function App() {
       .from("orders")
       .select("*")
       .eq("user_id", userId)
-      .in("status", ["paid", "completed", "pago", "delivered", "succeeded", "refund_requested", "refund_pending", "refunded"])
+      .in("status", ["paid", "completed", "pago", "delivered", "succeeded", "refund_requested", "refund_pending", "refunded", "canceled", "cancelled"])
       .order("created_at", { ascending: false });
 
     if (ordersError) {

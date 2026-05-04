@@ -421,6 +421,112 @@ async function getDropeaOrderStatus(dropeaOrderId: string) {
 }
 
 // --- WEBHOOK DROPEA ---
+app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'User ID is required' });
+
+    console.log(`[USER SYNC] Initing sync for user: ${userId}`);
+    const supabase = getSupabase();
+
+    // Buscar ordens não permanentes
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', userId)
+      .not('status', 'in', '("refunded","delivered","canceled")');
+
+    if (error || !orders || orders.length === 0) {
+      return res.json({ success: true, count: 0 });
+    }
+
+    let changeCount = 0;
+    for (const order of orders) {
+      try {
+        let dropeaId = order.dropea_order_id;
+        
+        // 1. Tentar encontrar ID se não tiver
+        if (!dropeaId) {
+           const email = order.customer_email;
+           if (email) {
+             const found = await findDropeaOrderByEmail(email);
+             if (found) {
+               dropeaId = String(found);
+               await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', order.id);
+             }
+           }
+        }
+
+        if (dropeaId) {
+          const dropeaData = await getDropeaOrderStatus(dropeaId);
+          if (dropeaData) {
+            const updateData: any = { updated_at: new Date().toISOString() };
+            const ds = String(dropeaData.status).toUpperCase();
+            
+            let statusChanged = false;
+
+            if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(ds)) {
+              if (order.shipping_status !== 'sent') {
+                updateData.shipping_status = 'sent';
+                statusChanged = true;
+              }
+              if (ds === 'FULFILLED' && order.status !== 'completed') {
+                updateData.status = 'completed';
+                statusChanged = true;
+              }
+            } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(ds)) {
+              if (order.shipping_status !== 'delivered' || order.status !== 'completed') {
+                updateData.shipping_status = 'delivered';
+                updateData.status = 'completed';
+                statusChanged = true;
+              }
+            } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(ds)) {
+              if (order.status !== 'canceled') {
+                updateData.status = 'canceled';
+                statusChanged = true;
+                // AUTO-REFUND
+                if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
+                  processRefundInternal(order.id).catch(e => console.error('[AUTO SYNC REFUND ERROR]', e));
+                }
+              }
+            } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(ds)) {
+              if (order.status !== 'refunded') {
+                updateData.status = 'refunded';
+                statusChanged = true;
+              }
+            }
+
+            if (dropeaData.tracking_number && (!order.shipping_status_metadata || order.shipping_status_metadata.trackingNumber !== dropeaData.tracking_number)) {
+              updateData.shipping_status_metadata = {
+                ...(order.shipping_status_metadata || {}),
+                trackingNumber: dropeaData.tracking_number,
+                trackingUrl: dropeaData.tracking_url
+              };
+              statusChanged = true;
+            }
+
+            if (statusChanged) {
+              await supabase.from('orders').update(updateData).eq('id', order.id);
+              changeCount++;
+              // Notificar utilizador se houve mudança relevante
+              if (updateData.status || updateData.shipping_status) {
+                triggerOrderNotification(order.id, updateData.status || order.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`[SYNC LOOP ERROR] Order ${order.id}:`, e);
+      }
+    }
+
+    res.json({ success: true, count: changeCount });
+  } catch (error: any) {
+    console.error('[SYNC STATUSES ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/dropea/webhook', express.json(), async (req, res) => {
   const payload = req.body;
   const { event, data } = payload;
@@ -579,11 +685,14 @@ async function processRefundInternal(orderId: string) {
     if (refund.status === 'succeeded' || refund.status === 'pending') {
       console.log(`[REFUND INTERNAL] Stripe refund ${refund.status} for Order: ${orderId}`);
       
-      // Update local state to refunded if successful, or leave it as canceled if pending
-      // If it's pending, we'll wait for the Stripe webhook to finalize it.
       if (refund.status === 'succeeded') {
         await supabase.from('orders').update({ status: 'refunded' }).eq('id', orderId);
         triggerOrderNotification(orderId, 'refunded', order.shipping_status).catch(e => console.error('[REFUND NOTIF ERROR]', e));
+      } else {
+        // Se estiver pendente, marcamos como refund_pending para feedback visual no dashboard
+        await supabase.from('orders').update({ status: 'refund_pending' }).eq('id', orderId);
+        // Opcional: Enviar email avisando que o reembolso foi disparado
+        triggerOrderNotification(orderId, 'canceled', order.shipping_status).catch(e => console.error('[CANCEL NOTIF ERROR]', e));
       }
       return true;
     }

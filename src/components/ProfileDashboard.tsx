@@ -91,7 +91,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const [isEditing, setIsEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', description: '', avatar_url: '', notification_email: '' });
-  const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'sent' | 'delivered' | 'refunded'>('all');
+  const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'sent' | 'delivered' | 'refunded' | 'canceled'>('all');
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -235,6 +235,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const filteredOrders = purchasedProducts.filter(o => {
     if (orderFilter === 'all') return true;
     if (orderFilter === 'refunded') return o.status === 'refunded' || o.status === 'refund_pending';
+    if (orderFilter === 'canceled') return o.status === 'canceled' || o.status === 'cancelled';
     return o.shipping_status === orderFilter;
   });
 
@@ -378,13 +379,13 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 <p className="text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40 mt-1">Histórico de Aquisições</p>
               </div>
               <div className="flex bg-neutral-50 dark:bg-zinc-900 p-1 border border-black/5 dark:border-white/5 overflow-x-auto no-scrollbar">
-                {(['all', 'pending', 'sent', 'delivered', 'refunded'] as const).map((f) => (
+                {(['all', 'pending', 'sent', 'delivered', 'refunded', 'canceled'] as const).map((f) => (
                   <button 
                     key={f}
                     onClick={() => setOrderFilter(f)}
                     className={`px-4 py-2 text-[8px] uppercase tracking-[0.15em] font-bold transition-all whitespace-nowrap ${orderFilter === f ? 'bg-black dark:bg-white text-white dark:text-black shadow-md' : 'text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white'}`}
                   >
-                    {f === 'all' ? 'Todos' : f === 'pending' ? 'Pendentes' : f === 'sent' ? 'Enviados' : f === 'delivered' ? 'Concluídos' : 'Reembolsos'}
+                    {f === 'all' ? 'Todos' : f === 'pending' ? 'Pendentes' : f === 'sent' ? 'Enviados' : f === 'delivered' ? 'Concluídos' : f === 'refunded' ? 'Reembolsos' : 'Cancelados'}
                   </button>
                 ))}
               </div>
