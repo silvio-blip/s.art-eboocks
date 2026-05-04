@@ -317,11 +317,18 @@ export default function AdminDashboard({
   }, [tab, orders.length]);
 
   const syncAllPayments = async () => {
-    // Sincronizar qualquer ordem que ainda não esteja em estado terminal de entrega ou reembolso concluído
-    const ordersToSync = orders.filter(o => 
-      !["delivered", "refunded", "reembolsado", "entregue"].includes(o.status?.toLowerCase() || "") &&
-      !["delivered", "entregue"].includes(o.shipping_status?.toLowerCase() || "")
-    );
+    // Sincronizar qualquer ordem que ainda não esteja em estado terminal (Entregue ou Reembolsado)
+    const ordersToSync = orders.filter(o => {
+      const s = o.status?.toLowerCase() || "";
+      const ss = o.shipping_status?.toLowerCase() || "";
+      const ps = o.payment_status?.toLowerCase() || "";
+      
+      // Se já está entregue E pago, ou Reembolsado, não precisa sincronizar
+      if ((s === "completed" || s === "paid") && (ss === "delivered")) return false;
+      if (s === "refunded" || ps === "refunded" || s === "reembolsado") return false;
+      
+      return true;
+    });
     
     if (ordersToSync.length === 0) {
       toast.info("Nenhuma ordem aberta necessita de sincronização.");
@@ -645,16 +652,22 @@ export default function AdminDashboard({
   // Correct financial calculations - Standardizing Statuses
   const activeStatuses = ["paid", "completed", "pago", "delivered", "succeeded"];
   
+  const refundedOrders = orders.filter((o) => 
+    o.status?.toLowerCase() === "refunded" || 
+    o.payment_status?.toLowerCase() === "refunded" ||
+    o.status?.toLowerCase() === "reembolsado"
+  );
+  
   const successfulOrders = orders.filter((o) => {
     const s = o.status?.toLowerCase() || "";
-    return activeStatuses.includes(s);
+    const p = o.payment_status?.toLowerCase() || "";
+    // Exclude if explicitly refunded for "Active/Successful" list
+    if (s === "refunded" || p === "refunded" || s === "reembolsado") return false;
+    return activeStatuses.includes(s) || p === "paid";
   });
-  
-  const refundedOrders = orders.filter((o) => o.status?.toLowerCase() === "refunded");
-  const refundedOrdersCount = refundedOrders.length;
-  const requestedRefundsCount = orders.filter((o) => ["refund_requested", "refund_pending"].includes(o.status?.toLowerCase() || "")).length;
 
-  const totalSuccessful = successfulOrders.reduce(
+  // Gross Revenue = Successful + Refunded (Everything that originated money)
+  const totalGrossRevenue = [...successfulOrders, ...refundedOrders].reduce(
     (sum, o) => sum + (Number(o.total_amount) || 0),
     0,
   );
@@ -664,12 +677,14 @@ export default function AdminDashboard({
     0,
   );
 
-  // Gross Revenue = Total collected from successful payments that were NOT refunded
-  const totalGrossRevenue = totalSuccessful;
+  const netProfit = totalGrossRevenue - totalRefunded;
   
-  // Net Profit = What remains after refunds (same as above since we don't have other costs yet)
-  const netProfit = totalSuccessful; 
   const completedSales = successfulOrders.length; 
+
+  const refundedOrdersCount = refundedOrders.length;
+  const requestedRefundsCount = orders.filter((o) => 
+    ["refund_requested", "refund_pending"].includes(o.status?.toLowerCase() || "")
+  ).length;
 
   // Re-calculating display data for charts using the same active statuses
   const getChartData = () => {
@@ -1080,7 +1095,7 @@ export default function AdminDashboard({
                   </div>
                 </div>
                 <div className="mt-4 text-[9px] uppercase tracking-widest text-white/20">
-                  Aguardando confirmação no separador "Ordens"
+                  Aguardando confirmação no separador "Reembolsos"
                 </div>
               </Card>
             </div>
@@ -1358,26 +1373,26 @@ export default function AdminDashboard({
                         <td className="px-6 py-4">
                           <span
                             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] uppercase tracking-widest font-bold ${
-                              activeStatuses.includes(order.status?.toLowerCase() || "")
-                                ? "bg-emerald-500/10 text-emerald-500"
-                                : order.status === "refunded"
-                                  ? "bg-red-500/10 text-red-500"
-                                  : order.status === "refund_pending"
+                              (order.status === "refunded" || order.payment_status === "refunded" || order.status === "reembolsado")
+                                ? "bg-red-500/10 text-red-500"
+                                : (activeStatuses.includes(order.status?.toLowerCase() || "") || order.payment_status === "paid")
+                                  ? "bg-emerald-500/10 text-emerald-500"
+                                  : ["refund_requested", "refund_pending"].includes(order.status || "")
                                     ? "bg-amber-500/10 text-amber-500"
                                     : "bg-amber-500/10 text-amber-500"
                             }`}
                           >
-                            {activeStatuses.includes(order.status?.toLowerCase() || "") ? (
-                              <>
-                                <CheckCircle size={8} className="mr-1" />{" "}
-                                Liquidado
-                              </>
-                            ) : order.status === "refunded" ? (
+                            {(order.status === "refunded" || order.payment_status === "refunded" || order.status === "reembolsado") ? (
                               <>
                                 <XCircle size={8} className="mr-1" />{" "}
                                 Reembolsado
                               </>
-                            ) : order.status === "refund_pending" ? (
+                            ) : (activeStatuses.includes(order.status?.toLowerCase() || "") || order.payment_status === "paid") ? (
+                              <>
+                                <CheckCircle size={8} className="mr-1" />{" "}
+                                Liquidado
+                              </>
+                            ) : ["refund_requested", "refund_pending"].includes(order.status || "") ? (
                               <>
                                 <Clock size={8} className="mr-1" /> Reembolso
                                 Solicitado
@@ -2324,7 +2339,10 @@ export default function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {orders.filter(o => ['refund_requested', 'refund_pending', 'refunded', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || "")).length === 0 ? (
+                      {orders.filter(o => 
+                        ['refund_requested', 'refund_pending', 'refunded', 'reembolsado', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || "") ||
+                        o.payment_status === 'refunded'
+                      ).length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-8 py-20 text-center text-white/20 text-xs uppercase tracking-[0.2em]">
                             Nenhuma solicitação de reembolso encontrada.
@@ -2332,7 +2350,10 @@ export default function AdminDashboard({
                         </tr>
                       ) : (
                         orders
-                          .filter(o => ['refund_requested', 'refund_pending', 'refunded', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || ""))
+                          .filter(o => 
+                            ['refund_requested', 'refund_pending', 'refunded', 'reembolsado', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || "") ||
+                            o.payment_status === 'refunded'
+                          )
                           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                           .map((order) => (
                             <tr key={order.id} className="group hover:bg-white/[0.02] transition-colors">
@@ -2374,14 +2395,14 @@ export default function AdminDashboard({
                                       ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20 animate-pulse'
                                       : order.status?.toLowerCase() === 'refund_rejected'
                                         ? 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
-                                        : (order.status?.toLowerCase() === 'refunded' || order.status?.toLowerCase() === 'pago')
+                                        : (order.status?.toLowerCase() === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado')
                                           ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
                                           : 'bg-white/5 text-white/40 border border-white/10'
                                 }`}>
                                   {order.status?.toLowerCase() === 'refund_requested' ? 'Em Análise' : 
                                    order.status?.toLowerCase() === 'refund_pending' ? 'Processando Estorno' : 
                                    order.status?.toLowerCase() === 'refund_rejected' ? 'Solicitação Rejeitada' : 
-                                   order.status?.toLowerCase() === 'refunded' ? 'Reembolso Concluído' :
+                                   (order.status?.toLowerCase() === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado') ? 'Reembolso Concluído' :
                                    order.status?.toUpperCase() || 'Pendente'}
                                 </div>
                               </td>

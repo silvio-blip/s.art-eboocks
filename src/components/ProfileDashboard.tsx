@@ -451,10 +451,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                   ? "bg-slate-500/10 text-slate-500 border-slate-500/20"
                                   : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                             }`}>
-                              {order.shipping_status === 'delivered' ? 'Concluído' : 
-                               order.shipping_status === 'sent' ? 'Enviado' : 
-                               order.status === 'canceled' || order.status === 'cancelled' ? 'Cancelado' :
-                               order.status === 'refunded' ? 'Cancelado' : 'Em Processamento'}
+                              {order.shipping_status === 'delivered' ? 'Entregue' : 
+                               order.shipping_status === 'sent' ? 'Em Trânsito' : 
+                               (order.status === 'canceled' || order.status === 'cancelled') ? 'Cancelado' :
+                               (order.status === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado') ? 'Reembolsado' : 
+                               ['paid', 'succeeded', 'completed'].includes(order.status || "") ? 'Preparando' : 'Em Processamento'}
                             </span>
                           </div>
 

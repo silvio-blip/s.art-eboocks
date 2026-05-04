@@ -1027,6 +1027,12 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
             expand: ['payment_intent', 'payment_intent.latest_charge']
           });
           
+          if (session.payment_intent && !order.stripe_payment_intent) {
+            updateData.stripe_payment_intent = typeof session.payment_intent === 'string' 
+              ? session.payment_intent 
+              : (session.payment_intent as any).id;
+          }
+
           if (session.payment_status === 'paid') {
              updateData.payment_status = 'paid';
           }
@@ -1099,8 +1105,13 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       if (hasChanges) {
         const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
         if (updateError) {
-          console.error('[SYNC DB UPDATE ERROR]', updateError);
-          return res.status(500).json({ error: 'Falha ao atualizar dados locais' });
+          console.error('[SYNC DB UPDATE ERROR]', {
+            error: updateError,
+            orderId: id,
+            updateData: updateData,
+            order: order
+          });
+          return res.status(500).json({ error: 'Falha ao atualizar dados locais', details: updateError });
         }
         
         // Disparar e-mail se mudou algo visível para o cliente
@@ -2183,6 +2194,13 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
           expand: ['payment_intent', 'payment_intent.latest_charge']
         });
         
+        // Atualizar stripe_payment_intent se estiver faltando (ajuda reconciliação futura)
+        if (session.payment_intent && !order.stripe_payment_intent) {
+          updateData.stripe_payment_intent = typeof session.payment_intent === 'string' 
+            ? session.payment_intent 
+            : (session.payment_intent as any).id;
+        }
+
         // Se a Stripe diz que foi pago, garantimos isso no nosso lado
         if (session.payment_status === 'paid') {
            updateData.payment_status = 'paid';
