@@ -328,12 +328,59 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
   return response.data?.data?.orderCreate?.id;
 }
 
+async function executeDropeaQuery(query: string, variables: any, rootField: string) {
+  try {
+    console.log(`[DROPEA DEBUG] Executing ${rootField} query...`);
+    const response = await axios.post(DROPEA_API_URL, { query, variables }, {
+      headers: {
+        'x-api-key': DROPEA_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'SArt-Boutique-Boutique/1.0'
+      },
+      timeout: 15000
+    });
+
+    if (response.data?.errors) {
+      const errorMsg = JSON.stringify(response.data.errors);
+      console.error(`[DROPEA GRAPHQL ERROR] for ${rootField}:`, errorMsg);
+      // Return the errors so the caller can decide
+      return { errors: response.data.errors };
+    }
+
+    const result = response.data?.data?.[rootField]?.data;
+    // For single ID queries, return the first item
+    if (variables.id && Array.isArray(result)) return result[0];
+    return result;
+  } catch (e: any) {
+    const detail = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+    console.error(`[DROPEA REQUEST ERROR] for ${rootField}:`, detail);
+    return { error: detail };
+  }
+}
+
+async function findDropeaOrderByEmail(email: string) {
+  const graphqlQuery = `
+    query FindOrdersByEmail {
+      orders(first: 50) {
+        data {
+          id
+          customer { email }
+          status
+        }
+      }
+    }
+  `;
+  const result = await executeDropeaQuery(graphqlQuery, {}, 'orders');
+  if (result && Array.isArray(result)) {
+    const match = [...result].reverse().find(o => o.customer?.email?.toLowerCase() === email.toLowerCase());
+    return match ? match.id : null;
+  }
+  return null;
+}
+
 async function getDropeaOrderStatus(dropeaOrderId: string) {
   const numericId = parseInt(dropeaOrderId, 10);
-  if (isNaN(numericId)) {
-    console.error(`[DROPEA STATUS ERRORS] Invalid numeric ID: ${dropeaOrderId}`);
-    return null;
-  }
+  if (isNaN(numericId)) return null;
 
   const graphqlQuery = `
     query GetOrderStatus($id: [Int]) {
@@ -343,53 +390,30 @@ async function getDropeaOrderStatus(dropeaOrderId: string) {
           status
           tracking_code
           tracking_url
+          customer { email name }
+          items { 
+            product { name id }
+            quantity
+          }
         }
       }
     }
   `;
 
-  const variables = { id: [numericId] };
-
-  console.log(`[DROPEA STATUS CHECK] Checking Dropea ID: ${numericId}...`);
-
-  try {
-    const response = await axios.post(DROPEA_API_URL, {
-      query: graphqlQuery,
-      variables
-    }, {
-      headers: {
-        'x-api-key': DROPEA_API_KEY,
-        'Content-Type': 'application/json',
-        'User-Agent': 'SArt-Boutique-Boutique/1.3'
-      },
-      timeout: 10000
-    });
-
-    if (response.data?.errors) {
-      console.error(`[DROPEA STATUS ERRORS] GraphQL Errors for ID ${numericId}:`, JSON.stringify(response.data.errors, null, 2));
-      return null;
-    }
-
-    const orderDataArr = response.data?.data?.orders?.data;
-    const orderData = Array.isArray(orderDataArr) ? orderDataArr[0] : null;
-
-    if (!orderData) {
-      console.warn(`[DROPEA STATUS CHECK] Order ${numericId} not found in Dropea response.`);
-      return null;
-    }
-
-    // Map fields for internal consistency (tracking_code -> tracking_number)
-    return {
-      id: orderData.id,
-      status: orderData.status,
-      tracking_number: orderData.tracking_code,
-      tracking_url: orderData.tracking_url
-    };
-  } catch (error: any) {
-    const errorDetail = error.response?.data ? JSON.stringify(error.response.data) : error.message;
-    console.error(`[DROPEA STATUS FATAL ERROR] for ID ${numericId}: ${errorDetail}`);
+  const orderData = await executeDropeaQuery(graphqlQuery, { id: [numericId] }, 'orders');
+  
+  if (!orderData || (orderData as any).errors || (orderData as any).error) {
     return null;
   }
+
+  return {
+    id: orderData.id,
+    status: orderData.status,
+    tracking_number: orderData.tracking_code,
+    tracking_url: orderData.tracking_url,
+    customer: orderData.customer,
+    items: orderData.items
+  };
 }
 
 // --- WEBHOOK DROPEA ---
@@ -824,61 +848,135 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       .single();
 
     if (fetchError || !order) {
-      return res.status(404).json({ error: 'Ordem não encontrada' });
+      console.error(`[SYNC ERROR] Order ${id} not found in DB:`, fetchError);
+      return res.status(404).json({ error: 'Ordem não encontrada no sistema local' });
     }
 
-    if (!order.dropea_order_id) {
-      return res.status(400).json({ error: 'Esta ordem ainda não foi enviada para a Dropea' });
-    }
+    let dropeaId = order.dropea_order_id;
 
-    const dropeaData = await getDropeaOrderStatus(order.dropea_order_id);
-
-    if (dropeaData) {
-      const updateData: any = {};
+    if (!dropeaId) {
+      // Tentar encontrar por email (customer_email ou via profiles se existir)
+      let email = order.customer_email;
       
-      // Mapeamento de Status da Dropea
-      // status: PAID, FULFILLED, CANCELLED, REFUNDED
-      // shipping_status: PENDING, SHIPPED, DELIVERED
-      
-      if (dropeaData.status === 'FULFILLED') {
-        updateData.status = 'completed';
-        updateData.shipping_status = 'sent';
-      } else if (dropeaData.status === 'CANCELLED' || dropeaData.status === 'CANCELED') {
-        updateData.status = 'canceled';
-      } else if (dropeaData.status === 'REFUNDED') {
-        updateData.status = 'refunded';
-      } else if (dropeaData.status === 'PAID') {
-        updateData.status = 'paid';
-        updateData.shipping_status = 'pending';
-      }
-      
-      // Store full metadata including tracking
-      if (dropeaData.tracking_number) {
-        updateData.shipping_status_metadata = {
-          trackingNumber: dropeaData.tracking_number,
-          trackingUrl: dropeaData.tracking_url,
-          lastSync: new Date().toISOString()
-        };
-        // Se tem tracking number, garantimos que o status de envio é 'sent'
-        updateData.shipping_status = 'sent';
+      if (!email && order.user_id) {
+        const { data: profile } = await supabase.from('profiles').select('email').eq('id', order.user_id).single();
+        if (profile) email = profile.email;
       }
 
-      if (Object.keys(updateData).length > 0) {
-        await supabase.from('orders').update(updateData).eq('id', id);
-        
-        // Trigger email notification if status changed
-        if (updateData.status || updateData.shipping_status) {
-          triggerOrderNotification(id, updateData.status || order.status, updateData.shipping_status || order.shipping_status).catch(e => console.error('[EMAIL ERROR]', e));
+      if (email) {
+        console.log(`[SYNC] Tentando encontrar vínculo por email: ${email}`);
+        const foundId = await findDropeaOrderByEmail(email);
+        if (foundId) {
+          dropeaId = String(foundId);
+          console.log(`[SYNC] Vínculo encontrado! Dropea ID: ${dropeaId}`);
+          await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
         }
       }
-      
-      return res.json({ success: true, dropea: dropeaData, localUpdated: Object.keys(updateData).length > 0 });
     }
 
-    res.status(502).json({ error: 'Não foi possível obter dados da Dropea' });
+    if (!dropeaId) {
+      return res.status(404).json({ 
+        error: 'PEDIDO_NAO_ENCONTRADO',
+        message: 'Pedido não vinculado e não encontrado na Dropea via e-mail.' 
+      });
+    }
+
+    const dropeaData = await getDropeaOrderStatus(dropeaId);
+
+    if (dropeaData) {
+      console.log(`[SYNC SUCCESS] Dados obtidos da Dropea para ID ${dropeaId}`, JSON.stringify(dropeaData));
+      const updateData: any = {
+        updated_at: new Date().toISOString()
+      };
+      
+      const dropeaStatus = String(dropeaData.status).toUpperCase();
+      
+      // Mapeamento Robusto de Status (Dropea -> SArt)
+      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO'].includes(dropeaStatus)) {
+        updateData.shipping_status = 'sent';
+      } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
+        updateData.shipping_status = 'delivered';
+      } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
+        updateData.status = 'canceled';
+      } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
+        updateData.status = 'refunded';
+      } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO'].includes(dropeaStatus)) {
+        if (order.status !== 'completed' && order.status !== 'canceled') {
+          updateData.status = 'paid';
+          updateData.shipping_status = 'pending';
+        }
+      } else if (dropeaStatus === 'FULFILLED') {
+        updateData.status = 'completed';
+        updateData.shipping_status = 'sent';
+      }
+
+      // Sincronização de Rastreio
+      if (dropeaData.tracking_number && dropeaData.tracking_number !== order.shipping_status_metadata?.trackingNumber) {
+        updateData.shipping_status_metadata = {
+          ...(order.shipping_status_metadata || {}),
+          trackingNumber: dropeaData.tracking_number,
+          trackingUrl: dropeaData.tracking_url || order.shipping_status_metadata?.trackingUrl,
+          syncedAt: new Date().toISOString(),
+          source: 'Dropea Verification'
+        };
+        // Se tem tracking number, garantimos que o status de envio é 'sent' pelo menos
+        if (updateData.shipping_status !== 'delivered') {
+          updateData.shipping_status = 'sent';
+        }
+      }
+
+      // Detetar mudanças para gravar e notificar
+      const hasStatusChange = updateData.status && updateData.status !== order.status;
+      const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
+      const hasMetadataChange = !!updateData.shipping_status_metadata;
+
+      const hasChanges = hasStatusChange || hasShippingChange || hasMetadataChange;
+
+      if (hasChanges) {
+        const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
+        if (updateError) {
+          console.error('[SYNC DB UPDATE ERROR]', updateError);
+          return res.status(500).json({ error: 'Falha ao atualizar dados locais' });
+        }
+        
+        // Disparar e-mail se mudou algo visível para o cliente
+        if (hasStatusChange) {
+          triggerOrderNotification(order.id, updateData.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC NOTIF ERR]', e));
+        } else if (hasShippingChange) {
+          triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC SHIP NOTIF ERR]', e));
+        }
+      }
+
+      return res.json({ 
+        success: true, 
+        message: 'Verificação profunda concluída com sucesso.',
+        dropea_id: dropeaId,
+        dropea_status: dropeaStatus,
+        local_status: updateData.status || order.status,
+        shipping: updateData.shipping_status || order.shipping_status,
+        synced: hasChanges,
+        details: {
+          items: dropeaData.items,
+          customer: dropeaData.customer,
+          tracking: {
+            number: dropeaData.tracking_number,
+            url: dropeaData.tracking_url
+          }
+        }
+      });
+    }
+
+    console.warn(`[SYNC WARNING] Dropea ID ${dropeaId} não retornou dados.`);
+    res.status(502).json({ error: 'A Dropea não retornou informações para este pedido. Verifique se o ID está correto no painel da Dropea.' });
   } catch (err: any) {
     console.error('[ORDER SYNC ERROR]', err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Erro de Sincronização', 
+        message: err.message,
+        path: req.path
+      });
+    }
   }
 });
 

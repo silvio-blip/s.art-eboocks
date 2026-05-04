@@ -785,39 +785,56 @@ export default function AdminDashboard({
 
   const handleSyncStatus = async (orderId: string) => {
     try {
-      toast.loading("A sincronizar status com Dropea...", { id: "sync" });
+      toast.loading("Iniciando verificação profunda na Dropea...", { id: "sync" });
       const res = await fetch(`/api/orders/${orderId}/sync`, {
         method: 'POST'
       });
       
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error("[Sync] Non-JSON response received:", text.substring(0, 200));
+        throw new Error("O servidor retornou uma resposta inválida (HTML). Contacte o suporte.");
+      }
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao sincronizar");
+      if (!res.ok) {
+        // Se o erro for de ordem não encontrada no sistema local, damos um erro diferente
+        if (data.error === 'Ordem não encontrada no sistema local') {
+          throw new Error("Erro Crítico: Esta ordem não foi encontrada no banco de dados.");
+        }
+        throw new Error(data.message || data.error || "Erro ao sincronizar");
+      }
       
-      toast.success("Status atualizado com sucesso!", { id: "sync" });
+      const dropeaStatus = data.dropea_status || "Desconhecido";
+      const localStatus = data.local_status || "Em dia";
       
-      // Atualizar estado local do visualizador
+      // Construir mensagem de sucesso detalhada
+      let infoMsg = `Verificado! Status: ${dropeaStatus}.`;
+      if (data.synced) {
+        infoMsg = `Sincronizado! Dropea: ${dropeaStatus} -> SArt: ${localStatus}`;
+      }
+
+      if (data.details?.items && data.details.items.length > 0) {
+        const itemNames = data.details.items.map((it: any) => it.product?.name).filter(Boolean).join(", ");
+        if (itemNames) infoMsg += ` (${itemNames} validado na Dropea)`;
+      }
+      
+      toast.success(infoMsg, { id: "sync", duration: 7000 });
+      
+      // Fechar para atualizar
       if (viewingOrder && viewingOrder.id === orderId) {
-        setViewingOrder({
-          ...viewingOrder,
-          status: data.dropea?.status === 'FULFILLED' ? 'completed' : 
-                  data.dropea?.status === 'CANCELLED' ? 'canceled' :
-                  data.dropea?.status === 'REFUNDED' ? 'refunded' :
-                  viewingOrder.status,
-          shipping_status: data.dropea?.shipping_status === 'SHIPPED' ? 'sent' : 
-                           data.dropea?.shipping_status === 'DELIVERED' ? 'delivered' : 
-                           data.dropea?.shipping_status === 'PENDING' ? 'pending' :
-                           viewingOrder.shipping_status,
-          shipping_status_metadata: data.localUpdated ? {
-             trackingNumber: data.dropea?.tracking_number,
-             trackingUrl: data.dropea?.tracking_url,
-             lastSync: new Date().toISOString()
-          } : viewingOrder.shipping_status_metadata
-        });
+        setViewingOrder(null);
       }
       
       fetchDashboardData();
     } catch (err: any) {
-      toast.error(err.message, { id: "sync" });
+      console.error("[Sync Detail Error]", err);
+      if (err.message.includes('Atenção: Este pedido ainda não existe na Dropea')) {
+         toast.info(err.message, { id: "sync", duration: 8000 });
+      } else {
+         toast.error(`Falha na Verificação Total: ${err.message}`, { id: "sync", duration: 6000 });
+      }
     }
   };
 
@@ -2096,13 +2113,36 @@ export default function AdminDashboard({
                             )}
                           </div>
                         ) : (["paid", "pago", "completed", "succeeded"].includes(order.status?.toLowerCase() || "")) ? (
-                          <Button 
-                            size="sm"
-                            onClick={() => handleManualFulfill(order.id)}
-                            className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3"
-                          >
-                            Enviar p/ Dropea
-                          </Button>
+                          <div className="flex items-center gap-1.5 min-w-[140px]">
+                            {order.dropea_order_id ? (
+                               <Button 
+                                size="sm"
+                                onClick={() => handleSyncStatus(order.id)}
+                                className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 border border-emerald-500/20 flex-1"
+                              >
+                                <RefreshCw size={10} className="mr-1.5" /> Sincronizar
+                              </Button>
+                            ) : (
+                              <>
+                                <Button 
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleSyncStatus(order.id)}
+                                  className="border-white/10 text-white/60 hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
+                                  title="Tentar encontrar vínculo na Dropea"
+                                >
+                                  Verificar
+                                </Button>
+                                <Button 
+                                  size="sm"
+                                  onClick={() => handleManualFulfill(order.id)}
+                                  className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
+                                >
+                                  Enviar Manual
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-white/20 text-[9px] uppercase tracking-widest font-bold">
                             Aguardando Pagamento
@@ -2664,13 +2704,23 @@ export default function AdminDashboard({
                       </div>
 
                       {!viewingOrder.dropea_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === 'pago' || viewingOrder.status === 'completed') && (
-                        <Button 
-                          size="sm"
-                          onClick={() => handleManualFulfill(viewingOrder.id)}
-                          className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
-                        >
-                          Enviar Pedido Agora
-                        </Button>
+                        <div className="flex gap-2">
+                           <Button 
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSyncStatus(viewingOrder.id)}
+                            className="border-white/10 text-white hover:bg-white/5 rounded-none text-[9px] uppercase tracking-widest font-bold h-9 px-4"
+                          >
+                            <Search size={10} className="mr-2" /> Verificar Dropea
+                          </Button>
+                          <Button 
+                            size="sm"
+                            onClick={() => handleManualFulfill(viewingOrder.id)}
+                            className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
+                          >
+                            Enviar Manualmente
+                          </Button>
+                        </div>
                       )}
 
                       {viewingOrder.dropea_order_id && (
