@@ -105,6 +105,24 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
     console.log(`[STRIPE WEBHOOK] Pagamento confirmado para sessão: ${session.id}`);
 
     try {
+      const supabase = getSupabase();
+      
+      // 1. VERIFICAR SE JÁ EXISTE PARA EVITAR DUPLICAÇÃO
+      const { data: existingOrder } = await supabase
+        .from('orders')
+        .select('id, dropea_order_id')
+        .eq('stripe_session_id', session.id)
+        .single();
+
+      if (existingOrder) {
+        console.log(`[STRIPE WEBHOOK] Pedido já processado anteriormente: ${existingOrder.id}`);
+        // Se já existe mas não foi para Dropea, tentamos novamente
+        if (!existingOrder.dropea_order_id) {
+           processOrderFulfillment(existingOrder).catch(e => console.error('[RETRY FULFILLMENT ERROR]', e));
+        }
+        return res.json({ received: true, already_processed: true });
+      }
+
       const metadata = session.metadata;
       if (!metadata) throw new Error("Metadata ausente na sessão do Stripe");
 
@@ -113,10 +131,7 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       const internalProductId = metadata.product_id;
       const userId = customerData.userId;
 
-      // 3. REGISTAR PEDIDO NO BANCO
-      const supabase = getSupabase();
-      console.log(`[STRIPE WEBHOOK] Criando ordem para user: ${userId}, Produto: ${internalProductId}`);
-      
+      // 2. CRIAR PEDIDO
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .insert({
@@ -126,24 +141,18 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
           shipping_status: 'pending',
           total_amount: session.amount_total ? session.amount_total / 100 : 0,
           stripe_session_id: session.id,
-          shipping_details: customerDataRaw
+          shipping_details: customerDataRaw,
+          customer_email: session.customer_details?.email // Guardar o email do checkout se disponível
         })
         .select()
         .single();
 
-      if (orderError) {
-        console.error(`[STRIPE WEBHOOK DB ERROR] Falha ao inserir ordem para user ${userId}:`, JSON.stringify(orderError, null, 2));
-        throw orderError;
-      }
+      if (orderError) throw orderError;
       
-      console.log(`[STRIPE WEBHOOK SUCCESS] Ordem criada no Supabase ID: ${orderData.id}. Disparando fulfillment...`);
+      console.log(`[STRIPE WEBHOOK SUCCESS] Ordem ${orderData.id} criada. Iniciando Sincronização e Email...`);
 
-      // Fulfillment imediato
-      if (orderData) {
-        processOrderFulfillment(orderData).catch(e => {
-          console.error(`[STRIPE WEBHOOK] Erro no fulfillment de ${orderData.id}:`, e);
-        });
-      }
+      // 3. DISPARAR TUDO AUTOMATICAMENTE PELO CÓDIGO (SEM TRIGGERS)
+      processOrderFulfillment(orderData).catch(e => console.error(`[AUTO-FULFILL OVERFLOW ERROR]`, e));
 
     } catch (err: any) {
       console.error("[STRIPE WEBHOOK FATAL PROCESSING ERROR]", err);
@@ -848,296 +857,84 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
  * Sends order status update emails to customers
  */
 async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string) {
-  console.log(`[TRIGGER NOTIFICATION] Iniciado: orderId=${orderId}, status=${status}, shippingStatus=${shippingStatus}`);
+  console.log(`[AUTOMAÇÃO] Notificação Pedido=${orderId} | Status=${status} | Envio=${shippingStatus}`);
   try {
     const supabase = getSupabase();
     
-    // Fetch order details with product info
-    const { data: order, error } = await supabase
+    const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('*, products(title)')
+      .select('*, profiles(email, full_name, notification_email)')
       .eq('id', orderId)
       .single();
       
-    if (error) {
-        console.error(`[TRIGGER NOTIFICATION] Erro ao buscar ordem:`, error);
-        return;
-    }
-    if (!order) {
-        console.error(`[TRIGGER NOTIFICATION] Ordem não encontrada: ${orderId}`);
-        return;
-    }
-    
-    console.log(`[TRIGGER NOTIFICATION] Ordem encontrada: ${orderId}, status=${order.status}`);
-
-    // Fetch profile to get notification email preference
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('notification_email')
-      .eq('id', order.user_id)
-      .single();
-    
-    // Safety check: is notification enabled for this order?
-    // default to true if null/undefined
-    if (order.notifications_enabled === false) {
-      console.log(`[NOTIFICATIONS] Notifications disabled for order ${orderId}`);
+    if (orderErr || !order) {
+      console.error(`[AUTOMAÇÃO ERROR] Ordem não encontrada:`, orderErr);
       return;
     }
-    
-    const customerEmail = profile?.notification_email || order.customer_email;
+
+    const customerEmail = order.profiles?.notification_email || order.profiles?.email || order.customer_email;
     if (!customerEmail) {
-        console.log(`[NOTIFICATIONS] Nenhum email encontrado para ordem ${orderId}`);
-        return;
+      console.log(`[AUTOMAÇÃO] Sem email para o pedido ${orderId}`);
+      return;
     }
-    
-    console.log(`[NOTIFICATIONS] Preparando email para ${customerEmail}...`);
 
-    let subject = "";
-    let body = "";
-    const productName = order.products?.title || "Seu Produto";
-    const statusLabel = status === 'paid' ? 'Pago' : 
-                        status === 'completed' ? 'Concluído' :
-                        status === 'canceled' ? 'Cancelado' :
-                        status === 'refunded' ? 'Reembolsado' : 'Pendente';
-                        
-    const shippingLabel = shippingStatus === 'sent' ? 'Enviado' :
-                          shippingStatus === 'delivered' ? 'Entregue' : 'A processar';
-    
-    const settingsMessage = `
-      <p style="font-size: 11px; color: #777; margin-top: 40px; border-top: 1px solid #f0f0f0; padding-top: 20px;">
-        Pode gerir as suas preferências de notificações acedendo ao seu 
-        <strong>Perfil > Definições</strong> na nossa loja.
-      </p>
-    `;
+    let emailType = 'order_update';
+    let flagField = '';
 
-    // Status: PAID
     if (status === 'paid') {
-       const { data: updatedOrder, error: updateError } = await supabase
-         .from('orders')
-         .update({ email_paid_sent: true })
-         .eq('id', orderId)
-         .eq('email_paid_sent', false)
-         .select();
-       
-       if (updateError || !updatedOrder || updatedOrder.length === 0) {
-           console.log(`[NOTIFICATIONS] Email paid already sent or error for ${orderId}`);
-           return;
-       }
-
-       subject = `Confirmação de Pagamento - Pedido #${orderId.slice(0, 8)}`;
-       body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
-           <div style="text-align: center; margin-bottom: 30px;">
-             <h1 style="font-size: 24px; color: #000; margin-bottom: 10px;">Pagamento Confirmado!</h1>
-             <p style="color: #666;">Recebemos o pagamento da sua encomenda.</p>
-           </div>
-           
-           <p>Olá,</p>
-           <p>Obrigada por escolher a SArt Boutique. Confirmo agora o seu pedido e aguarde mais informações através deste e-mail.</p>
-           
-           <div style="margin: 30px 0; padding: 25px; background: #fdfdfd; border: 1px solid #f0f0f0; border-radius: 8px;">
-             <div style="margin-bottom: 10px;"><strong>Número do Pedido:</strong> <span style="color: #666;">#${orderId}</span></div>
-             <div style="margin-bottom: 10px;"><strong>Estado:</strong> <span style="display: inline-block; padding: 4px 12px; background: #e8f5e9; color: #2e7d32; border-radius: 20px; font-size: 12px; font-weight: bold;">${statusLabel}</span></div>
-           </div>
-           
-           <p>A sua encomenda entrou agora em fase de processamento. Iremos enviar-lhe um novo e-mail assim que o produto for expedido com o código de rastreio.</p>
-           
-           <div style="margin-top: 30px; text-align: center;">
-             <a href="${process.env.site || 'https://sart-boutique.com'}/profile" style="display: inline-block; padding: 14px 28px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Acompanhar Pedido</a>
-           </div>
-
-           ${settingsMessage}
-           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
-         </div>
-       `;
-    } 
-    // Shipping: SENT (SENT is usually updated when we get a tracking number)
-    else if (shippingStatus === 'sent') {
-       const { data: updatedOrder, error: updateError } = await supabase
-         .from('orders')
-         .update({ email_shipped_sent: true })
-         .eq('id', orderId)
-         .eq('email_shipped_sent', false)
-         .select();
-       
-       if (updateError || !updatedOrder || updatedOrder.length === 0) {
-           console.log(`[NOTIFICATIONS] Email shipped already sent or error for ${orderId}`);
-           return;
-       }
-
-       const trackingUrl = order.shipping_status_metadata?.trackingUrl || "#";
-       const trackingNumber = order.shipping_status_metadata?.trackingNumber || "N/A";
-       
-       subject = `A sua encomenda foi enviada! - Pedido #${orderId.slice(0, 8)}`;
-       body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
-           <div style="text-align: center; margin-bottom: 30px;">
-             <h1 style="font-size: 24px; color: #000; margin-bottom: 10px;">Encomenda a Caminho!</h1>
-             <p style="color: #666;">O seu produto já foi expedido.</p>
-           </div>
-
-           <p>Olá,</p>
-           <p>Boas notícias! O produto <strong>${productName}</strong> já saiu do nosso armazém e está a caminho da sua morada.</p>
-           
-           <div style="margin: 30px 0; padding: 25px; background: #fdfdfd; border: 1px solid #f0f0f0; border-radius: 8px;">
-             <div style="margin-bottom: 15px;"><strong>Código de Rastreio:</strong> <code style="background: #eee; padding: 4px 8px; border-radius: 4px;">${trackingNumber}</code></div>
-             <a href="${trackingUrl}" style="display: inline-block; padding: 14px 28px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Rastrear no Site da Transportadora</a>
-           </div>
-           
-           <p>Pode acompanhar o estado da entrega através do link acima ou no seu perfil de cliente.</p>
-
-           ${settingsMessage}
-           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
-         </div>
-       `;
-       await supabase.from('orders').update({ email_shipped_sent: true }).eq('id', orderId);
-    }
-    // Shipping: DELIVERED -> Evaluation Email
-    else if (shippingStatus === 'delivered') {
-       const { data: updatedOrder, error: updateError } = await supabase
-         .from('orders')
-         .update({ email_review_sent: true })
-         .eq('id', orderId)
-         .eq('email_review_sent', false)
-         .select();
-       
-       if (updateError || !updatedOrder || updatedOrder.length === 0) {
-           console.log(`[NOTIFICATIONS] Email review already sent or error for ${orderId}`);
-           return;
-       }
-       
-       const siteUrl = process.env.site || 'https://sart-boutique.com';
-       const evaluationUrl = `${siteUrl}/evaluate/${orderId}`;
-       
-       subject = `Como foi a sua experiência? - Pedido #${orderId.slice(0, 8)}`;
-       body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
-           <div style="text-align: center; margin-bottom: 30px;">
-             <h1 style="font-size: 24px; color: #000; margin-bottom: 10px;">Entrega Concluída!</h1>
-             <p style="color: #666;">Tudo correu bem?</p>
-           </div>
-
-           <p>Olá,</p>
-           <p>A sua encomenda do produto <strong>${productName}</strong> foi marcada como entregue.</p>
-           <p>Gostaríamos muito de saber o que achou do produto e do nosso serviço. A sua opinião ajuda-nos a melhorar e a crescer.</p>
-           
-           <div style="text-align: center; margin: 40px 0;">
-             <a href="${evaluationUrl}" style="display: inline-block; padding: 18px 36px; background: #D4AF37; color: #fff; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);">Avaliar a minha Compra</a>
-           </div>
-           
-           <p style="font-size: 13px; color: #666;">Caso tenha tido algum problema com o produto, por favor responda a este e-mail para que possamos ajudar.</p>
-
-           ${settingsMessage}
-           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Todos os direitos reservados.</p>
-         </div>
-       `;
-    }
-    // Status: CANCELED
-    else if (status === 'canceled') {
-       const { data: updatedOrder, error: updateError } = await supabase
-         .from('orders')
-         .update({ email_canceled_sent: true })
-         .eq('id', orderId)
-         .eq('email_canceled_sent', false)
-         .select();
-       
-       if (updateError || !updatedOrder || updatedOrder.length === 0) {
-           console.log(`[NOTIFICATIONS] Email canceled already sent or error for ${orderId}`);
-           return;
-       }
-
-       subject = `Pedido Cancelado e Reembolso Iniciado - Pedido #${orderId.slice(0, 8)}`;
-       body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
-           <div style="text-align: center; margin-bottom: 30px;">
-             <h1 style="font-size: 24px; color: #d32f2f; margin-bottom: 10px;">Pedido Cancelado</h1>
-             <p style="color: #666;">O seu pedido do produto <strong>${productName}</strong> foi cancelado.</p>
-           </div>
-           
-           <p>Olá,</p>
-           <p>Lamentamos informar que, por motivos logísticos ou de rutura de stock no fornecedor (Dropê), o seu pedido não poderá ser processado e foi cancelado.</p>
-           
-           <div style="margin: 30px 0; padding: 25px; background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px;">
-             <strong>Número do Pedido:</strong> #${orderId}<br/>
-             <strong>Estado:</strong> <span style="color: #c53030; font-weight: bold;">Cancelado</span><br/>
-             <strong>Reembolso:</strong> <span style="color: #c53030; font-weight: bold;">Processamento Iniciado</span>
-           </div>
-
-           <div style="background: #fdfdfd; border: 1px solid #eee; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-             <p style="margin: 0; font-weight: bold; color: #000;">⚠️ Informação sobre o Reembolso:</p>
-             <p style="margin: 10px 0 0 0; font-size: 14px;">O estorno do valor total da sua compra já foi solicitado ao Stripe. Dependendo da sua entidade bancária, o valor deverá estar disponível no seu saldo num prazo de <strong>5 a 10 dias úteis</strong>.</p>
-           </div>
-
-           <p>Iremos enviar-lhe uma nova confirmação assim que o reembolso for concluído com sucesso.</p>
-           
-           ${settingsMessage}
-           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Equipa de Suporte.</p>
-         </div>
-       `;
-    }
-    // Status: REFUNDED
-    else if (status === 'refunded') {
-       const { data: updatedOrder, error: updateError } = await supabase
-         .from('orders')
-         .update({ email_refunded_sent: true })
-         .eq('id', orderId)
-         .eq('email_refunded_sent', false)
-         .select();
-       
-       if (updateError || !updatedOrder || updatedOrder.length === 0) {
-           console.log(`[NOTIFICATIONS] Email refunded already sent or error for ${orderId}`);
-           return;
-       }
-
-       subject = `Reembolso Concluído com Sucesso - Pedido #${orderId.slice(0, 8)}`;
-       body = `
-         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 40px; color: #333; line-height: 1.6;">
-           <div style="text-align: center; margin-bottom: 30px;">
-             <h1 style="font-size: 24px; color: #2e7d32; margin-bottom: 10px;">Reembolso Concluído!</h1>
-             <p style="color: #666;">O valor foi devolvido com sucesso.</p>
-           </div>
-           
-           <p>Olá,</p>
-           <p>Confirmamos que o reembolso relativo ao pedido do produto <strong>${productName}</strong> foi processado com sucesso pelo nosso sistema de pagamentos.</p>
-           
-           <div style="margin: 30px 0; padding: 25px; background: #e8f5e9; border: 1px solid #c8e6c9; border-radius: 8px;">
-             <strong>Número do Pedido:</strong> #${orderId}<br/>
-             <strong>Estado:</strong> <span style="color: #2e7d32; font-weight: bold;">Reembolsado</span><br/>
-             <strong>Valor:</strong> ${order.total_amount ? order.total_amount.toFixed(2) : '0.00'}€
-           </div>
-
-           <p>O crédito deverá agora aparecer no extrato do cartão ou método de pagamento que utilizou originalmente. Caso ainda não veja o valor após 48h, por favor contacte o seu banco.</p>
-
-           <p>Lamentamos mais uma vez o inconveniente e esperamos poder servi-lo melhor no futuro.</p>
-           
-           ${settingsMessage}
-           <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;" />
-           <p style="font-size: 12px; color: #999; text-align: center;">&copy; ${new Date().getFullYear()} SArt Boutique. Equipa de Suporte.</p>
-         </div>
-       `;
+      emailType = 'payment_confirmed';
+      flagField = 'email_paid_sent';
+    } else if (shippingStatus === 'sent') {
+      emailType = 'order_shipped';
+      flagField = 'email_shipped_sent';
+    } else if (shippingStatus === 'delivered') {
+      emailType = 'order_delivered';
+      flagField = 'email_review_sent';
+    } else if (status === 'canceled') {
+      emailType = 'order_canceled';
+      flagField = 'email_canceled_sent';
+    } else if (status === 'refunded') {
+      emailType = 'order_refunded';
+      flagField = 'email_refunded_sent';
     }
 
-    if (subject && body) {
-       console.log(`[NOTIFICATIONS] Calling Edge Function for ${customerEmail}`);
-       
-       await supabase.functions.invoke('send-order-email', {
-         body: {
-           to: customerEmail,
-           subject,
-           html: body,
-           orderId
-         }
-       });
+    if (flagField) {
+      const { data: lock, error: lockErr } = await supabase
+        .from('orders')
+        .update({ [flagField]: true })
+        .eq('id', orderId)
+        .eq(flagField, false)
+        .select();
 
-       console.log(`[NOTIFICATIONS] Edge Function invoked for ${customerEmail}`);
+      if (lockErr || !lock || lock.length === 0) {
+        console.log(`[AUTOMAÇÃO] Notificação ${emailType} já enviada para ${orderId}.`);
+        return;
+      }
+    }
+
+    console.log(`[AUTOMAÇÃO] Chamando 'send-order-email' para ${customerEmail}...`);
+    const { error: invokeErr } = await supabase.functions.invoke("send-order-email", {
+      body: {
+        orderId: order.id,
+        email: customerEmail,
+        type: emailType,
+        customerName: order.profiles?.full_name || 'Cliente',
+        total: order.total_amount,
+        status: status,
+        shippingStatus: shippingStatus,
+        trackingNumber: order.shipping_status_metadata?.trackingNumber,
+        trackingUrl: order.shipping_status_metadata?.trackingUrl
+      }
+    });
+
+    if (invokeErr) {
+      console.error(`[AUTOMAÇÃO ERROR] Erro na Edge Function:`, invokeErr);
+    } else {
+      console.log(`[AUTOMAÇÃO SUCCESS] E-mail enviado.`);
     }
 
   } catch (err) {
-    console.error('[TRIGGER NOTIFICATION ERROR]', err);
+    console.error(`[AUTOMAÇÃO FATAL]`, err);
   }
 }
 
