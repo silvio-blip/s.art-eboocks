@@ -992,13 +992,16 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
  * Sends order status update emails to customers
  */
 async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string, orderData?: any, force: boolean = false) {
-  console.log(`[AUTOMAÇÃO] Notificação Pedido=${orderId} | Status=${status} | Envio=${shippingStatus} | Force=${force}`);
   try {
-    const supabase = getSupabase();
-    let order = orderData;
+    console.log(`[AUTOMAÇÃO DEBUG] === INICIANDO PROCESSO DE NOTIFICAÇÃO ===`);
+    console.log(`[AUTOMAÇÃO DEBUG] ID do Pedido: ${orderId} | Status: ${status} | Shipping: ${shippingStatus} | Repetir: ${force}`);
 
-    // Se vier orderData incompleto ou sem os joins necessários, buscamos do banco
+    let order = orderData;
+    const supabase = getSupabase();
+
+    // 1. Garantir que temos os dados da ordem ativos
     if (!order || (!order.products && !order.items && !order.profiles)) {
+      console.log(`[AUTOMAÇÃO DEBUG] Dados incompletos. Buscando detalhes no banco para ${orderId}...`);
       const { data, error: orderErr } = await supabase
         .from('orders')
         .select('*, profiles(*)')
@@ -1006,55 +1009,50 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         .maybeSingle();
       
       if (orderErr) {
-        console.error(`[AUTOMAÇÃO ERROR] Erro ao buscar ordem ${orderId}:`, orderErr);
+        console.error(`[AUTOMAÇÃO DEBUG] Erro ao buscar ordem ${orderId}:`, orderErr);
         return;
       }
       
       if (!data) {
-        console.warn(`[AUTOMAÇÃO WARN] Ordem ${orderId} não encontrada no banco.`);
+        console.warn(`[AUTOMAÇÃO DEBUG] Ordem ${orderId} não encontrada no banco.`);
         return;
       }
 
-      // Se não tem produtos no select original, buscar separadamente para evitar Erro 400 (Bad Gateway) em joins complexos
+      // Buscar produto separado para evitar joins complexos que podem dar timeout ou erro 400
       if (!data.products && data.product_id) {
+        console.log(`[AUTOMAÇÃO DEBUG] Buscando produto ID: ${data.product_id}...`);
         const { data: prod } = await supabase.from('products').select('*').eq('id', data.product_id).single();
-        if (prod) data.products = prod;
+        if (prod) {
+          console.log(`[AUTOMAÇÃO DEBUG] Produto encontrado: ${prod.title || prod.name}`);
+          data.products = prod;
+        }
       }
 
       order = data;
     }
 
-    // Normalização para joins que retornam arrays (comum no Supabase dependendo da config)
-    if (Array.isArray(order.profiles)) {
-      order.profiles = order.profiles[0];
-    }
-    if (Array.isArray(order.products)) {
-      order.products = order.products[0];
-    } else if (!order.products && order.product_id) {
-       // Tentar extrair do root se vier de selects simples
-       order.products = order.products_data; 
-    }
+    // Normalização básica de perfis e produtos
+    if (Array.isArray(order.profiles)) order.profiles = order.profiles[0];
+    if (Array.isArray(order.products)) order.products = order.products[0];
 
-    // Prioridade absoluta: E-mail capturado no ato da compra (Guest checkout ou Stripe info)
+    // 2. Identificar Destinatário
     const customerEmail = (order.customer_email && order.customer_email.trim().length > 3) 
       ? order.customer_email.trim() 
       : (order.profiles?.notification_email || order.profiles?.email || '');
     
-    console.log(`[AUTOMAÇÃO DEBUG] >>> Ordem: ${orderId} | Email Alvo: "${customerEmail}" | Status: ${status}/${shippingStatus}`);
+    console.log(`[AUTOMAÇÃO DEBUG] Email destino resolvido: "${customerEmail}"`);
 
     if (!customerEmail || !customerEmail.includes('@')) {
-      console.error(`[AUTOMAÇÃO FATAL] Identificamos um pedido sem e-mail de destino válido! ID: ${orderId}`);
-      // Se não houver e-mail no pedido, tentamos buscar o e-mail do admin para alertar? Melhor apenas logar o erro crítico de dados.
+      console.error(`[AUTOMAÇÃO FATAL] E-mail de destino inválido ou ausente para o pedido ${orderId}`);
       return;
     }
 
+    // 3. Mapear Função
+    const lowerStatus = (status || '').toLowerCase().trim();
+    const lowerShipping = (shippingStatus || '').toLowerCase().trim();
     let functionName = '';
     let flagField = '';
 
-    const lowerStatus = (status || '').toLowerCase().trim();
-    const lowerShipping = (shippingStatus || '').toLowerCase().trim();
-
-    // Mapeamento expandido de estados
     if (['paid', 'pago', 'completed', 'concluido', 'concluído', 'aprovado', 'suceso'].includes(lowerStatus)) {
       functionName = 'send-payment-confirmed';
       flagField = 'email_paid_sent';
@@ -1073,14 +1071,15 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     }
 
     if (!functionName) {
-      console.log(`[AUTOMAÇÃO] Nenhuma função de e-mail definida para status=${status} envSub=${shippingStatus}`);
+      console.log(`[AUTOMAÇÃO DEBUG] Sem mapeamento de e-mail para Status=${status}/Envio=${shippingStatus}. Encerrando.`);
       return;
     }
 
+    console.log(`[AUTOMAÇÃO DEBUG] Função mapeada: ${functionName} | Lock Field: ${flagField}`);
+
     // 4. Lógica de Bloqueio (Lock)
-    // IMPORTANTE: Cada ordem tem seu próprio ID. Se o cliente comprar 10 vezes, serão 10 IDs diferentes.
-    // O lock é apenas para evitar que UM ÚNICO pedido dispare o MESMO e-mail 2 vezes (ex: refresh de webhook).
     if (flagField && !force) {
+      console.log(`[AUTOMAÇÃO DEBUG] Verificando se e-mail já foi enviado anteriormente...`);
       try {
         const { data: lock, error: lockErr } = await supabase
           .from('orders')
@@ -1090,75 +1089,76 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           .select();
 
         if (lockErr) {
-          console.warn(`[AUTOMAÇÃO] Alerta de Infra: Coluna ${flagField} ausente no banco. Enviando e-mail sem lock para garantir o serviço.`);
-          // NÃO retornamos aqui. Deixamos seguir para o disparo.
+          console.warn(`[AUTOMAÇÃO DEBUG] Coluna ${flagField} ausente. Disparando sem lock para garantir entrega.`);
         } else if (lock && lock.length === 0 && !lockErr) {
-          // Apenas se o lock rodou COM SUCESSO e retornou zero (já enviado), é que bloqueamos.
-          console.log(`[AUTOMAÇÃO] Bloqueio de Duplicidade: E-mail ${functionName} já enviado para esta ordem ${orderId}.`);
+          console.log(`[AUTOMAÇÃO DEBUG] E-mail ${functionName} já foi marcado como enviado para o pedido ${orderId}. Bloqueando duplicidade.`);
           return;
         }
       } catch (e) {
-        console.warn(`[AUTOMAÇÃO] Erro no sistema de lock, prosseguindo com o disparo por segurança.`, e);
+        console.warn(`[AUTOMAÇÃO DEBUG] Falha no sistema de lock, prosseguindo com o disparo por segurança.`);
       }
     }
 
-    console.log(`[AUTOMAÇÃO] >>> EXECUTANDO CHAMADA DIRETA (AXIOS) PARA: '${functionName}' | Email: ${customerEmail}`);
-    
-    // Obter infos básicas do produto
-    let productInfo = { name: 'Produto S.Art Boutique', price: order.total_amount, id: '', image: '' };
-    
-    // Se temos order.products (que buscamos via maybeSingle ou separadamente)
+    // 5. Preparar Payload
     const rawProd = Array.isArray(order.products) ? order.products[0] : order.products;
-    if (rawProd) {
-      productInfo = {
-        name: rawProd.name || rawProd.title || productInfo.name,
-        price: rawProd.price || order.total_amount,
-        id: rawProd.id,
-        image: rawProd.image_url
-      };
-    }
-
     const payload = {
       orderId: order.id,
       email: customerEmail,
-      customerName: order.profiles?.full_name || 'Cliente',
-      customerAvatar: order.profiles?.avatar_url,
+      customerName: order.profiles?.full_name || order.shipping_details?.name || 'Cliente S.Art',
       total: order.total_amount,
       status: status,
       shippingStatus: shippingStatus,
-      product: productInfo,
+      product: {
+        name: rawProd?.name || rawProd?.title || 'Obra de Arte S.Art',
+        image: rawProd?.image_url,
+        price: order.total_amount,
+        id: rawProd?.id
+      },
       trackingNumber: order.shipping_status_metadata?.trackingNumber,
       trackingUrl: order.shipping_status_metadata?.trackingUrl
     };
 
-    console.log(`[AUTOMAÇÃO] >>> PAYLOAD PREPARADO:`, JSON.stringify(payload, null, 2));
-
-    // CHAMADA DIRETA VIA HTTP PARA A URL DA EDGE FUNCTION
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const functionUrl = `${supabaseUrl}/functions/v1/${functionName}`;
 
+    console.log(`[AUTOMAÇÃO DEBUG] === DETALHES DA REQUISIÇÃO ===`);
+    console.log(`[AUTOMAÇÃO DEBUG] DESTINO: ${functionUrl}`);
+    console.log(`[AUTOMAÇÃO DEBUG] PAYLOAD:`, JSON.stringify(payload, null, 2));
+
+    if (!serviceRoleKey) {
+      console.error("[AUTOMAÇÃO DEBUG] ERRO CRÍTICO: SUPABASE_SERVICE_ROLE_KEY NÃO CONFIGURADA!");
+      return;
+    }
+
+    // Chamada Axios
     try {
+      console.log(`[AUTOMAÇÃO DEBUG] Chamando Edge Function agora...`);
       const response = await axios.post(functionUrl, payload, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${serviceRoleKey}`,
           'apikey': serviceRoleKey
         },
-        timeout: 10000 // 10 segundos de timeout
+        timeout: 20000
       });
 
-      console.log(`[AUTOMAÇÃO SUCCESS] Status: ${response.status} | Resposta:`, JSON.stringify(response.data));
-      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado com sucesso para ${customerEmail}.`);
+      console.log(`[AUTOMAÇÃO DEBUG] ✅ RESPOSTA RECEBIDA! Status: ${response.status}`);
+      console.log(`[AUTOMAÇÃO DEBUG] Corpo da Resposta:`, JSON.stringify(response.data));
+      console.log(`[AUTOMAÇÃO DEBUG] FINALIZADO COM SUCESSO.`);
     } catch (invokeErr: any) {
-      console.error(`[AUTOMAÇÃO FATAL ERROR] Falha Crítica ao chamar ${functionName}:`, invokeErr.response?.data || invokeErr.message);
-      
-      if (invokeErr.response?.status === 404) {
-        console.error(`[AUTOMAÇÃO] >>> ERRO 404: Verifique se o nome '${functionName}' está correto no Supabase.`);
+      console.error(`[AUTOMAÇÃO DEBUG] ❌ FALHA NA CHAMADA DA FUNÇÃO:`);
+      if (invokeErr.response) {
+        console.error(`[AUTOMAÇÃO DEBUG] STATUS HTTP: ${invokeErr.response.status}`);
+        console.error(`[AUTOMAÇÃO DEBUG] DADOS DO ERRO:`, JSON.stringify(invokeErr.response.data));
+      } else if (invokeErr.request) {
+        console.error(`[AUTOMAÇÃO DEBUG] SEM RESPOSTA DO SERVIDOR (TIMEOUT OU REDE)`);
+      } else {
+        console.error(`[AUTOMAÇÃO DEBUG] MENSAGEM: ${invokeErr.message}`);
       }
     }
   } catch (err) {
-    console.error(`[AUTOMAÇÃO FATAL]`, err);
+    console.error(`[AUTOMAÇÃO DEBUG] EXCEÇÃO NO CÓDIGO DA TRIGGER:`, err);
   }
 }
 
