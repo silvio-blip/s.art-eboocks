@@ -142,7 +142,7 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
           total_amount: session.amount_total ? session.amount_total / 100 : 0,
           stripe_session_id: session.id,
           shipping_details: customerDataRaw,
-          customer_email: session.customer_details?.email // Guardar o email do checkout se disponível
+          customer_email: session.customer_details?.email || customerData?.email || metadata?.email // Tripla redundância de e-mail
         })
         .select()
         .single();
@@ -1068,8 +1068,6 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     // 4. Lógica de Bloqueio (Lock) para evitar e-mails duplicados
     if (flagField && !force) {
       try {
-        // Tentamos atualizar a flag apenas se ela for false ou null.
-        // Se ela já for true, a atualização retornará zero linhas.
         const { data: lock, error: lockErr } = await supabase
           .from('orders')
           .update({ [flagField]: true })
@@ -1078,18 +1076,18 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           .select();
 
         if (lockErr) {
-          console.warn(`[AUTOMAÇÃO WARN] Coluna ${flagField} pode não existir ou erro no lock:`, lockErr.message);
-          // Se houver erro de coluna inexistente, continuamos para não bloquear o envio
+          console.warn(`[AUTOMAÇÃO WARN] Coluna ${flagField} erro no lock, prosseguindo com disparo:`, lockErr.message);
+          // Se houver erro, NÃO retornamos. Queremos que o e-mail seja enviado.
         } else if (!lock || lock.length === 0) {
           console.log(`[AUTOMAÇÃO] Notificação ${functionName} já foi disparada ou está marcada como enviada para ${orderId}.`);
           return;
         }
       } catch (e) {
-        console.warn(`[AUTOMAÇÃO ERROR] Falha no lock de e-mail ${flagField}:`, e);
+        console.warn(`[AUTOMAÇÃO ERROR] Falha bypassada no lock de e-mail ${flagField}:`, e);
       }
     }
 
-    console.log(`[AUTOMAÇÃO] >>> DISPARANDO e-mail via '${functionName}' para: ${customerEmail}`);
+    console.log(`[AUTOMAÇÃO] >>> EXECUTANDO DISPARO AGORA: '${functionName}' para: ${customerEmail}`);
     
     // Obter infos básicas do produto (seja via item ou products join)
     const firstProduct = order.products || (order.items && order.items.length > 0 ? order.items[0].product : null);
