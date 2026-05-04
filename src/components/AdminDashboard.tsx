@@ -316,19 +316,22 @@ export default function AdminDashboard({
   }, [tab, orders.length]);
 
   const syncAllPayments = async () => {
+    // Sincronizar qualquer ordem que ainda não esteja em estado terminal de entrega ou reembolso concluído
     const ordersToSync = orders.filter(o => 
-      ["pending", "pendente", "waiting", "refund_pending"].includes(o.status?.toLowerCase() || "") ||
-      (o.status?.toLowerCase() === "paid" && (Number(o.total_amount) || 0) === 0)
+      !["delivered", "refunded", "reembolsado", "entregue"].includes(o.status?.toLowerCase() || "") &&
+      !["delivered", "entregue"].includes(o.shipping_status?.toLowerCase() || "")
     );
+    
     if (ordersToSync.length === 0) {
-      toast.info("Nenhuma ordem pendente exige sincronização imediata.");
+      toast.info("Nenhuma ordem aberta necessita de sincronização.");
       return;
     }
     
-    const syncToast = toast.loading(`Sincronizando ${ordersToSync.length} ordens com Dropea...`);
+    const syncToast = toast.loading(`Iniciando verificação profunda de ${ordersToSync.length} ordens...`);
     let successCount = 0;
+    let changeCount = 0;
     
-    // Use for...of for sequential execution to avoid hitting Dropea rate limits too hard if there are many
+    // Execução sequencial para respeitar limites da API Dropea
     for (const order of ordersToSync) {
       try {
         const res = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
@@ -338,14 +341,22 @@ export default function AdminDashboard({
             'x-user-id': user.id
           }
         });
-        if (res.ok) successCount++;
+        if (res.ok) {
+          successCount++;
+          const data = await res.json();
+          if (data.synced) changeCount++;
+        }
       } catch (e) {
         console.error(`Error syncing order ${order.id}:`, e);
       }
     }
     
-    toast.success(`${successCount} ordens foram verificadas e atualizadas.`, { id: syncToast });
-    fetchDashboardData();
+    if (changeCount > 0) {
+      toast.success(`${successCount} ordens verificadas. ${changeCount} atualizações detectadas!`, { id: syncToast });
+      fetchDashboardData();
+    } else {
+      toast.success(`${successCount} ordens verificadas. Tudo está atualizado.`, { id: syncToast });
+    }
   };
 
   const handleImportDropea = async () => {
