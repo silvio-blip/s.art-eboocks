@@ -108,14 +108,18 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       const supabase = getSupabase();
       
       // 1. VERIFICAR SE JÁ EXISTE PARA EVITAR DUPLICAÇÃO
-      const { data: existingOrder } = await supabase
+      const { data: existingOrder, error: checkError } = await supabase
         .from('orders')
-        .select('id, dropea_order_id')
+        .select('*, products(*)')
         .eq('stripe_session_id', session.id)
-        .single();
+        .maybeSingle();
 
       if (existingOrder) {
-        console.log(`[STRIPE WEBHOOK] Pedido já processado anteriormente: ${existingOrder.id}`);
+        console.log(`[STRIPE WEBHOOK] Pedido já existe: ${existingOrder.id}. Verificando status e disparando e-mail se necessário...`);
+        
+        // Garantir que o e-mail de confirmação seja enviado mesmo se já existir a ordem
+        triggerOrderNotification(existingOrder.id, 'paid', existingOrder.shipping_status || 'pending', existingOrder).catch(e => console.error('[AUTO-EMAIL RETRY ERROR]', e));
+        
         // Se já existe mas não foi para Dropea, tentamos novamente
         if (!existingOrder.dropea_order_id) {
            processOrderFulfillment(existingOrder).catch(e => console.error('[RETRY FULFILLMENT ERROR]', e));
@@ -1078,8 +1082,10 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           .select();
 
         if (lockErr) {
-          console.warn(`[AUTOMAÇÃO] Alerta de Infra: Coluna ${flagField} ausente no banco. Enviando sem lock para garantir o serviço.`, lockErr.message);
-        } else if (!lock || lock.length === 0) {
+          console.warn(`[AUTOMAÇÃO] Alerta de Infra: Coluna ${flagField} ausente no banco. Enviando e-mail sem lock para garantir o serviço.`);
+          // NÃO retornamos aqui. Deixamos seguir para o disparo.
+        } else if (lock && lock.length === 0 && !lockErr) {
+          // Apenas se o lock rodou COM SUCESSO e retornou zero (já enviado), é que bloqueamos.
           console.log(`[AUTOMAÇÃO] Bloqueio de Duplicidade: E-mail ${functionName} já enviado para esta ordem ${orderId}.`);
           return;
         }

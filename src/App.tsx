@@ -1650,8 +1650,9 @@ export default function App() {
         if (pending) {
           try {
             const { product } = JSON.parse(pending);
-            toast.success(`Pagamento recebido! Estamos a processar o seu pedido para "${product.title}" em background.`, {
-              duration: 10000
+            toast.success(`Pagamento confirmado! Verifique a sua caixa de correio ou Gmail para o comprovativo.`, {
+              duration: 10000,
+              id: "payment-success"
             });
             // Opcional: Atualizar dashboard após uns segundos para ver se o webhook já registrou
             setTimeout(() => fetchDashboardData(user.id), 5000);
