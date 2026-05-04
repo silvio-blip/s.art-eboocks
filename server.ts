@@ -992,7 +992,8 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     const supabase = getSupabase();
     let order = orderData;
 
-    if (!order || !order.products || !order.profiles) {
+    // Se vier orderData incompleto ou sem os joins necessários, buscamos do banco
+    if (!order || (!order.products && !order.items && !order.profiles)) {
       const { data, error: orderErr } = await supabase
         .from('orders')
         .select('*, profiles(*), products(*)')
@@ -1011,9 +1012,25 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       order = data;
     }
 
-    const customerEmail = order.profiles?.notification_email || order.profiles?.email || order.customer_email;
+    // Normalização para joins que retornam arrays (comum no Supabase dependendo da config)
+    if (Array.isArray(order.profiles)) {
+      order.profiles = order.profiles[0];
+    }
+    if (Array.isArray(order.products)) {
+      order.products = order.products[0];
+    }
+
+    // Prioridade de e-mail para garantir que vai para quem comprou (especialmente em casos de guest ou admin-debug)
+    const customerEmail = order.customer_email || order.profiles?.notification_email || order.profiles?.email;
+    
+    console.log(`[AUTOMAÇÃO DEBUG] Email resolvido para ${orderId}: ${customerEmail} (Origin: ${order.customer_email ? 'order' : 'profile'})`);
+
     if (!customerEmail) {
-      console.log(`[AUTOMAÇÃO] Sem email para o pedido ${orderId}`);
+      console.log(`[AUTOMAÇÃO] Sem email válido para o pedido ${orderId}. Dados:`, JSON.stringify({
+        customer_email: order.customer_email,
+        profile_email: order.profiles?.email,
+        notif_email: order.profiles?.notification_email
+      }));
       return;
     }
 
@@ -1068,6 +1085,10 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     }
 
     console.log(`[AUTOMAÇÃO] Chamando Edge Function '${functionName}' para ${customerEmail}...`);
+    
+    // Obter infos básicas do produto (seja via item ou products join)
+    const firstProduct = order.products || (order.items && order.items.length > 0 ? order.items[0].product : null);
+    
     const { data: invokeData, error: invokeErr } = await supabase.functions.invoke(functionName, {
       body: {
         orderId: order.id,
@@ -1078,10 +1099,10 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         status: status,
         shippingStatus: shippingStatus,
         product: {
-          name: order.products?.name,
-          image: order.products?.image_url,
+          name: firstProduct?.name || firstProduct?.title || 'Produto S.Art',
+          image: firstProduct?.image_url,
           price: order.total_amount,
-          id: order.products?.id
+          id: firstProduct?.id
         },
         trackingNumber: order.shipping_status_metadata?.trackingNumber,
         trackingUrl: order.shipping_status_metadata?.trackingUrl
