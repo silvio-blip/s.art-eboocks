@@ -986,8 +986,8 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
 /**
  * Sends order status update emails to customers
  */
-async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string, orderData?: any) {
-  console.log(`[AUTOMAÇÃO] Notificação Pedido=${orderId} | Status=${status} | Envio=${shippingStatus}`);
+async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string, orderData?: any, force: boolean = false) {
+  console.log(`[AUTOMAÇÃO] Notificação Pedido=${orderId} | Status=${status} | Envio=${shippingStatus} | Force=${force}`);
   try {
     const supabase = getSupabase();
     let order = orderData;
@@ -1018,41 +1018,44 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     }
     if (Array.isArray(order.products)) {
       order.products = order.products[0];
+    } else if (!order.products && order.product_id) {
+       // Tentar extrair do root se vier de selects simples
+       order.products = order.products_data; 
     }
 
     // Prioridade de e-mail para garantir que vai para quem comprou (especialmente em casos de guest ou admin-debug)
-    const customerEmail = order.customer_email || order.profiles?.notification_email || order.profiles?.email;
+    // Usamos ?.trim() para evitar strings vazias
+    const customerEmail = (order.customer_email && order.customer_email.trim().length > 3) 
+      ? order.customer_email.trim() 
+      : (order.profiles?.notification_email || order.profiles?.email);
     
-    console.log(`[AUTOMAÇÃO DEBUG] Email resolvido para ${orderId}: ${customerEmail} (Origin: ${order.customer_email ? 'order' : 'profile'})`);
+    console.log(`[AUTOMAÇÃO DEBUG] Email resolvido para ${orderId}: "${customerEmail}" (Prioridade: ${order.customer_email ? 'Checkout/Guest' : 'Perfil'})`);
 
-    if (!customerEmail) {
-      console.log(`[AUTOMAÇÃO] Sem email válido para o pedido ${orderId}. Dados:`, JSON.stringify({
-        customer_email: order.customer_email,
-        profile_email: order.profiles?.email,
-        notif_email: order.profiles?.notification_email
-      }));
+    if (!customerEmail || !customerEmail.includes('@')) {
+      console.error(`[AUTOMAÇÃO ERROR] Email inválido ou ausente para o pedido ${orderId}: "${customerEmail}"`);
       return;
     }
 
     let functionName = '';
     let flagField = '';
 
-    const lowerStatus = (status || '').toLowerCase();
-    const lowerShipping = (shippingStatus || '').toLowerCase();
+    const lowerStatus = (status || '').toLowerCase().trim();
+    const lowerShipping = (shippingStatus || '').toLowerCase().trim();
 
-    if (lowerStatus === 'paid' || lowerStatus === 'pago' || lowerStatus === 'completed' || lowerStatus === 'concluido' || lowerStatus === 'concluído') {
+    // Mapeamento expandido de estados
+    if (['paid', 'pago', 'completed', 'concluido', 'concluído', 'aprovado', 'suceso'].includes(lowerStatus)) {
       functionName = 'send-payment-confirmed';
       flagField = 'email_paid_sent';
-    } else if (lowerShipping === 'sent' || lowerShipping === 'enviado' || lowerShipping === 'shipped') {
+    } else if (['sent', 'enviado', 'shipped', 'em trânsito', 'despachado'].includes(lowerShipping)) {
       functionName = 'send-order-shipped';
       flagField = 'email_shipped_sent';
-    } else if (lowerShipping === 'delivered' || lowerShipping === 'entregue') {
+    } else if (['delivered', 'entregue', 'finalizado'].includes(lowerShipping)) {
       functionName = 'send-order-delivered';
       flagField = 'email_review_sent';
-    } else if (lowerStatus === 'canceled' || lowerStatus === 'cancelado' || lowerStatus === 'cancelled') {
+    } else if (['canceled', 'cancelado', 'cancelled', 'abortado'].includes(lowerStatus)) {
       functionName = 'send-order-canceled';
       flagField = 'email_canceled_sent';
-    } else if (lowerStatus === 'refunded' || lowerStatus === 'reembolsado') {
+    } else if (['refunded', 'reembolsado', 'estornado'].includes(lowerStatus)) {
       functionName = 'send-order-refunded';
       flagField = 'email_refunded_sent';
     }
@@ -1062,52 +1065,63 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       return;
     }
 
-    if (flagField) {
+    // 4. Lógica de Bloqueio (Lock) para evitar e-mails duplicados
+    if (flagField && !force) {
       try {
+        // Tentamos atualizar a flag apenas se ela for false ou null.
+        // Se ela já for true, a atualização retornará zero linhas.
         const { data: lock, error: lockErr } = await supabase
           .from('orders')
           .update({ [flagField]: true })
           .eq('id', orderId)
-          .eq(flagField, false)
+          .or(`${flagField}.eq.false,${flagField}.is.null`)
           .select();
 
         if (lockErr) {
           console.warn(`[AUTOMAÇÃO WARN] Coluna ${flagField} pode não existir ou erro no lock:`, lockErr.message);
-          // Se a coluna não existir, continuamos o envio para não bloquear o e-mail,
-          // mas avisamos no console para o usuário criar a coluna se quiser evitar duplicados.
+          // Se houver erro de coluna inexistente, continuamos para não bloquear o envio
         } else if (!lock || lock.length === 0) {
-          console.log(`[AUTOMAÇÃO] Notificação ${functionName} já enviada anteriormente para ${orderId}.`);
+          console.log(`[AUTOMAÇÃO] Notificação ${functionName} já foi disparada ou está marcada como enviada para ${orderId}.`);
           return;
         }
       } catch (e) {
-        console.warn(`[AUTOMAÇÃO ERROR] Erro crítico ao tentar marcar flag ${flagField}:`, e);
+        console.warn(`[AUTOMAÇÃO ERROR] Falha no lock de e-mail ${flagField}:`, e);
       }
     }
 
-    console.log(`[AUTOMAÇÃO] Chamando Edge Function '${functionName}' para ${customerEmail}...`);
+    console.log(`[AUTOMAÇÃO] >>> DISPARANDO e-mail via '${functionName}' para: ${customerEmail}`);
     
     // Obter infos básicas do produto (seja via item ou products join)
     const firstProduct = order.products || (order.items && order.items.length > 0 ? order.items[0].product : null);
     
+    const payload = {
+      orderId: order.id,
+      email: customerEmail,
+      customerName: order.profiles?.full_name || 'Cliente',
+      customerAvatar: order.profiles?.avatar_url,
+      total: order.total_amount,
+      status: status,
+      shippingStatus: shippingStatus,
+      product: {
+        name: firstProduct?.name || firstProduct?.title || 'Produto S.Art Boutique',
+        image: firstProduct?.image_url,
+        price: order.total_amount,
+        id: firstProduct?.id
+      },
+      trackingNumber: order.shipping_status_metadata?.trackingNumber,
+      trackingUrl: order.shipping_status_metadata?.trackingUrl
+    };
+
     const { data: invokeData, error: invokeErr } = await supabase.functions.invoke(functionName, {
-      body: {
-        orderId: order.id,
-        email: customerEmail,
-        customerName: order.profiles?.full_name || 'Cliente',
-        customerAvatar: order.profiles?.avatar_url,
-        total: order.total_amount,
-        status: status,
-        shippingStatus: shippingStatus,
-        product: {
-          name: firstProduct?.name || firstProduct?.title || 'Produto S.Art',
-          image: firstProduct?.image_url,
-          price: order.total_amount,
-          id: firstProduct?.id
-        },
-        trackingNumber: order.shipping_status_metadata?.trackingNumber,
-        trackingUrl: order.shipping_status_metadata?.trackingUrl
-      }
+      body: payload
     });
+
+    if (invokeErr) {
+      console.error(`[AUTOMAÇÃO FATAL ERROR] Falha ao invocar ${functionName}:`, invokeErr);
+      // Opcional: Reverter a flag se falhar? Melhor não para evitar loops se o erro for persistente.
+    } else {
+      console.log(`[AUTOMAÇÃO SUCCESS] Resposta da função ${functionName}:`, invokeData);
+    }
 
     if (invokeErr) {
       console.error(`[AUTOMAÇÃO ERROR] Erro ao chamar ${functionName} para ${orderId}:`, invokeErr);
@@ -1350,6 +1364,45 @@ adminRouter.post('/test-email', async (req, res) => {
     res.json({ success: true, response: data });
   } catch (error: any) {
     console.error('[ADMIN TEST EMAIL ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Resend Notification Manually
+adminRouter.post('/orders/:id/resend-notification', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type } = req.body; // 'payment' | 'shipping' | 'canceled' | 'refunded'
+    
+    console.log(`[ADMIN RESEND] Forçando reenvio de ${type} para ordem ${id}`);
+    
+    const supabase = getSupabase();
+    // BUSCAR DADOS COMPLETOS PARA O EMAIL
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, profiles(*), products(*)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error || !order) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+    let status = order.status;
+    let shippingStatus = order.shipping_status;
+
+    // Se o user especificou um tipo exato, forçamos o status para o trigger bater no mapeamento certo
+    if (type === 'payment') status = 'paid';
+    else if (type === 'shipping') shippingStatus = 'sent';
+    else if (type === 'delivered') shippingStatus = 'delivered';
+    else if (type === 'canceled') status = 'canceled';
+    else if (type === 'refunded') status = 'refunded';
+
+    // Disparar com bypass do lock (não passamos flagField ou modificamos a função para ignorar se manual?)
+    // Melhor: chamamos a função e ela já viu que o admin pediu
+    await triggerOrderNotification(id, status, shippingStatus, order, true);
+
+    res.json({ success: true, message: 'Notificação enviada com sucesso (bypass ativo).' });
+  } catch (error: any) {
+    console.error('[ADMIN RESEND ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });

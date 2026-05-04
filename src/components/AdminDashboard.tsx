@@ -31,6 +31,7 @@ import {
   Truck,
   Check,
   X,
+  Mail,
   Users,
   Undo2,
   ShieldCheck,
@@ -839,6 +840,28 @@ export default function AdminDashboard({
       } else {
          toast.error(`Falha na Verificação: ${msg}`, { id: "sync", duration: 6000 });
       }
+    }
+  };
+
+  const handleResendEmail = async (orderId: string, type: string) => {
+    try {
+      toast.loading("A reenviar e-mail de notificação...", { id: "resend" });
+      const res = await fetch(`/api/admin/orders/${orderId}/resend-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        },
+        body: JSON.stringify({ type })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao reenviar e-mail");
+      
+      toast.success("E-mail reenviado com sucesso (Bypass Ativo)!", { id: "resend" });
+    } catch (err: any) {
+      console.error("[Resend Email Error]", err);
+      toast.error(`Falha ao disparar e-mail: ${err.message}`, { id: "resend" });
     }
   };
 
@@ -2689,7 +2712,33 @@ export default function AdminDashboard({
                   <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
                   <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
                   
-                    <div className="pt-2 flex items-center justify-between gap-4">
+                  {/* Utilidades de E-mail */}
+                  <div className="py-3 mt-3 border-y border-white/5 space-y-3">
+                    <p className="text-[8px] uppercase tracking-[0.2em] text-luxury-gold font-bold">Resgate & Notificações</p>
+                    <div className="flex flex-wrap gap-2">
+                       <Button 
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleResendEmail(viewingOrder.id, 'payment')}
+                        className="bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-emerald-500/20"
+                      >
+                        <Mail size={10} className="mr-2" /> Reenviar Confirm. Pagamento
+                      </Button>
+                      
+                      {viewingOrder.shipping_status === 'sent' && (
+                        <Button 
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleResendEmail(viewingOrder.id, 'shipping')}
+                          className="bg-blue-500/5 hover:bg-blue-500/10 text-blue-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-blue-500/20"
+                        >
+                          <Truck size={10} className="mr-2" /> Reenviar Rastreio
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-between gap-4">
                       <div className="flex flex-col gap-1">
                         <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status Dropea</span>
                         <div className="flex items-center gap-2">
