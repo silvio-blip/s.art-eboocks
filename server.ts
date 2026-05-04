@@ -891,10 +891,10 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     const supabase = getSupabase();
     let order = orderData;
 
-    if (!order) {
+    if (!order || !order.products || !order.profiles) {
       const { data, error: orderErr } = await supabase
         .from('orders')
-        .select('*, profiles(email, full_name, notification_email)')
+        .select('*, profiles(*), products(*)')
         .eq('id', orderId)
         .maybeSingle();
       
@@ -972,9 +972,16 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         orderId: order.id,
         email: customerEmail,
         customerName: order.profiles?.full_name || 'Cliente',
+        customerAvatar: order.profiles?.avatar_url,
         total: order.total_amount,
         status: status,
         shippingStatus: shippingStatus,
+        product: {
+          name: order.products?.name,
+          image: order.products?.image_url,
+          price: order.total_amount,
+          id: order.products?.id
+        },
         trackingNumber: order.shipping_status_metadata?.trackingNumber,
         trackingUrl: order.shipping_status_metadata?.trackingUrl
       }
