@@ -330,7 +330,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
 async function executeDropeaQuery(query: string, variables: any, rootField: string) {
   try {
-    console.log(`[DROPEA DEBUG] Executing ${rootField} query...`);
+    console.log(`[DROPEA DEBUG] Executing ${rootField} query with variables:`, JSON.stringify(variables));
     const response = await axios.post(DROPEA_API_URL, { query, variables }, {
       headers: {
         'x-api-key': DROPEA_API_KEY,
@@ -390,7 +390,7 @@ async function getDropeaOrderStatus(dropeaOrderId: string) {
           status
           tracking_code
           tracking_url
-          customer { email name }
+          customer { email }
           items { 
             product { name id }
             quantity
@@ -962,6 +962,9 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
             number: dropeaData.tracking_number,
             url: dropeaData.tracking_url
           }
+        },
+        _debug: {
+          updateData
         }
       });
     }

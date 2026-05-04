@@ -794,7 +794,10 @@ export default function AdminDashboard({
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("[Sync] Non-JSON response received:", text.substring(0, 200));
-        throw new Error("O servidor retornou uma resposta inválida (HTML). Contacte o suporte.");
+        if (text.includes("Starting Server") || text.includes("Vite + React")) {
+          throw new Error("O servidor ainda está iniciando ou reiniciando. Aguarde 5-10 segundos e tente novamente.");
+        }
+        throw new Error("Resposta inválida do servidor (HTML). Isto geralmente indica um erro de rota ou servidor em manutenção.");
       }
 
       const data = await res.json();
@@ -830,10 +833,11 @@ export default function AdminDashboard({
       fetchDashboardData();
     } catch (err: any) {
       console.error("[Sync Detail Error]", err);
-      if (err.message.includes('Atenção: Este pedido ainda não existe na Dropea')) {
-         toast.info(err.message, { id: "sync", duration: 8000 });
+      const msg = err.message || "";
+      if (msg.includes('não vinculado') || msg.includes('PEDIDO_NAO_ENCONTRADO')) {
+         toast.info("Atenção: Este pedido ainda não existe na Dropea. Verifique o e-mail ou utilize 'Enviar Manual'.", { id: "sync", duration: 8000 });
       } else {
-         toast.error(`Falha na Verificação Total: ${err.message}`, { id: "sync", duration: 6000 });
+         toast.error(`Falha na Verificação: ${msg}`, { id: "sync", duration: 6000 });
       }
     }
   };
