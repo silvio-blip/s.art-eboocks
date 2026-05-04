@@ -2,16 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createTransport } from "npm:nodemailer";
 
 const SMTP_HOST = Deno.env.get("SMTP_HOSTNAME");
-const SMTP_PORT = Number(Deno.env.get("SMTP_PORT"));
+const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") || "465");
 const SMTP_USER = Deno.env.get("SMTP_USER");
 const SMTP_PASS = Deno.env.get("SMTP_PASS");
-const SMTP_FROM_NAME = Deno.env.get("SMTP_FROM_NAME") || "SArt Boutique";
-const SMTP_FROM_EMAIL = Deno.env.get("SMTP_FROM_EMAIL") || SMTP_USER;
 
 const transporter = createTransport({
   host: SMTP_HOST,
   port: SMTP_PORT,
-  secure: true,
+  secure: SMTP_PORT === 465,
   auth: { user: SMTP_USER, pass: SMTP_PASS },
 });
 
@@ -21,7 +19,7 @@ serve(async (req) => {
     const { to, subject, body, name } = await req.json();
 
     await transporter.sendMail({
-      from: `"${SMTP_FROM_NAME}" <${SMTP_FROM_EMAIL}>`,
+      from: `"SArt Boutique" <${SMTP_USER}>`,
       to: to,
       subject: subject,
       html: `
@@ -29,7 +27,7 @@ serve(async (req) => {
           ${name ? `<p>Olá ${name},</p>` : ''}
           ${body}
           <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-          <p style="font-size: 12px; color: #999; text-align: center;">${SMTP_FROM_NAME}</p>
+          <p style="font-size: 12px; color: #999; text-align: center;">SArt Boutique</p>
         </div>
       `,
     });

@@ -153,7 +153,7 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
 
       // 3. DISPARAR TUDO AUTOMATICAMENTE (SEM TRIGGERS DO BANCO)
       // Enviar e-mail de confirmação de pagamento IMEDIATAMENTE
-      triggerOrderNotification(orderData.id, 'paid', 'pending').catch(e => console.error(`[AUTO-EMAIL ERROR]`, e));
+      triggerOrderNotification(orderData.id, 'paid', 'pending', orderData).catch(e => console.error(`[AUTO-EMAIL ERROR]`, e));
       
       // Sincronizar com a Dropea IMEDIATAMENTE
       processOrderFulfillment(orderData).catch(e => console.error(`[AUTO-FULFILL ERROR]`, e));
@@ -860,20 +860,29 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
 /**
  * Sends order status update emails to customers
  */
-async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string) {
+async function triggerOrderNotification(orderId: string, status: string, shippingStatus: string, orderData?: any) {
   console.log(`[AUTOMAÇÃO] Notificação Pedido=${orderId} | Status=${status} | Envio=${shippingStatus}`);
   try {
     const supabase = getSupabase();
-    
-    const { data: order, error: orderErr } = await supabase
-      .from('orders')
-      .select('*, profiles(email, full_name, notification_email)')
-      .eq('id', orderId)
-      .single();
+    let order = orderData;
+
+    if (!order) {
+      const { data, error: orderErr } = await supabase
+        .from('orders')
+        .select('*, profiles(email, full_name, notification_email)')
+        .eq('id', orderId)
+        .maybeSingle();
       
-    if (orderErr || !order) {
-      console.error(`[AUTOMAÇÃO ERROR] Ordem não encontrada:`, orderErr);
-      return;
+      if (orderErr) {
+        console.error(`[AUTOMAÇÃO ERROR] Erro ao buscar ordem ${orderId}:`, orderErr);
+        return;
+      }
+      
+      if (!data) {
+        console.warn(`[AUTOMAÇÃO WARN] Ordem ${orderId} não encontrada no banco após tentativa.`);
+        return;
+      }
+      order = data;
     }
 
     const customerEmail = order.profiles?.notification_email || order.profiles?.email || order.customer_email;
@@ -911,21 +920,29 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     }
 
     if (flagField) {
-      const { data: lock, error: lockErr } = await supabase
-        .from('orders')
-        .update({ [flagField]: true })
-        .eq('id', orderId)
-        .eq(flagField, false)
-        .select();
+      try {
+        const { data: lock, error: lockErr } = await supabase
+          .from('orders')
+          .update({ [flagField]: true })
+          .eq('id', orderId)
+          .eq(flagField, false)
+          .select();
 
-      if (lockErr || !lock || lock.length === 0) {
-        console.log(`[AUTOMAÇÃO] Notificação ${functionName} já enviada para ${orderId}.`);
-        return;
+        if (lockErr) {
+          console.warn(`[AUTOMAÇÃO WARN] Coluna ${flagField} pode não existir ou erro no lock:`, lockErr.message);
+          // Se a coluna não existir, continuamos o envio para não bloquear o e-mail,
+          // mas avisamos no console para o usuário criar a coluna se quiser evitar duplicados.
+        } else if (!lock || lock.length === 0) {
+          console.log(`[AUTOMAÇÃO] Notificação ${functionName} já enviada anteriormente para ${orderId}.`);
+          return;
+        }
+      } catch (e) {
+        console.warn(`[AUTOMAÇÃO ERROR] Erro crítico ao tentar marcar flag ${flagField}:`, e);
       }
     }
 
     console.log(`[AUTOMAÇÃO] Chamando Edge Function '${functionName}' para ${customerEmail}...`);
-    const { error: invokeErr } = await supabase.functions.invoke(functionName, {
+    const { data: invokeData, error: invokeErr } = await supabase.functions.invoke(functionName, {
       body: {
         orderId: order.id,
         email: customerEmail,
@@ -941,7 +958,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     if (invokeErr) {
       console.error(`[AUTOMAÇÃO ERROR] Erro ao chamar ${functionName}:`, invokeErr);
     } else {
-      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado com sucesso.`);
+      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado com sucesso. Resposta:`, invokeData);
     }
 
   } catch (err) {
@@ -1551,7 +1568,7 @@ adminRouter.put('/orders/:id/status', async (req, res) => {
     if (error) throw error;
     
     // Disparar notificação automática por e-mail
-    triggerOrderNotification(id, status, data.shipping_status || 'pending').catch(e => console.error('[ADM STATUS EMAIL ERROR]', e));
+    triggerOrderNotification(id, status, data.shipping_status || 'pending', data).catch(e => console.error('[ADM STATUS EMAIL ERROR]', e));
     
     res.json(data);
   } catch (error: any) {
@@ -1577,15 +1594,17 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
     }
 
     // Now update shipping_status
-    const { error: updateError } = await supabase
+    const { data: updatedOrder, error: updateError } = await supabase
       .from('orders')
       .update({ shipping_status })
-      .eq('id', id);
+      .eq('id', id)
+      .select()
+      .maybeSingle();
 
     if (updateError) throw updateError;
     
     // Disparar notificação automática
-    triggerOrderNotification(id, order.status, shipping_status).catch(e => console.error('[ADM SHIPPING EMAIL ERROR]', e));
+    triggerOrderNotification(id, updatedOrder?.status || order.status, shipping_status, updatedOrder || order).catch(e => console.error('[ADM SHIPPING EMAIL ERROR]', e));
     
     // Respond with updated final status and shipping
     res.json({ success: true, status: order.status, shipping_status });
