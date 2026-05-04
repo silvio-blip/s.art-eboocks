@@ -1888,15 +1888,6 @@ export default function App() {
       return;
     }
 
-    // Check if user already owns the product
-    const order = purchasedProducts.find(
-      (o) => o.product_id === product.id && (o.status === "paid" || o.status === "completed"),
-    );
-    if (order) {
-      setView("dashboard");
-      return;
-    }
-
     if (product.product_type === "physical") {
       setDetailProduct(product);
       setView("product-detail");
