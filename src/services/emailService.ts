@@ -12,14 +12,8 @@ interface SendEmailParams {
  */
 export async function sendCustomEmail({ to, subject, body, name }: SendEmailParams) {
   try {
-    const { data, error } = await supabase.functions.invoke("send-order-email", {
-      body: { 
-        email: to, 
-        subject, 
-        customerName: name || 'Cliente',
-        type: 'custom', // Um tipo genérico para quando não é um evento de pedido específico
-        status: subject
-      },
+    const { data, error } = await supabase.functions.invoke("send-custom-email", {
+      body: { to, subject, body, name },
     });
 
     if (error) throw error;

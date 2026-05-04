@@ -878,24 +878,29 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       return;
     }
 
-    let emailType = 'order_update';
+    let functionName = '';
     let flagField = '';
 
     if (status === 'paid') {
-      emailType = 'payment_confirmed';
+      functionName = 'send-payment-confirmed';
       flagField = 'email_paid_sent';
     } else if (shippingStatus === 'sent') {
-      emailType = 'order_shipped';
+      functionName = 'send-order-shipped';
       flagField = 'email_shipped_sent';
     } else if (shippingStatus === 'delivered') {
-      emailType = 'order_delivered';
+      functionName = 'send-order-delivered';
       flagField = 'email_review_sent';
     } else if (status === 'canceled') {
-      emailType = 'order_canceled';
+      functionName = 'send-order-canceled';
       flagField = 'email_canceled_sent';
     } else if (status === 'refunded') {
-      emailType = 'order_refunded';
+      functionName = 'send-order-refunded';
       flagField = 'email_refunded_sent';
+    }
+
+    if (!functionName) {
+      console.log(`[AUTOMAÇÃO] Nenhuma função de e-mail definida para status=${status} envSub=${shippingStatus}`);
+      return;
     }
 
     if (flagField) {
@@ -907,17 +912,16 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         .select();
 
       if (lockErr || !lock || lock.length === 0) {
-        console.log(`[AUTOMAÇÃO] Notificação ${emailType} já enviada para ${orderId}.`);
+        console.log(`[AUTOMAÇÃO] Notificação ${functionName} já enviada para ${orderId}.`);
         return;
       }
     }
 
-    console.log(`[AUTOMAÇÃO] Chamando 'send-order-email' para ${customerEmail}...`);
-    const { error: invokeErr } = await supabase.functions.invoke("send-order-email", {
+    console.log(`[AUTOMAÇÃO] Chamando Edge Function '${functionName}' para ${customerEmail}...`);
+    const { error: invokeErr } = await supabase.functions.invoke(functionName, {
       body: {
         orderId: order.id,
         email: customerEmail,
-        type: emailType,
         customerName: order.profiles?.full_name || 'Cliente',
         total: order.total_amount,
         status: status,
@@ -928,9 +932,9 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     });
 
     if (invokeErr) {
-      console.error(`[AUTOMAÇÃO ERROR] Erro na Edge Function:`, invokeErr);
+      console.error(`[AUTOMAÇÃO ERROR] Erro ao chamar ${functionName}:`, invokeErr);
     } else {
-      console.log(`[AUTOMAÇÃO SUCCESS] E-mail enviado.`);
+      console.log(`[AUTOMAÇÃO SUCCESS] E-mail (${functionName}) enviado com sucesso.`);
     }
 
   } catch (err) {
