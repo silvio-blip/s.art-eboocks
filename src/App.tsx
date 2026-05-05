@@ -1274,6 +1274,10 @@ export default function App() {
   });
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [view, selectedProduct]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<{

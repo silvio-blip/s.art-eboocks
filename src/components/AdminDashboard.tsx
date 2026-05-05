@@ -164,6 +164,11 @@ export default function AdminDashboard({
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [categoryToDelete, setCategoryToDelete] = useState<{ id: string; name: string } | null>(null);
   const [isSiteSettingsOpen, setIsSiteSettingsOpen] = useState(false);
+  
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [tab]);
+
   const [siteHero, setSiteHero] = useState({
     image: "",
     title: "",
