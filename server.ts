@@ -32,32 +32,133 @@ const initDB = async () => {
   try {
     const supabase = getSupabase();
     
-    // Ensure dropea_id exists in products
+    // Check if exec_sql exists by calling it with a trivial query
+    let hasExecSql = false;
     try {
-      await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS dropea_id TEXT UNIQUE;' });
+      const { error: testError } = await supabase.rpc('exec_sql', { sql: 'SELECT 1' });
+      hasExecSql = !testError;
+      if (!hasExecSql) {
+        console.warn('[INIT] Function public.exec_sql(sql) not found. Dynamic schema changes will be skipped.');
+      }
     } catch(e) {
-      // Ignore
+      console.warn('[INIT] Could not verify exec_sql function.');
     }
 
-    // Ensure orders table has notification tracking and payment status columns
-    const columnsToEnsure = [
-      'email_paid_sent', 
-      'email_shipped_sent', 
-      'email_review_sent', 
-      'email_canceled_sent',
-      'email_refunded_sent',
-      'stripe_payment_intent'
-    ];
-    
-    for (const col of columnsToEnsure) {
+    if (hasExecSql) {
+      // Ensure dropea_id exists in products
       try {
-        await supabase.rpc('exec_sql', { sql: `ALTER TABLE orders ADD COLUMN IF NOT EXISTS ${col} BOOLEAN DEFAULT FALSE;` });
+        await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS dropea_id TEXT UNIQUE;' });
+      } catch(e) { /* Ignore */ }
+
+      // Define columns to ensure with their types
+      const columnsToEnsure = [
+        { name: 'email_paid_sent', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'email_shipped_sent', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'email_review_sent', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'email_canceled_sent', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'email_refunded_sent', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'stripe_payment_intent', type: 'TEXT' },
+        { name: 'payment_status', type: 'TEXT DEFAULT \'pending\'' },
+        { name: 'shipping_status_metadata', type: 'JSONB DEFAULT \'{}\'::jsonb' },
+        { name: 'updated_at', type: 'TIMESTAMP WITH TIME ZONE DEFAULT timezone(\'utc\'::text, now())' }
+      ];
+
+      // Ensure categories table exists and seed defaults
+      try {
+        await supabase.rpc('exec_sql', { sql: `
+          CREATE TABLE IF NOT EXISTS categories (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+          
+          CREATE TABLE IF NOT EXISTS site_settings (
+            key TEXT PRIMARY KEY,
+            value JSONB,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+
+          -- Seed default site settings if empty
+          INSERT INTO site_settings (key, value)
+          SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "title": "Luxo & Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
+          WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
+          
+          -- Ensure defaults exist
+          INSERT INTO categories (name) VALUES ('Geral') ON CONFLICT (name) DO NOTHING;
+          INSERT INTO categories (name) VALUES ('Moda') ON CONFLICT (name) DO NOTHING;
+          INSERT INTO categories (name) VALUES ('Saúde') ON CONFLICT (name) DO NOTHING;
+          INSERT INTO categories (name) VALUES ('Tecnologia') ON CONFLICT (name) DO NOTHING;
+        ` });
+      } catch(e) { console.error('[INIT] Error ensuring tables:', e); }
+      
+      for (const col of columnsToEnsure) {
+        try {
+          if (col.name === 'stripe_payment_intent') {
+            // Special handling logic for stripe_payment_intent to fix possible legacy boolean type error
+             await supabase.rpc('exec_sql', { sql: `
+               DO $$ 
+               BEGIN 
+                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'stripe_payment_intent' AND data_type = 'boolean') THEN
+                   ALTER TABLE orders ALTER COLUMN stripe_payment_intent TYPE TEXT USING (CASE WHEN stripe_payment_intent THEN 'true' ELSE 'false' END);
+                 END IF;
+                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'stripe_payment_intent') THEN
+                   ALTER TABLE orders ADD COLUMN stripe_payment_intent TEXT;
+                 END IF;
+               END $$;
+             ` });
+          } else {
+             await supabase.rpc('exec_sql', { sql: `ALTER TABLE orders ADD COLUMN IF NOT EXISTS ${col.name} ${col.type};` });
+          }
+        } catch(e) { 
+          console.error(`[INIT] Error ensuring column ${col.name}:`, e);
+        }
+      }
+
+      try {
+        // Force columns to exist and touch the table to trigger schema reload
+        await supabase.rpc('exec_sql', { sql: `
+          DO $$ 
+          BEGIN 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'is_featured') THEN
+              ALTER TABLE products ADD COLUMN is_featured BOOLEAN DEFAULT FALSE;
+            END IF;
+            
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'admin_link') THEN
+              ALTER TABLE products ADD COLUMN admin_link TEXT;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'extra_images') THEN
+              ALTER TABLE products ADD COLUMN extra_images TEXT;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'sizes_enabled') THEN
+              ALTER TABLE products ADD COLUMN sizes_enabled BOOLEAN DEFAULT FALSE;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'colors_enabled') THEN
+              ALTER TABLE products ADD COLUMN colors_enabled BOOLEAN DEFAULT FALSE;
+            END IF;
+          END $$;
+        ` });
+
+        // FORCE PostgREST schema reload via multiple mechanisms
+        try { await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" }); } catch(e) {}
+        try { await supabase.rpc('exec_sql', { sql: "COMMENT ON TABLE products IS 'Refreshed at " + new Date().toISOString() + "';" }); } catch(e) {}
+        
+        console.log('[INIT] Database schema verification and refresh targeted using exec_sql.');
+      } catch(e) { 
+        console.error('[INIT] Error ensuring product columns using exec_sql:', e);
+      }
+
+      // Payment status is already handled in the unified columnsToEnsure loop above
+    } else {
+      // Fallback: If no exec_sql, try to touch tables using standard SDK to maybe trigger a cache refresh
+      // This won't ADD columns, but it might help if they already exist but cache is stale
+      try {
+        await supabase.from('products').select('id').limit(1);
+        await supabase.from('orders').select('id').limit(1);
       } catch(e) { /* Ignore */ }
     }
-
-    try {
-      await supabase.rpc('exec_sql', { sql: "ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending';" });
-    } catch(e) { /* Ignore */ }
   } catch (err) {
     console.warn('[INIT] Erro na inicialização do DB (não crítico):', err);
   }
@@ -1000,7 +1101,14 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
         if (foundId) {
           dropeaId = String(foundId);
           console.log(`[SYNC] Vínculo encontrado! Dropea ID: ${dropeaId}`);
-          await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
+          
+          // Verificar se outro pedido já tem este ID Dropea para evitar erro de UNIQUE constraint
+          const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
+          if (!duplicate) {
+            await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
+          } else {
+            console.warn(`[SYNC] Aviso: O pedido Dropea ${dropeaId} já está vinculado ao registro local ${duplicate.id}.`);
+          }
         }
       }
     }
@@ -1707,6 +1815,124 @@ adminRouter.get('/users', async (req, res) => {
   }
 });
 
+// Public Categories
+apiRouter.get('/categories', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('categories').select('*').order('name');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err: any) {
+    console.error('[CATEGORIES FETCH ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/settings/:key', async (req, res) => {
+  try {
+    const { key } = req.params;
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('site_settings').select('value').eq('key', key).single();
+    if (error) throw error;
+    res.json(data ? data.value : {});
+  } catch (err: any) {
+    console.error('[SETTINGS FETCH ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Category Management
+adminRouter.get('/categories', async (req, res) => {
+  try {
+    // We can keep it here too or just use the public one, 
+    // but the dashboard already points here.
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('categories').select('*').order('name');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err: any) {
+    console.error('[ADMIN CATEGORIES FETCH ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+adminRouter.post('/settings/:key', async (req, res) => {
+  try {
+    const { key } = req.params;
+    const value = req.body;
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('site_settings').upsert({ key, value, updated_at: new Date() }).select().single();
+    if (error) throw error;
+    res.json(data.value);
+  } catch (err: any) {
+    console.error('[ADMIN SETTINGS UPDATE ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+adminRouter.post('/categories', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Category name is required' });
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('categories').insert([{ name }]).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    console.error('[ADMIN CATEGORY CREATE ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+adminRouter.put('/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Category name is required' });
+    const supabase = getSupabase();
+    
+    // Get old name first to update products
+    const { data: oldCat } = await supabase.from('categories').select('name').eq('id', id).single();
+    
+    const { data, error } = await supabase.from('categories').update({ name }).eq('id', id).select().single();
+    if (error) throw error;
+    
+    // Update products using the old name
+    if (oldCat && oldCat.name !== name) {
+      await supabase.from('products').update({ category: name }).eq('category', oldCat.name);
+    }
+    
+    res.json(data);
+  } catch (err: any) {
+    console.error('[ADMIN CATEGORY UPDATE ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+adminRouter.delete('/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+    
+    // Get category name first
+    const { data: catData } = await supabase.from('categories').select('name').eq('id', id).single();
+    
+    const { error } = await supabase.from('categories').delete().eq('id', id);
+    if (error) throw error;
+    
+    // Set products of this category to 'Geral' or keep them as is? 
+    // User wants synchronization, so let's set to 'Geral' to keep things clean.
+    if (catData) {
+      await supabase.from('products').update({ category: 'Geral' }).eq('category', catData.name);
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[ADMIN CATEGORY DELETE ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 adminRouter.put('/users/:id/role', async (req, res) => {
   try {
     const { id } = req.params;
@@ -1747,7 +1973,7 @@ adminRouter.post('/products', async (req, res) => {
   try {
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, is_featured
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
@@ -1767,7 +1993,7 @@ adminRouter.post('/products', async (req, res) => {
     let query;
     const upsertData: any = { 
       title, description, price: finalPrice, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured
     };
     
     if (dropea_id) {
@@ -1777,7 +2003,75 @@ adminRouter.post('/products', async (req, res) => {
       query = supabase.from('products').insert(upsertData);
     }
 
-    const { data, error } = await query.select().single();
+    let { data, error } = await query.select().single();
+
+    // RETRY LOGIC for schema cache issues
+    if (error && error.message.includes('is_featured')) {
+      console.warn(`[ADMIN] Detected missing 'is_featured' column in cache during create. Attempting forced refresh and SQL fallback...`);
+      try {
+        await supabase.rpc('exec_sql', { sql: "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE;" });
+        await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" });
+        await supabase.rpc('exec_sql', { sql: `COMMENT ON TABLE products IS 'API Create Retry ${Date.now()}';` });
+        
+        await new Promise(r => setTimeout(r, 600));
+        
+        let retryQuery;
+        if (dropea_id) {
+          retryQuery = supabase.from('products').upsert(upsertData, { onConflict: 'dropea_id' });
+        } else {
+          retryQuery = supabase.from('products').insert(upsertData);
+        }
+        
+        const retryResult = await retryQuery.select().single();
+        if (!retryResult.error) {
+          data = retryResult.data;
+          error = retryResult.error;
+        } else {
+          // ULTIMATE FALLBACK: Raw SQL Insert/Upsert
+          console.warn(`[ADMIN] Standard retry failed during create. Using Raw SQL Fallback...`);
+          
+          const keys = Object.keys(upsertData);
+          const columns = keys.map(k => `"${k}"`).join(', ');
+          const values = keys.map(k => {
+            const val = upsertData[k];
+            if (val === null || val === undefined) return `NULL`;
+            if (typeof val === 'boolean') return `${val}`;
+            if (typeof val === 'number') return `${val}`;
+            return `'${String(val).replace(/'/g, "''")}'`;
+          }).join(', ');
+          
+          let sql;
+          if (dropea_id) {
+            const updates = keys.map(k => `"${k}" = EXCLUDED."${k}"`).join(', ');
+            sql = `INSERT INTO products (${columns}) VALUES (${values}) ON CONFLICT (dropea_id) DO UPDATE SET ${updates} RETURNING *;`;
+          } else {
+            sql = `INSERT INTO products (${columns}) VALUES (${values}) RETURNING *;`;
+          }
+          
+          const sqlResult = await supabase.rpc('exec_sql', { sql });
+          if (!sqlResult.error) {
+            data = Array.isArray(sqlResult.data) ? sqlResult.data[0] : sqlResult.data;
+            error = null;
+          } else {
+            console.warn('[ADMIN] Raw SQL Fallback failed or function missing (POST). Stripping is_featured for final attempt...');
+            const finalData = { ...upsertData };
+            delete finalData.is_featured;
+            let finalQuery;
+            if (dropea_id) {
+              finalQuery = supabase.from('products').upsert(finalData, { onConflict: 'dropea_id' });
+            } else {
+              finalQuery = supabase.from('products').insert(finalData);
+            }
+            const finalResult = await finalQuery.select().single();
+            data = finalResult.data;
+            error = finalResult.error;
+          }
+        }
+      } catch (retryErr: any) {
+        console.error(`[ADMIN] Retry/Fallback failed:`, retryErr);
+        error = retryErr;
+      }
+    }
 
     if (error) {
       console.error(`[ADMIN] Error creating product:`, error);
@@ -1794,7 +2088,7 @@ adminRouter.put('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, is_featured
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
@@ -1811,17 +2105,91 @@ adminRouter.put('/products/:id', async (req, res) => {
     const supabase = getSupabase();
     const updateData: any = { 
       title, description, price: finalPrice, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured
     };
     
     if (dropea_id) updateData.dropea_id = String(dropea_id);
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('products')
       .update(updateData)
       .eq('id', id)
       .select()
       .single();
+
+    // RETRY LOGIC for schema cache issues
+    if (error && error.message.includes('is_featured')) {
+      console.warn(`[ADMIN] Detected missing 'is_featured' column in cache. Attempting forced refresh and SQL fallback...`);
+      try {
+        // 1. Try refreshing if exec_sql exists
+        try {
+          await supabase.rpc('exec_sql', { sql: "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE;" });
+          await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" });
+          await supabase.rpc('exec_sql', { sql: `COMMENT ON TABLE products IS 'API Retry ${Date.now()}';` });
+          await new Promise(r => setTimeout(r, 600));
+        } catch(refreshErr) {
+          console.warn('[ADMIN] Could not refresh cache via exec_sql');
+        }
+        
+        // 2. Try standard update again
+        const retryResult = await supabase
+          .from('products')
+          .update(updateData)
+          .eq('id', id)
+          .select()
+          .single();
+        
+        if (!retryResult.error) {
+          data = retryResult.data;
+          error = retryResult.error;
+        } else {
+          // 3. Try Raw SQL Update if possible
+          console.warn(`[ADMIN] Standard retry failed. Attempting Raw SQL Fallback...`);
+          
+          let sqlExecuted = false;
+          try {
+            const fields = Object.keys(updateData).map(key => {
+              const val = updateData[key];
+              if (val === null || val === undefined) return `"${key}" = NULL`;
+              if (typeof val === 'boolean') return `"${key}" = ${val}`;
+              if (typeof val === 'number') return `"${key}" = ${val}`;
+              return `"${key}" = '${String(val).replace(/'/g, "''")}'`;
+            }).join(', ');
+            
+            const sql = `UPDATE products SET ${fields} WHERE id = '${id}' RETURNING *;`;
+            const sqlResult = await supabase.rpc('exec_sql', { sql });
+            
+            if (!sqlResult.error) {
+              data = Array.isArray(sqlResult.data) ? sqlResult.data[0] : sqlResult.data;
+              error = null;
+              sqlExecuted = true;
+            }
+          } catch(sqlErr) {
+            console.warn('[ADMIN] Raw SQL Fallback failed or function missing');
+          }
+
+          // 4. FINAL RESILIENCE: Strip is_featured and try one last time
+          if (!sqlExecuted) {
+            console.warn('[ADMIN] All advanced retries failed. Stripping is_featured for final attempt...');
+            const finalData = { ...updateData };
+            delete finalData.is_featured;
+            
+            const finalResult = await supabase
+              .from('products')
+              .update(finalData)
+              .eq('id', id)
+              .select()
+              .single();
+            
+            data = finalResult.data;
+            error = finalResult.error;
+          }
+        }
+      } catch (retryErr: any) {
+        console.error(`[ADMIN] Retry chain failed:`, retryErr);
+        error = retryErr;
+      }
+    }
 
     if (error) {
       console.error(`[ADMIN] Error updating product ${id}:`, error);
@@ -1839,22 +2207,84 @@ adminRouter.patch('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, is_featured
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price
-    const finalPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
+    const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
+    const finalPrice = (typeof rawPrice === 'string' ? parseFloat(rawPrice) : (rawPrice || 0));
 
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    const updateData: any = { 
+      title, description, price: finalPrice, image_url, file_url, category,
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured
+    };
+    
+    if (dropea_id) updateData.dropea_id = String(dropea_id);
+
+    let { data, error } = await supabase
       .from('products')
-      .update({ 
-        title, description, price: finalPrice, image_url, file_url, category,
-        product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
+
+    // RETRY LOGIC for schema cache issues
+    if (error && error.message.includes('is_featured')) {
+      console.warn(`[ADMIN] Detected missing 'is_featured' column in cache (PATCH). Attempting forced refresh and SQL fallback...`);
+      try {
+        await supabase.rpc('exec_sql', { sql: "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE;" });
+        await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" });
+        await supabase.rpc('exec_sql', { sql: `COMMENT ON TABLE products IS 'API Patch Retry ${Date.now()}';` });
+        
+        await new Promise(r => setTimeout(r, 600));
+        
+        const retryResult = await supabase
+          .from('products')
+          .update(updateData)
+          .eq('id', id)
+          .select()
+          .single();
+        
+        if (!retryResult.error) {
+          data = retryResult.data;
+          error = retryResult.error;
+        } else {
+          // ULTIMATE FALLBACK: Raw SQL Update
+          console.warn(`[ADMIN] Standard retry failed (PATCH). Using Raw SQL Fallback...`);
+          
+          const fields = Object.keys(updateData).map(key => {
+            const val = updateData[key];
+            if (val === null || val === undefined) return `"${key}" = NULL`;
+            if (typeof val === 'boolean') return `"${key}" = ${val}`;
+            if (typeof val === 'number') return `"${key}" = ${val}`;
+            return `"${key}" = '${String(val).replace(/'/g, "''")}'`;
+          }).join(', ');
+          
+          const sql = `UPDATE products SET ${fields} WHERE id = '${id}' RETURNING *;`;
+          const sqlResult = await supabase.rpc('exec_sql', { sql });
+          if (!sqlResult.error) {
+            data = Array.isArray(sqlResult.data) ? sqlResult.data[0] : sqlResult.data;
+            error = null;
+          } else {
+            console.warn('[ADMIN] Raw SQL Fallback failed or function missing (PATCH). Stripping is_featured for final attempt...');
+            const finalData = { ...updateData };
+            delete finalData.is_featured;
+            const finalResult = await supabase
+              .from('products')
+              .update(finalData)
+              .eq('id', id)
+              .select()
+              .single();
+            data = finalResult.data;
+            error = finalResult.error;
+          }
+        }
+      } catch (retryErr: any) {
+        console.error(`[ADMIN] Retry/Fallback failed:`, retryErr);
+        error = retryErr;
+      }
+    }
 
     if (error) throw error;
     res.json(data);
@@ -2172,8 +2602,14 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
         const foundId = await findDropeaOrderByEmail(email);
         if (foundId) {
           dropeaId = String(foundId);
-          await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
-          order.dropea_order_id = dropeaId;
+          // Evitar erro de UNIQUE constraint no dropea_order_id
+          const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
+          if (!duplicate) {
+            await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
+            order.dropea_order_id = dropeaId;
+          } else {
+            console.warn(`[ADMIN SYNC] O ID Dropea ${dropeaId} já está vinculado ao pedido ${duplicate.id}`);
+          }
         }
       }
     }
@@ -2276,7 +2712,16 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
     const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasTrackingChange;
 
     if (hasChanges) {
-      await supabase.from('orders').update(updateData).eq('id', id);
+      const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
+      if (updateError) {
+        console.error('[ADMIN SYNC DB UPDATE ERROR]', {
+          error: updateError,
+          orderId: id,
+          updateData,
+          suggestion: 'Certifique-se de que todas as colunas existem no banco de dados (payment_status, updated_at, shipping_status_metadata, etc.)'
+        });
+        return res.status(500).json({ error: 'Falha ao atualizar dados locais', details: updateError });
+      }
       
       // Prioridade para notificação de status de pagamento/ordem geral
       if (hasStatusChange || hasPaymentStatusChange) {

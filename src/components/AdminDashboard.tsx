@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -36,6 +36,7 @@ import {
   Undo2,
   ShieldCheck,
   ShieldAlert,
+  Settings,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -69,6 +70,7 @@ interface Product {
   image_url: string;
   file_url: string;
   is_active: boolean;
+  is_featured?: boolean;
   created_at?: string;
   product_type?: "physical" | "digital";
   sizes?: string;
@@ -151,11 +153,47 @@ export default function AdminDashboard({
   const [userSearch, setUserSearch] = useState("");
   const [importDropeaId, setImportDropeaId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
   const [testEmailInput, setTestEmailInput] = useState("");
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [productFeaturedFilter, setProductFeaturedFilter] = useState<"all" | "featured" | "standard">("all");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
+  const [categoryToDelete, setCategoryToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isSiteSettingsOpen, setIsSiteSettingsOpen] = useState(false);
+  const [siteHero, setSiteHero] = useState({
+    image: "",
+    title: "",
+    buttonText: ""
+  });
+
+  // Categories are strictly managed from the categories table
+  const allAvailableCategories = useMemo(() => {
+    return categories.map(c => c.name).sort();
+  }, [categories]);
+
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      // Search filter
+      const titleMatches = (p.title || "").toLowerCase().includes(productSearch.toLowerCase());
+      const categoryMatches = (p.category || "").toLowerCase().includes(productSearch.toLowerCase());
+      if (!titleMatches && !categoryMatches) return false;
+
+      // Status filter (Featured/Standard)
+      const isFeatured = !!p.is_featured;
+      if (productFeaturedFilter === "featured") return isFeatured;
+      if (productFeaturedFilter === "standard") return !isFeatured;
+      
+      return true;
+    });
+  }, [products, productSearch, productFeaturedFilter]);
 
   useEffect(() => {
     checkAdminAccess();
+    fetchCategories();
 
     // Real-time subscription for orders - unique name per admin to avoid "steal" conflict
     const channelName = `admin-updates-${user.id}`;
@@ -225,10 +263,113 @@ export default function AdminDashboard({
     fetchData();
   };
 
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("/api/admin/categories?userId=" + user.id, {
+        headers: { "x-user-id": user.id }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (e) {
+      console.error("Error fetching categories:", e);
+    }
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    try {
+      const res = await fetch("/api/admin/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": user.id },
+        body: JSON.stringify({ name: newCategoryName.trim(), userId: user.id }),
+      });
+      if (res.ok) {
+        toast.success("Categoria adicionada!");
+        setNewCategoryName("");
+        fetchCategories();
+      } else {
+        toast.error("Erro ao adicionar categoria.");
+      }
+    } catch (e) {
+      toast.error("Erro de rede.");
+    }
+  };
+
+  const handleUpdateCategory = async (id: string) => {
+    if (!editingCategoryName.trim()) return;
+    try {
+      const res = await fetch(`/api/admin/categories/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-user-id": user.id },
+        body: JSON.stringify({ name: editingCategoryName.trim(), userId: user.id }),
+      });
+      if (res.ok) {
+        toast.success("Categoria atualizada!");
+        setEditingCategoryId(null);
+        setEditingCategoryName("");
+        fetchCategories();
+      } else {
+        toast.error("Erro ao atualizar categoria.");
+      }
+    } catch (e) {
+      toast.error("Erro de rede.");
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/categories/${id}?userId=${user.id}`, {
+        method: "DELETE",
+        headers: { "x-user-id": user.id }
+      });
+      if (res.ok) {
+        toast.success("Categoria removida.");
+        setCategoryToDelete(null);
+        fetchCategories();
+      } else {
+        toast.error("Erro ao remover categoria.");
+      }
+    } catch (e) {
+      toast.error("Erro de rede.");
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
-    await Promise.all([fetchProducts(), fetchDashboardData(), fetchUsers()]);
+    await Promise.all([fetchProducts(), fetchDashboardData(), fetchUsers(), fetchCategories(), fetchSiteSettings()]);
     setLoading(false);
+  };
+
+  const fetchSiteSettings = async () => {
+    try {
+      const res = await fetch("/api/settings/hero");
+      if (res.ok) {
+        const data = await res.json();
+        setSiteHero(data);
+      }
+    } catch (e) {
+      console.error("Error fetching site settings:", e);
+    }
+  };
+
+  const handleUpdateSiteSettings = async () => {
+    try {
+      const res = await fetch("/api/admin/settings/hero", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": user.id },
+        body: JSON.stringify(siteHero),
+      });
+      if (res.ok) {
+        toast.success("Configurações salvas com sucesso!");
+        setIsSiteSettingsOpen(false);
+      } else {
+        toast.error("Erro ao salvar configurações.");
+      }
+    } catch (e) {
+      toast.error("Erro de rede.");
+    }
   };
 
   const fetchUsers = async () => {
@@ -462,6 +603,7 @@ export default function AdminDashboard({
             product_type: supaProduct.product_type || "physical",
             category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
             is_active: supaProduct.is_active,
+            is_featured: supaProduct.is_featured || false,
             file_url: supaProduct.file_url,
           };
         }
@@ -892,6 +1034,11 @@ export default function AdminDashboard({
     }
   };
 
+  const chartGridColor = theme === "dark" ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)";
+  const chartAxisColor = theme === "dark" ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)";
+  const chartGold = "#D4AF37";
+  const chartSecondary = theme === "dark" ? "#FFFFFF" : "#101010";
+
   if (loading) {
     return (
       <div className="h-screen flex items-center justify-center bg-luxury-black text-white">
@@ -907,12 +1054,12 @@ export default function AdminDashboard({
         : "bg-white text-black"
     }`}>
       {/* Admin Sidebar/Toprail */}
-      <div className="border-b border-white/5 bg-luxury-dark/50 backdrop-blur-xl sticky top-0 z-50">
+      <div className={`border-b backdrop-blur-xl sticky top-0 z-50 ${theme === 'dark' ? 'border-white/5 bg-black/50' : 'border-black/5 bg-white/50'}`}>
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
           <div className="flex items-center gap-4 md:gap-8">
             <button
               onClick={onBack}
-              className="text-luxury-gold hover:text-white transition-colors"
+              className="text-luxury-gold hover:opacity-70 transition-opacity"
             >
               <ArrowLeft size={20} />
             </button>
@@ -921,7 +1068,7 @@ export default function AdminDashboard({
             </h1>
           </div>
 
-          <div className="hidden sm:flex bg-white/5 rounded-full p-1 border border-white/5">
+          <div className={`hidden sm:flex rounded-full p-1 border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
             {(["overview", "products", "orders", "refunds", "users"] as const).map((t) => (
               <button
                 key={t}
@@ -930,7 +1077,7 @@ export default function AdminDashboard({
                 className={`px-4 md:px-6 py-2 rounded-full text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all duration-500 relative overflow-hidden group ${
                   tab === t
                     ? "bg-luxury-gold text-black font-semibold shadow-[0_10px_20px_rgba(212,175,55,0.2)]"
-                    : "text-white/40 hover:text-white hover:bg-white/5"
+                    : theme === 'dark' ? "text-white/40 hover:text-white hover:bg-white/5" : "text-black/40 hover:text-black hover:bg-black/5"
                 }`}
               >
                 <div className="relative z-10 flex items-center gap-2">
@@ -945,7 +1092,7 @@ export default function AdminDashboard({
                             ? "Reembolsos"
                             : "Utilizadores"}
                   </span>
-                  {t === "refunds" && <Undo2 size={12} className="text-white/20" />}
+                  {t === "refunds" && <Undo2 size={12} className={theme === 'dark' ? "text-white/20" : "text-black/20"} />}
                   {t === "refunds" && orders.filter(o => o.status === 'refund_requested').length > 0 && (
                     <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                   )}
@@ -962,11 +1109,20 @@ export default function AdminDashboard({
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSiteSettingsOpen(true)}
+              className="border-white/10 text-white/50 hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5"
+              title="Configurações do Site"
+            >
+              <Settings size={14} />
+            </Button>
             <Button 
               variant="outline" 
               size="sm" 
               onClick={sendTestEmail}
-              className="border-white/10 text-white/60 hover:bg-white/5 gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden md:flex"
+              className={`border-black/10 dark:border-white/10 opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden md:flex ${theme === 'dark' ? 'text-white' : 'text-black'}`}
             >
               <FileText size={12} /> Testar E-mail
             </Button>
@@ -982,7 +1138,7 @@ export default function AdminDashboard({
         </div>
 
         {/* Mobile Tabs */}
-        <div className="sm:hidden flex border-t border-white/5">
+        <div className={`sm:hidden flex border-t ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
           {(["overview", "products", "orders", "refunds", "users"] as const).map((t) => (
             <button
               key={t}
@@ -990,7 +1146,7 @@ export default function AdminDashboard({
               className={`flex-1 py-4 text-[9px] uppercase tracking-widest border-b-2 transition-all ${
                 tab === t
                   ? "border-luxury-gold text-luxury-gold bg-luxury-gold/5 font-bold"
-                  : "border-transparent text-white/40"
+                  : theme === 'dark' ? "border-transparent text-white/40" : "border-transparent text-black/40"
               }`}
             >
               {t === "overview"
@@ -1016,16 +1172,16 @@ export default function AdminDashboard({
                 onClick={fetchDashboardData} 
                 variant="outline" 
                 size="sm"
-                className="bg-white/5 border-white/10 text-white/60 hover:text-luxury-gold hover:bg-white/10 text-[9px] uppercase tracking-widest h-8"
+                className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 text-black/60 dark:text-white/60 hover:text-luxury-gold hover:bg-black/10 dark:hover:bg-white/10 text-[9px] uppercase tracking-widest h-8"
               >
                 <RefreshCw size={12} className={`mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Atualizar Dados
               </Button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-              <Card id="stats-revenue" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 hover:border-luxury-gold/30 transition-all duration-500 group">
+              <Card id="stats-revenue" className="bg-luxury-dark border-black/5 dark:border-white/5 rounded-none p-6 md:p-8 hover:border-luxury-gold/30 transition-all duration-500 group">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 group-hover:text-luxury-gold/50 transition-colors">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-black/30 dark:text-white/30 group-hover:text-luxury-gold/50 transition-colors">
                     Vendas Brutas
                   </div>
                 </div>
@@ -1042,9 +1198,9 @@ export default function AdminDashboard({
                 </div>
               </Card>
 
-              <Card id="stats-refunds" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 hover:border-red-500/30 transition-all duration-500 group">
+              <Card id="stats-refunds" className="bg-luxury-dark border-black/5 dark:border-white/5 rounded-none p-6 md:p-8 hover:border-red-500/30 transition-all duration-500 group">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-red-400 font-bold group-hover:text-red-400 transition-colors">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-red-500 font-bold group-hover:text-red-400 transition-colors">
                     Total Reembolsado
                   </div>
                 </div>
@@ -1061,14 +1217,14 @@ export default function AdminDashboard({
                 </div>
               </Card>
 
-              <Card id="stats-profit" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-emerald-500/30 transition-all duration-500 group border-l-4 border-l-emerald-500/20">
+              <Card id="stats-profit" className="bg-luxury-dark border-black/5 dark:border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-emerald-500/30 transition-all duration-500 group border-l-4 border-l-emerald-500/20">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 group-hover:text-emerald-400/50 transition-colors">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-black/30 dark:text-white/30 group-hover:text-emerald-400/50 transition-colors">
                     Lucro Líquido
                   </div>
                 </div>
                 <div className="flex items-end justify-between">
-                  <h3 className="text-3xl md:text-5xl font-serif text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]">
+                  <h3 className="text-3xl md:text-5xl font-serif text-emerald-500 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]">
                     €
                     {netProfit.toLocaleString("pt-PT", {
                       minimumFractionDigits: 2,
@@ -1080,7 +1236,7 @@ export default function AdminDashboard({
                 </div>
               </Card>
 
-              <Card id="stats-pending-refunds" className="bg-luxury-dark border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-amber-500/30 transition-all duration-500 group border-l-4 border-l-amber-500/20">
+              <Card id="stats-pending-refunds" className="bg-luxury-dark border-black/5 dark:border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-amber-500/30 transition-all duration-500 group border-l-4 border-l-amber-500/20">
                 <div className="p-0 pb-4">
                   <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500 group-hover:text-amber-400 transition-colors">
                     Reembolsos Solicitados
@@ -1094,7 +1250,7 @@ export default function AdminDashboard({
                     <Clock size={18} />
                   </div>
                 </div>
-                <div className="mt-4 text-[9px] uppercase tracking-widest text-white/20">
+                <div className="mt-4 text-[9px] uppercase tracking-widest text-black/30 dark:text-white/20">
                   Aguardando confirmação no separador "Reembolsos"
                 </div>
               </Card>
@@ -1103,10 +1259,10 @@ export default function AdminDashboard({
             {/* Charts Section */}
             <div className="space-y-8">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">
+                <h3 className={`text-sm font-medium uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-black/50'}`}>
                   Fluxo de Desempenho
                 </h3>
-                <div className="flex bg-white/5 rounded-none p-1 border border-white/5">
+                <div className={`flex rounded-none p-1 border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
                   {(["weekly", "monthly", "yearly"] as const).map((range) => (
                     <button
                       key={range}
@@ -1114,7 +1270,7 @@ export default function AdminDashboard({
                       className={`px-4 py-1.5 text-[8px] uppercase tracking-widest transition-all ${
                         timeRange === range
                           ? "bg-luxury-gold text-black font-bold"
-                          : "text-white/40 hover:text-white"
+                          : theme === 'dark' ? "text-white/40 hover:text-white" : "text-black/40 hover:text-black"
                       }`}
                     >
                       {range === "weekly"
@@ -1129,10 +1285,10 @@ export default function AdminDashboard({
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                 <div className="space-y-6">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">
+                  <div className={`text-[10px] uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/30' : 'text-black/30'}`}>
                     Faturamento por Período
                   </div>
-                  <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px] group">
+                  <div className="h-[350px] w-full bg-luxury-dark/30 border border-black/5 dark:border-white/5 p-8 relative min-h-[350px] group">
                     <ResponsiveContainer width="100%" height={350}>
                       <AreaChart data={displayData}>
                         <defs>
@@ -1145,12 +1301,12 @@ export default function AdminDashboard({
                           >
                             <stop
                               offset="5%"
-                              stopColor="#D4AF37"
+                              stopColor={chartGold}
                               stopOpacity={0.4}
                             />
                             <stop
                               offset="95%"
-                              stopColor="#D4AF37"
+                              stopColor={chartGold}
                               stopOpacity={0}
                             />
                           </linearGradient>
@@ -1158,19 +1314,19 @@ export default function AdminDashboard({
                         <CartesianGrid
                           strokeDasharray="3 3"
                           vertical={false}
-                          stroke="rgba(255,255,255,0.03)"
+                          stroke={chartGridColor}
                         />
                         <XAxis
                           dataKey="name"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                          tick={{ fill: chartAxisColor, fontSize: 10 }}
                           dy={10}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                          tick={{ fill: chartAxisColor, fontSize: 10 }}
                         />
                         <Tooltip
                           cursor={{
@@ -1178,31 +1334,32 @@ export default function AdminDashboard({
                             strokeWidth: 1,
                           }}
                           contentStyle={{
-                            backgroundColor: "#0A0A0A",
-                            border: "1px solid rgba(255,255,255,0.1)",
+                            backgroundColor: theme === 'dark' ? "#0A0A0A" : "#FFFFFF",
+                            border: theme === 'dark' ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
                             borderRadius: "0px",
                           }}
                           itemStyle={{
-                            color: "#D4AF37",
+                            color: chartGold,
                             fontSize: "11px",
                             textTransform: "uppercase",
                             letterSpacing: "0.1em",
                           }}
                           labelStyle={{
-                            color: "#fff",
+                            color: theme === 'dark' ? "#fff" : "#000",
                             fontSize: "10px",
                             marginBottom: "4px",
                             textTransform: "uppercase",
                             letterSpacing: "0.2em",
                           }}
+                          formatter={(value: number) => [`€ ${value.toLocaleString("pt-PT")}`, "Faturamento"]}
                         />
                         <Area
                           type="monotone"
                           dataKey="value"
-                          stroke="#D4AF37"
+                          stroke={chartGold}
                           fillOpacity={1}
                           fill="url(#colorVal)"
-                          strokeWidth={2}
+                          strokeWidth={3}
                           animationDuration={1500}
                         />
                       </AreaChart>
@@ -1211,10 +1368,10 @@ export default function AdminDashboard({
                 </div>
 
                 <div className="space-y-6">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-white/30">
+                  <div className={`text-[10px] uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/30' : 'text-black/30'}`}>
                     Volume de Transações
                   </div>
-                  <div className="h-[350px] w-full bg-luxury-dark/30 border border-white/5 p-8 relative min-h-[350px]">
+                  <div className="h-[350px] w-full bg-luxury-dark/30 border border-black/5 dark:border-white/5 p-8 relative min-h-[350px]">
                     <ResponsiveContainer width="100%" height={350}>
                       <AreaChart data={displayData}>
                         <defs>
@@ -1227,12 +1384,12 @@ export default function AdminDashboard({
                           >
                             <stop
                               offset="5%"
-                              stopColor="#FFFFFF"
+                              stopColor={chartSecondary}
                               stopOpacity={0.2}
                             />
                             <stop
                               offset="95%"
-                              stopColor="#FFFFFF"
+                              stopColor={chartSecondary}
                               stopOpacity={0}
                             />
                           </linearGradient>
@@ -1240,51 +1397,52 @@ export default function AdminDashboard({
                         <CartesianGrid
                           strokeDasharray="3 3"
                           vertical={false}
-                          stroke="rgba(255,255,255,0.03)"
+                          stroke={chartGridColor}
                         />
                         <XAxis
                           dataKey="name"
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                          tick={{ fill: chartAxisColor, fontSize: 10 }}
                           dy={10}
                         />
                         <YAxis
                           axisLine={false}
                           tickLine={false}
-                          tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                          tick={{ fill: chartAxisColor, fontSize: 10 }}
                         />
                         <Tooltip
                           cursor={{
-                            stroke: "rgba(255,255,255,0.1)",
+                            stroke: theme === 'dark' ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
                             strokeWidth: 1,
                           }}
                           contentStyle={{
-                            backgroundColor: "#0A0A0A",
-                            border: "1px solid rgba(255,255,255,0.1)",
+                            backgroundColor: theme === 'dark' ? "#0A0A0A" : "#FFFFFF",
+                            border: theme === 'dark' ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
                             borderRadius: "0px",
                           }}
                           itemStyle={{
-                            color: "#fff",
+                            color: chartSecondary,
                             fontSize: "11px",
                             textTransform: "uppercase",
                             letterSpacing: "0.1em",
                           }}
                           labelStyle={{
-                            color: "#fff",
+                            color: theme === 'dark' ? "#fff" : "#000",
                             fontSize: "10px",
                             marginBottom: "4px",
                             textTransform: "uppercase",
                             letterSpacing: "0.2em",
                           }}
+                          formatter={(value: number) => [`${value} Vendas`, "Volume"]}
                         />
                         <Area
                           type="monotone"
                           dataKey="sales"
-                          stroke="#FFFFFF"
+                          stroke={chartSecondary}
                           fillOpacity={1}
                           fill="url(#colorSales)"
-                          strokeWidth={2}
+                          strokeWidth={3}
                           animationDuration={1500}
                         />
                       </AreaChart>
@@ -1310,52 +1468,52 @@ export default function AdminDashboard({
                   Sincronizar Pendentes
                 </Button>
               </div>
-              <div className="overflow-x-auto border border-white/5">
+            <div className="overflow-x-auto border border-black/5 dark:border-white/5 bg-luxury-dark/30">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="bg-white/5 border-b border-white/5">
-                      <th id="th-orderid" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                    <tr className={`border-b ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
+                      <th id="th-orderid" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         ID Ordem
                       </th>
-                      <th id="th-product" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-product" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Produto
                       </th>
-                      <th id="th-client" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-client" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Cliente
                       </th>
-                      <th id="th-details" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-details" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Detalhes
                       </th>
-                      <th id="th-date" className="px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-date" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Data
                       </th>
-                      <th id="th-value" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Valor
                       </th>
-                      <th id="th-status" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-status" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Status
                       </th>
-                      <th id="th-actions" className="px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] text-white/30 border-b border-white/5 hover:text-luxury-gold transition-colors duration-300">
+                      <th id="th-actions" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Ação
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5">
+                  <tbody className={`divide-y ${theme === 'dark' ? 'divide-white/5' : 'divide-black/5'}`}>
                     {orders.slice(0, 5).map((order) => (
                       <tr
                         key={order.id}
-                        className="hover:bg-white/5 transition-colors"
+                        className={`${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors`}
                       >
-                        <td className="px-6 py-4 font-mono text-[10px] text-white/50">
+                        <td className="px-6 py-4 font-mono text-[10px] opacity-50">
                           SART-{order.id.split('-')[0].toUpperCase()}
                         </td>
                         <td className="px-6 py-4 font-serif">
                           {order.product?.title || "Produto Removido"}
                         </td>
-                        <td className="px-6 py-4 text-white/60">
+                        <td className="px-6 py-4 opacity-60">
                           {order.customer_email}
                         </td>
-                        <td className="px-6 py-4 text-white/40">
+                        <td className="px-6 py-4 opacity-40">
                           <Button 
                             variant="ghost" 
                             onClick={() => setViewingOrder(order)}
@@ -1364,7 +1522,7 @@ export default function AdminDashboard({
                             Ver Detalhes
                           </Button>
                         </td>
-                        <td className="px-6 py-4 text-white/40">
+                        <td className="px-6 py-4 opacity-40">
                           {new Date(order.created_at).toLocaleDateString()}
                         </td>
                         <td className="px-6 py-4 font-medium">
@@ -1452,7 +1610,7 @@ export default function AdminDashboard({
                 <h2 className="text-2xl md:text-3xl font-serif">
                   Gestão de Portfólio Digital
                 </h2>
-                <div className="text-[10px] uppercase tracking-widest text-white/30 mt-2">
+                <div className="text-[10px] uppercase tracking-widest opacity-30 mt-2">
                   Adicione ou edite e-books exclusivos
                 </div>
               </div>
@@ -1465,7 +1623,6 @@ export default function AdminDashboard({
                     category: "Geral",
                     image_url: "",
                     file_url: "",
-                    product_type: "physical",
                     sizes_enabled: false,
                     colors_enabled: false,
                     sizes: "",
@@ -1473,20 +1630,184 @@ export default function AdminDashboard({
                     admin_link: "",
                     extra_images: "",
                     is_active: true,
+                    is_featured: false,
                     dropea_id: "",
                   })
                 }
-                className="w-full sm:w-auto bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold"
+                className="w-full sm:w-auto bg-luxury-gold text-black hover:bg-black hover:text-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold transition-all"
               >
                 <Plus size={16} className="mr-2" /> Criar Produto
               </Button>
             </div>
 
+            {/* Search and Category Management */}
+            <div className="flex flex-col md:flex-row gap-4 items-center">
+              <div className="relative flex-1 w-full">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar por nome ou categoria..."
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 px-12 py-3 text-sm outline-none focus:border-luxury-gold transition-all"
+                />
+              </div>
+              <div className="flex gap-4">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 hover:border-luxury-gold text-luxury-gold text-[10px] uppercase tracking-widest h-12 px-6"
+                >
+                  Gerir Categorias
+                </Button>
+                
+                <div className="flex rounded-none p-1 border border-black/5 dark:border-white/5 bg-black/5 dark:border-white/5 h-12 items-center">
+                  {(["all", "featured", "standard"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => setProductFeaturedFilter(mode)}
+                      className={`px-4 py-1.5 h-full text-[8px] uppercase tracking-widest transition-all ${
+                        productFeaturedFilter === mode
+                          ? "bg-luxury-gold text-black font-bold shadow-lg"
+                          : "text-white/40 hover:text-white"
+                      }`}
+                    >
+                      {mode === "all" ? "Todos" : mode === "featured" ? "Destaques" : "Loja Base"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Category Management Modal */}
+            {isCategoryModalOpen && (
+              <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
+                <Card className="max-w-md w-full bg-[#0a0a0a] border-luxury-gold/20 rounded-none p-8 space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xl font-serif text-luxury-gold">Gestão de Categorias</h3>
+                    <button onClick={() => setIsCategoryModalOpen(false)}><X size={20} className="text-white/40 hover:text-white" /></button>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest text-white/40">Adicionar Nova</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        placeholder="Nome da categoria..."
+                        className="flex-1 bg-white/5 border border-white/10 px-4 py-2 text-sm outline-none focus:border-luxury-gold transition-colors"
+                        onKeyPress={(e) => e.key === 'Enter' && handleAddCategory()}
+                      />
+                      <Button onClick={handleAddCategory} className="bg-luxury-gold text-black hover:bg-white rounded-none h-10 px-4">
+                        <Plus size={16} />
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4 pt-4 border-t border-white/5">
+                    <label className="text-[10px] uppercase tracking-widest text-white/40">Categorias Existentes</label>
+                    <div className="max-h-60 overflow-y-auto space-y-2 pr-2 luxury-scrollbar">
+                      {categories.map((cat) => (
+                        <div key={cat.id} className="flex justify-between items-center bg-white/5 p-3 group border border-white/5 hover:border-luxury-gold/30 transition-all">
+                          {editingCategoryId === cat.id ? (
+                            <div className="flex gap-2 w-full animate-in slide-in-from-left-2 duration-200">
+                              <input
+                                value={editingCategoryName}
+                                onChange={(e) => setEditingCategoryName(e.target.value)}
+                                className="flex-1 bg-black/40 border border-luxury-gold/50 px-3 py-1.5 text-sm outline-none text-white"
+                                autoFocus
+                                onKeyPress={(e) => e.key === 'Enter' && handleUpdateCategory(cat.id)}
+                              />
+                              <div className="flex gap-1.5">
+                                <button 
+                                  onClick={() => handleUpdateCategory(cat.id)}
+                                  className="bg-luxury-gold text-black p-2 rounded hover:bg-white transition-colors"
+                                  title="Confirmar"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => setEditingCategoryId(null)}
+                                  className="bg-white/10 text-white p-2 rounded hover:bg-white/20 transition-colors"
+                                  title="Cancelar"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex flex-col">
+                                <span className="text-sm tracking-wide text-white/80">{cat.name}</span>
+                              </div>
+                              <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => {
+                                    setEditingCategoryId(cat.id);
+                                    setEditingCategoryName(cat.name);
+                                  }}
+                                  className="text-luxury-gold hover:bg-luxury-gold/10 p-2 rounded transition-colors"
+                                  title="Editar"
+                                >
+                                  <Edit size={14} />
+                                </button>
+                                <button 
+                                  onClick={() => setCategoryToDelete(cat)}
+                                  className="text-red-500 hover:bg-red-500/10 p-2 rounded transition-colors"
+                                  title="Remover"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    {categories.length === 0 && (
+                      <p className="text-[10px] text-center opacity-20 uppercase tracking-[0.2em] py-8">
+                        Nenhuma categoria encontrada
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                  {/* Category Delete Confirmation Overlay */}
+                  {categoryToDelete && (
+                    <div className="absolute inset-0 bg-black/95 z-[80] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-200">
+                      <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
+                        <Trash2 size={24} className="text-red-500" />
+                      </div>
+                      <h4 className="text-lg font-serif text-white mb-2">Eliminar Categoria?</h4>
+                      <p className="text-xs text-white/40 mb-6">
+                        Tem a certeza que deseja eliminar <span className="text-white font-bold">"{categoryToDelete.name}"</span>?<br/>
+                        Esta ação pode afetar produtos associados.
+                      </p>
+                      <div className="flex gap-3 w-full">
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setCategoryToDelete(null)}
+                          className="flex-1 border-white/10 text-white/60 hover:text-white h-10 text-[10px] uppercase tracking-widest"
+                        >
+                          Cancelar
+                        </Button>
+                        <Button 
+                          onClick={() => handleDeleteCategory(categoryToDelete.id)}
+                          className="flex-1 bg-red-500 hover:bg-red-600 text-white h-10 text-[10px] uppercase tracking-widest"
+                        >
+                          Confirmar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            )}
+
             {/* Import by Dropea ID Section */}
-            <div className="bg-luxury-dark border border-white/5 p-4 md:p-6 flex flex-col md:flex-row items-center gap-4">
+            <div className="bg-luxury-dark border border-black/5 dark:border-white/5 p-4 md:p-6 flex flex-col md:flex-row items-center gap-4">
               <div className="flex-1 space-y-1">
                 <h3 className="text-sm font-serif text-luxury-gold">Importar por ID Dropea</h3>
-                <p className="text-[9px] uppercase tracking-widest text-white/30">Insira o ID direto do catálogo Dropea para extrair todos os dados</p>
+                <p className="text-[9px] uppercase tracking-widest opacity-30">Insira o ID direto do catálogo Dropea para extrair todos os dados</p>
               </div>
               <div className="flex w-full md:w-auto gap-2">
                 <input
@@ -1494,12 +1815,12 @@ export default function AdminDashboard({
                   placeholder="Ex: 89, 1205..."
                   value={importDropeaId}
                   onChange={(e) => setImportDropeaId(e.target.value)}
-                  className="flex-1 md:w-48 bg-white/5 border border-white/10 px-4 py-2 text-sm focus:border-luxury-gold outline-none transition-colors"
+                  className={`flex-1 md:w-48 border px-4 py-2 text-sm focus:border-luxury-gold outline-none transition-colors ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}
                 />
                 <Button
                   onClick={handleImportDropea}
                   disabled={importing || !importDropeaId}
-                  className="bg-white/5 border border-white/10 hover:bg-luxury-gold hover:text-black transition-all h-10 px-6 text-[10px] uppercase font-bold tracking-widest"
+                  className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:bg-luxury-gold hover:text-black transition-all h-10 px-6 text-[10px] uppercase font-bold tracking-widest"
                 >
                   {importing ? <Loader2 size={14} className="animate-spin" /> : "Importar"}
                 </Button>
@@ -1507,15 +1828,15 @@ export default function AdminDashboard({
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-              {products.length === 0 ? (
+              {filteredProducts.length === 0 ? (
                 <div className="col-span-full py-20 text-center border border-dashed border-white/10">
                   <ShoppingBag className="mx-auto text-white/10 mb-4" size={48} />
                   <p className="text-white/40 text-sm italic">Nenhum produto encontrado.</p>
                   <p className="text-white/20 text-[10px] uppercase tracking-widest mt-2">
-                    Clique em "Sincronizar Catálogo" para importar da Dropea.
+                    Ajuste os filtros ou sincronize da Dropea.
                   </p>
                 </div>
-              ) : products.map((p) => (
+              ) : filteredProducts.map((p) => (
                 <Card
                   key={p.id}
                   className="bg-luxury-dark border-white/5 rounded-none group overflow-hidden"
@@ -1594,8 +1915,8 @@ export default function AdminDashboard({
             {/* Product Editor Inline (Full Screen/Wide Overlap) */}
 
             {editingProduct && (
-              <div className="fixed inset-0 z-[60] bg-luxury-black/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-                <Card className="max-w-4xl w-full bg-luxury-dark border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto">
+              <div className="fixed inset-0 z-[60] bg-black flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+                <Card className="max-w-4xl w-full bg-[#050505] border border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto shadow-[0_0_100px_rgba(0,0,0,1)]">
                   <div className="flex justify-between items-center">
                     <h3 className="text-2xl md:text-3xl font-serif">
                       {editingProduct.id ? "Editar Produto" : "Novo Produto"}
@@ -1608,7 +1929,7 @@ export default function AdminDashboard({
                     </button>
                   </div>
 
-                  <div className="flex bg-white/5 p-4 border border-white/10 self-start">
+                  <div className="flex bg-[#111] p-4 border border-white/20 self-start">
                     <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Logística Física (S.Art Curatorship)</p>
                   </div>
 
@@ -1675,21 +1996,21 @@ export default function AdminDashboard({
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
                           Categoria
                         </label>
-                        <select
-                          value={editingProduct.category || "Geral"}
-                          onChange={(e) =>
-                            setEditingProduct({
-                              ...editingProduct,
-                              category: e.target.value,
-                            })
-                          }
-                          className="w-full bg-luxury-dark border border-white/10 p-3 md:p-4 text-sm outline-none focus:border-luxury-gold transition-colors text-white"
-                        >
-                          <option value="Moda">Moda</option>
-                          <option value="Saúde">Saúde</option>
-                          <option value="Tecnologia">Tecnologia</option>
-                          <option value="Geral">Geral</option>
-                        </select>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-4 bg-black/40 border border-white/5 max-h-48 overflow-y-auto luxury-scrollbar">
+                          {allAvailableCategories.map((cat) => (
+                            <button
+                              key={cat}
+                              onClick={() => setEditingProduct({ ...editingProduct, category: cat })}
+                              className={`px-3 py-2 text-[10px] uppercase tracking-widest border transition-all ${
+                                editingProduct.category === cat
+                                  ? "border-luxury-gold bg-luxury-gold/20 text-luxury-gold font-bold shadow-[0_0_15px_rgba(212,175,55,0.2)]"
+                                  : "border-white/5 text-white/30 hover:border-white/20 hover:text-white"
+                              }`}
+                            >
+                              {cat}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
@@ -1708,7 +2029,7 @@ export default function AdminDashboard({
                         />
                       </div>
 
-                      <div className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-sm">
+                      <div className="flex items-center justify-between p-4 bg-[#111] border border-white/10 rounded-sm">
                         <div>
                           <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
                             Disponível para Compra?
@@ -1725,16 +2046,32 @@ export default function AdminDashboard({
                         </button>
                       </div>
 
-                      {editingProduct.product_type === "physical" && (
-                        <div className="space-y-6 p-6 bg-white/5 border border-white/10 rounded-sm">
+                      <div className="flex items-center justify-between p-4 bg-[#111] border border-white/10 rounded-sm">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
+                            Produto em Destaque?
+                          </label>
+                          <p className="text-[8px] text-white/40 uppercase tracking-widest">
+                            Aparecerá na seção VIP do topo da loja.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setEditingProduct({ ...editingProduct, is_featured: !editingProduct.is_featured })}
+                          className={`w-10 h-5 relative rounded-full transition-colors ${editingProduct.is_featured ? "bg-luxury-gold" : "bg-white/10"}`}
+                        >
+                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${editingProduct.is_featured ? "left-6" : "left-1"}`} />
+                        </button>
+                      </div>
+
+                      <div className="space-y-6 p-6 bg-[#111] border border-white/10 rounded-sm">
                           <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-bold flex items-center gap-2">
                             <div className="w-1 h-1 bg-luxury-gold rounded-full" />
-                            Configuração de Venda Física
+                            Configuração do Ativo
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-4">
-                              <div className="flex items-center justify-between p-3 bg-white/5 rounded-sm">
+                              <div className="flex items-center justify-between p-3 bg-black border border-white/5 rounded-sm">
                                 <label className="text-[9px] uppercase tracking-widest text-white/60">
                                   Habilitar Tamanhos
                                 </label>
@@ -1774,7 +2111,7 @@ export default function AdminDashboard({
                             </div>
 
                             <div className="space-y-4">
-                              <div className="flex items-center justify-between p-3 bg-white/5 rounded-sm">
+                              <div className="flex items-center justify-between p-3 bg-black border border-white/5 rounded-sm">
                                 <label className="text-[9px] uppercase tracking-widest text-white/60">
                                   Habilitar Cores
                                 </label>
@@ -1815,61 +2152,56 @@ export default function AdminDashboard({
                           </div>
 
                           <div className="space-y-3 pt-2">
-                            <label className="text-[9px] uppercase tracking-widest text-white/40 block">
-                              Link de Gestão Externa (Shopify/Printful/etc)
-                            </label>
-                            <div className="relative group">
-                              <input
-                                value={editingProduct.admin_link || ""}
-                                onChange={(e) =>
-                                  setEditingProduct({
-                                    ...editingProduct,
-                                    admin_link: e.target.value,
-                                  })
-                                }
-                                className="w-full bg-transparent border-b border-white/10 py-3 text-xs outline-none focus:border-luxury-gold transition-colors font-mono"
-                                placeholder="https://admin.shopify.com/store/sart/products/..."
-                              />
-                              <ExternalLink
-                                size={12}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold"
-                              />
-                            </div>
-                          </div>
+                             <label className="text-[9px] uppercase tracking-widest text-white/40 block">
+                               Link de Gestão Externa (Shopify/Dropea/etc)
+                             </label>
+                             <div className="relative group">
+                               <input
+                                 value={editingProduct.admin_link || ""}
+                                 onChange={(e) =>
+                                   setEditingProduct({
+                                     ...editingProduct,
+                                     admin_link: e.target.value,
+                                   })
+                                 }
+                                 className="w-full bg-transparent border-b border-white/10 py-3 text-xs outline-none focus:border-luxury-gold transition-colors font-mono"
+                                 placeholder="https://..."
+                               />
+                               <ExternalLink
+                                 size={12}
+                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold"
+                               />
+                             </div>
+                           </div>
 
-                          <div className="space-y-3">
-                            <label className="text-[9px] uppercase tracking-widest text-white/40 block">
-                              Imagens Adicionais (Galeria)
-                            </label>
-                            <textarea
-                              value={editingProduct.extra_images || ""}
-                              onChange={(e) =>
-                                setEditingProduct({
-                                  ...editingProduct,
-                                  extra_images: e.target.value,
-                                })
-                              }
-                              className="w-full bg-transparent border border-white/10 p-3 text-[10px] min-h-[80px] outline-none focus:border-luxury-gold font-mono"
-                              placeholder="URL 1, URL 2, URL 3 (Separados por vírgula)"
-                            />
-                            <div className="text-[8px] text-white/20 uppercase tracking-[0.2em] italic">
-                              * Estas imagens aparecerão no carrossel de
-                              detalhes do produto.
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                           <div className="space-y-3">
+                             <label className="text-[9px] uppercase tracking-widest text-white/40 block">
+                               Imagens Adicionais (Galeria)
+                             </label>
+                             <textarea
+                               value={editingProduct.extra_images || ""}
+                               onChange={(e) =>
+                                 setEditingProduct({
+                                   ...editingProduct,
+                                   extra_images: e.target.value,
+                                 })
+                               }
+                               className="w-full bg-transparent border border-white/10 p-3 text-[10px] min-h-[80px] outline-none focus:border-luxury-gold font-mono"
+                               placeholder="URL 1, URL 2, URL 3 (Separados por vírgula)"
+                             />
+                           </div>
+                      </div>
                     </div>
 
                     <div className="space-y-6 md:space-y-8">
-                      <div className="grid grid-cols-2 gap-4 md:gap-6">
-                        <div className="space-y-3">
-                          <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">
-                            Foto Principal (Capa)
-                          </label>
-                          <label
-                            htmlFor="image-upload"
-                            className="relative block aspect-[3/4] border-2 border-dashed border-white/10 hover:border-luxury-gold cursor-pointer transition-all overflow-hidden bg-white/5"
+                       <div className="grid grid-cols-1 gap-6">
+                         <div className="space-y-3">
+                           <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">
+                             Foto Principal (Capa)
+                           </label>
+                           <label
+                             htmlFor="image-upload"
+                             className="relative block aspect-[4/5] border border-white/10 hover:border-luxury-gold cursor-pointer transition-all overflow-hidden bg-black"
                           >
                             {editingProduct.image_url ? (
                               <img
@@ -1911,65 +2243,9 @@ export default function AdminDashboard({
                           />
                         </div>
 
-                        <div className="space-y-3">
-                          <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">
-                            {editingProduct.product_type === "physical"
-                              ? "Ficheiro (PDF)"
-                              : "Galeria de Fotos"}
-                          </label>
-                          {editingProduct.product_type === "physical" ? (
-                            <>
-                              <div className="relative aspect-[3/4] border-2 border-dashed border-white/10 hover:border-blue-500 cursor-pointer group transition-all bg-white/5">
-                                {editingProduct.file_url ? (
-                                  <div className="w-full h-full flex flex-col items-center justify-center text-blue-400 bg-blue-500/5">
-                                    <FileText size={48} strokeWidth={1} />
-                                    <span className="text-[7px] md:text-[8px] uppercase mt-2">
-                                      PDF Pronto
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
-                                    <Download size={24} strokeWidth={1} />
-                                    <span className="text-[7px] md:text-[8px] uppercase mt-2">
-                                      Upload PDF
-                                    </span>
-                                  </div>
-                                )}
-                                <input
-                                  type="file"
-                                  accept=".pdf"
-                                  onChange={(e) => handleFileUpload(e, "pdf")}
-                                  className="absolute inset-0 opacity-0 cursor-pointer"
-                                />
-                                {uploading && (
-                                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                    <Loader2 className="animate-spin text-luxury-gold" />
-                                  </div>
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <div className="space-y-4">
-                              <div className="aspect-[3/4] border border-white/10 bg-white/5 p-4 flex flex-col gap-2 overflow-y-auto custom-scrollbar">
-                                <p className="text-[8px] text-white/40 uppercase tracking-widest mb-2">
-                                  Fotos Adicionais
-                                </p>
-                                <textarea
-                                  value={editingProduct.extra_images || ""}
-                                  onChange={(e) =>
-                                    setEditingProduct({
-                                      ...editingProduct,
-                                      extra_images: e.target.value,
-                                    })
-                                  }
-                                  placeholder="Cole aqui links das fotos, separados por vírgula..."
-                                  className="flex-1 bg-transparent border-none text-[9px] outline-none resize-none"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                       </div>
+                    </div>
+                  </div>
 
                       <div className="space-y-4">
                         <div className="space-y-2">
@@ -2005,11 +2281,9 @@ export default function AdminDashboard({
                           Cancelar
                         </Button>
                       </div>
-                    </div>
+                    </Card>
                   </div>
-                </Card>
-              </div>
-            )}
+                )}
           </div>
         )}
 
@@ -2209,26 +2483,28 @@ export default function AdminDashboard({
                           <div className={`px-3 py-1 rounded-full text-[8px] uppercase tracking-widest font-black border text-center ${
                             ["deposited", "paid", "completed", "pago", "delivered", "succeeded"].includes(order.status?.toLowerCase() || "")
                               ? "text-emerald-500 border-emerald-500/20 bg-emerald-500/5"
-                              : ["canceled", "cancelled", "refunded"].includes(order.status?.toLowerCase() || "")
+                              : ["refunded", "reembolsado", "refund_pending", "refund_requested"].includes(order.status?.toLowerCase() || "")
                                 ? "text-red-400 border-red-500/20 bg-red-500/5"
-                                : "text-amber-500 border-amber-500/20 bg-amber-500/5"
+                                : ["canceled", "cancelled"].includes(order.status?.toLowerCase() || "")
+                                  ? "text-slate-400 border-slate-500/20 bg-slate-500/5"
+                                  : "text-amber-500 border-amber-500/20 bg-amber-500/5"
                           }`}>
-                            {order.status === "refunded" ? "Cancelado (Reembolsado)" :
-                             ["canceled", "cancelled"].includes(order.status) ? "Cancelado" :
-                             order.status?.toUpperCase() || "PENDENTE"}
+                            {["refunded", "reembolsado", "refund_pending"].includes(order.status?.toLowerCase() || "") ? "REEMBOLSADO" :
+                             ["canceled", "cancelled"].includes(order.status?.toLowerCase() || "") ? "CANCELADO" :
+                             ["paid", "completed", "succeeded", "pago"].includes(order.status?.toLowerCase() || "") ? "PAGO" :
+                             "PENDENTE"}
                           </div>
                           
                           {/* Payment Status */}
                           <div className={`px-3 py-1 rounded-full text-[8px] uppercase tracking-widest font-black border text-center ${
-                            order.payment_status === "refunded" || order.status === "refunded"
+                            (["refunded", "reembolsado", "refund_pending"].includes(order.payment_status?.toLowerCase() || "") || ["refunded", "reembolsado", "refund_pending"].includes(order.status?.toLowerCase() || ""))
                               ? "bg-red-500 text-white border-red-600"
-                              : order.payment_status === "paid" || order.status === "paid" || order.status === "completed"
+                              : (["paid", "completed", "succeeded", "pago"].includes(order.payment_status?.toLowerCase() || "") || ["paid", "completed", "succeeded", "pago"].includes(order.status?.toLowerCase() || ""))
                                 ? "bg-emerald-500 text-white border-emerald-600"
                                 : "bg-amber-500 text-white border-amber-600"
                           }`}>
-                            { (order.payment_status === "refunded" || order.status === "refunded") ? "PAGAMENTO: REEMBOLSADO" :
-                              (order.payment_status === "paid" || order.status === "paid" || order.status === "completed" || order.status === "succeeded") ? "PAGAMENTO: PAGO" :
-                               order.status === "refund_pending" ? "ESTORNANDO..." :
+                            { (["refunded", "reembolsado", "refund_pending"].includes(order.payment_status?.toLowerCase() || "") || ["refunded", "reembolsado", "refund_pending"].includes(order.status?.toLowerCase() || "")) ? "PAGAMENTO: REEMBOLSADO" :
+                              (["paid", "completed", "succeeded", "pago"].includes(order.payment_status?.toLowerCase() || "") || ["paid", "completed", "succeeded", "pago"].includes(order.status?.toLowerCase() || "")) ? "PAGAMENTO: PAGO" :
                                "PAGAMENTO: PENDENTE"}
                           </div>
                         </div>
@@ -2722,17 +2998,15 @@ export default function AdminDashboard({
                   <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Pedido</p>
                   <div className="flex items-center gap-2">
                      <span className={`text-[10px] uppercase font-black px-2 py-1 ${
-                       viewingOrder.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' :
-                       viewingOrder.status === 'paid' ? 'bg-luxury-gold/20 text-luxury-gold outline outline-1 outline-luxury-gold/50' :
-                       viewingOrder.status === 'canceled' ? 'bg-red-500/10 text-red-500' :
-                       viewingOrder.status === 'refunded' ? 'bg-zinc-500/10 text-zinc-500' :
-                       'bg-white/10 text-white'
+                       ["paid", "completed", "succeeded", "pago"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-emerald-500/10 text-emerald-500" :
+                       ["canceled", "cancelled"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-red-500/10 text-red-500" :
+                       ["refunded", "reembolsado", "refund_pending"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-zinc-500/10 text-zinc-500" :
+                       "bg-white/10 text-white"
                      }`}>
-                       {viewingOrder.status === 'completed' ? 'Concluído' : 
-                        viewingOrder.status === 'paid' ? 'Pago' : 
-                        viewingOrder.status === 'canceled' ? 'Cancelado' : 
-                        viewingOrder.status === 'refunded' ? 'Reembolsado' :
-                        viewingOrder.status}
+                       {["paid", "completed", "succeeded", "pago"].includes(viewingOrder.status?.toLowerCase() || "") ? "Pago" : 
+                        ["canceled", "cancelled"].includes(viewingOrder.status?.toLowerCase() || "") ? "Cancelado" : 
+                        ["refunded", "reembolsado", "refund_pending"].includes(viewingOrder.status?.toLowerCase() || "") ? "Reembolsado" :
+                        "Pendente"}
                      </span>
                   </div>
                 </div>
@@ -2972,6 +3246,97 @@ export default function AdminDashboard({
                   Enviar Teste
                 </Button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Site Settings Modal */}
+      {isSiteSettingsOpen && (
+        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-xl w-full bg-[#0a0a0a] border border-white/10 p-8 space-y-8 animate-in zoom-in duration-300"
+          >
+            <div className="flex justify-between items-center border-b border-white/5 pb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-luxury-gold/10 flex items-center justify-center">
+                  <Settings size={22} className="text-luxury-gold" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-serif text-white">Configurações do Site</h3>
+                  <p className="text-[10px] text-white/30 uppercase tracking-widest mt-1">Personalizar Elementos Visuais Base</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSiteSettingsOpen(false)}
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/5 transition-colors"
+              >
+                <X size={24} className="text-white/40 hover:text-white" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Imagem Hero (Background URL)</label>
+                <input
+                  value={siteHero.image}
+                  onChange={(e) => setSiteHero({ ...siteHero, image: e.target.value })}
+                  placeholder="https://exemplo.com/imagem.jpg"
+                  className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80 placeholder:text-white/10"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Título do Banner</label>
+                <input
+                  value={siteHero.title}
+                  onChange={(e) => setSiteHero({ ...siteHero, title: e.target.value })}
+                  placeholder="Luxo & Exclusividade"
+                  className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Texto do Botão Hero</label>
+                <input
+                  value={siteHero.buttonText}
+                  onChange={(e) => setSiteHero({ ...siteHero, buttonText: e.target.value })}
+                  placeholder="Explorar Coleção"
+                  className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
+                />
+              </div>
+              
+              {siteHero.image && (
+                <div className="space-y-3 pt-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/20">Pré-visualização em tempo real</label>
+                  <div className="aspect-[21/9] w-full bg-cover bg-center border border-white/5 relative overflow-hidden" style={{ backgroundImage: `url(${siteHero.image})` }}>
+                    <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4">
+                      <h4 className="text-[10px] md:text-sm font-serif text-white text-center max-w-[80%] drop-shadow-lg">{siteHero.title}</h4>
+                      <button className="mt-2 px-3 py-1 bg-luxury-gold text-[7px] md:text-[8px] uppercase tracking-widest text-black font-black whitespace-nowrap">
+                        {siteHero.buttonText}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-4 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setIsSiteSettingsOpen(false)}
+                className="flex-1 border-white/5 text-white/40 hover:text-white h-12 text-[10px] uppercase tracking-[.25em] bg-white/5 rounded-none"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleUpdateSiteSettings}
+                className="flex-1 bg-luxury-gold text-black hover:bg-white h-12 text-[10px] uppercase tracking-[.25em] font-black rounded-none shadow-xl shadow-luxury-gold/10"
+              >
+                Guardar Alterações
+              </Button>
             </div>
           </motion.div>
         </div>

@@ -16,7 +16,8 @@ import {
   Book,
   X,
   FileText,
-  Mail
+  Mail,
+  LogOut
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -75,6 +76,7 @@ interface ProfileDashboardProps {
   purchasedProducts: Order[];
   onProfileUpdate: (data: { full_name: string, avatar_url: string }) => void;
   onRefundRequest: (order: Order) => void;
+  onLogout: () => void;
 }
 
 const getImageUrl = (url: string) => {
@@ -89,7 +91,7 @@ const getImageUrl = (url: string) => {
   }
 };
 
-export default function ProfileDashboard({ user, purchasedProducts, onProfileUpdate, onRefundRequest }: ProfileDashboardProps) {
+export default function ProfileDashboard({ user, purchasedProducts, onProfileUpdate, onRefundRequest, onLogout }: ProfileDashboardProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'orders'>('general');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -364,6 +366,20 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     <p className="text-xs font-medium dark:text-white">{new Date(user.created_at).toLocaleDateString()}</p>
                   </div>
                 </div>
+
+                <div className="pt-8 border-t border-black/5 dark:border-white/5">
+                  <Button 
+                    variant="ghost" 
+                    onClick={onLogout}
+                    className="group border border-red-500/20 hover:bg-red-500/10 hover:border-red-500/50 text-red-500 rounded-none h-14 px-8 uppercase tracking-[0.2em] text-[10px] font-black transition-all duration-500 w-full sm:w-auto"
+                  >
+                    <LogOut className="mr-3 group-hover:translate-x-1 transition-transform" size={16} /> 
+                    Terminar Sessão
+                  </Button>
+                  <p className="mt-4 text-[9px] uppercase tracking-[0.15em] text-black/30 dark:text-white/30 italic">
+                    A sua sessão será encerrada com segurança em todos os dispositivos.
+                  </p>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -453,9 +469,9 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                             }`}>
                               {order.shipping_status === 'delivered' ? 'Entregue' : 
                                order.shipping_status === 'sent' ? 'Em Trânsito' : 
-                               (order.status === 'canceled' || order.status === 'cancelled') ? 'Cancelado' :
-                               (order.status === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado') ? 'Reembolsado' : 
-                               ['paid', 'succeeded', 'completed'].includes(order.status || "") ? 'Preparando' : 'Em Processamento'}
+                                (order.status === 'canceled' || order.status === 'cancelled') ? 'Cancelado' :
+                                (order.status === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado' || order.status === 'refund_pending') ? 'Reembolsado' : 
+                                ['paid', 'succeeded', 'completed', 'pago'].includes(order.status?.toLowerCase() || "") ? 'Pago' : 'Pendente'}
                             </span>
                           </div>
 
@@ -469,9 +485,9 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                   ? "bg-emerald-500 text-white border-emerald-600"
                                   : "bg-amber-500 text-white border-amber-600"
                             }`}>
-                              {(order.payment_status === 'refunded' || order.status === 'refunded') ? 'Reembolsado' :
-                               (order.payment_status === 'paid' || order.status === 'paid' || order.status === 'completed' || order.status === 'succeeded') ? 'Pago' :
-                               order.status === 'refund_pending' ? 'Estornando' : 'Pendente'}
+                              {(order.payment_status === 'refunded' || order.status === 'refunded' || order.status === 'reembolsado' || order.status === 'refund_pending') ? 'Reembolsado' :
+                               (order.payment_status === 'paid' || order.status === 'paid' || order.status === 'completed' || order.status === 'succeeded' || order.status === 'pago') ? 'Pago' :
+                               'Pendente'}
                             </span>
                           </div>
                         </div>
@@ -590,12 +606,10 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                           <div className="flex justify-between items-center">
                             <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Estado do Pedido</span>
                               <span className="text-[9px] uppercase font-bold dark:text-white">
-                                {selectedOrder.status === 'completed' ? 'Concluído' : 
-                                 selectedOrder.status === 'paid' ? 'Pago' : 
-                                 selectedOrder.status === 'canceled' ? 'Cancelado' :
-                                 selectedOrder.status === 'refunded' ? 'Reembolsado' :
-                                 selectedOrder.status === 'pending' ? 'Pendente' : 
-                                 selectedOrder.status}
+                                {["paid", "completed", "succeeded", "pago"].includes(selectedOrder.status?.toLowerCase() || "") ? 'Pago' : 
+                                 ["canceled", "cancelled"].includes(selectedOrder.status?.toLowerCase() || "") ? 'Cancelado' :
+                                 ["refunded", "reembolsado", "refund_pending"].includes(selectedOrder.status?.toLowerCase() || "") ? 'Reembolsado' :
+                                 'Pendente'}
                               </span>
                           </div>
                           <div className="flex justify-between items-center">

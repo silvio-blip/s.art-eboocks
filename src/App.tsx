@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
@@ -7,6 +7,7 @@ import {
   User,
   Menu,
   X,
+  ChevronDown,
   ChevronRight,
   ChevronLeft,
   Shield,
@@ -80,6 +81,7 @@ interface Product {
   extra_images?: string;
   dropea_id?: string | number;
   supabase_id?: string;
+  is_featured?: boolean;
 }
 
 interface Order {
@@ -105,10 +107,11 @@ const Navbar = ({
   onDashboardClick,
   onHomeClick,
   onSearch,
+  onCartClick,
   searchQuery,
 }: {
-  user: SupabaseUser | null;
-  profile: { full_name: string; avatar_url: string } | null;
+  user: any;
+  profile: any;
   theme: "light" | "dark";
   onThemeToggle: () => void;
   onAuthClick: () => void;
@@ -116,265 +119,216 @@ const Navbar = ({
   onDashboardClick: (v: "dashboard" | "admin") => void;
   onHomeClick: () => void;
   onSearch: (q: string) => void;
+  onCartClick: () => void;
   searchQuery: string;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 20);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const avatarUrl = profile?.avatar_url 
     ? getImageUrl(profile.avatar_url) 
     : (user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "");
 
+  const iconClass = "text-white hover:text-luxury-gold transition-all duration-300 transform hover:scale-110 active:scale-95 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]";
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-black/5 dark:border-white/5 transition-colors duration-500">
-      <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 md:h-20 flex items-center justify-between">
+    <header className={`fixed w-full top-0 z-[1000] transition-all duration-1000 ease-in-out ${
+      isScrolled 
+        ? "py-3 bg-black/80 backdrop-blur-3xl border-b border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.5)]" 
+        : "py-6 bg-transparent"
+    }`}>
+      <div className="max-w-7xl mx-auto w-full px-4 md:px-6 flex justify-between items-center">
         <button
           onClick={onHomeClick}
-          className="text-xl md:text-2xl font-serif tracking-tighter hover:opacity-70 transition-opacity dark:text-white"
+          className={`text-2xl md:text-3xl font-serif tracking-tighter hover:opacity-70 transition-all duration-1000 italic font-black text-white drop-shadow-2xl ${
+            isScrolled ? "scale-90" : "scale-100"
+          }`}
         >
-          S.Art
+          S.art
         </button>
 
-        <div className="flex items-center gap-2 md:gap-8">
-          <div className="hidden lg:flex items-center gap-6">
-            <div className="relative group">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearch(e.target.value)}
-                placeholder="PESQUISAR..."
-                className="bg-transparent border-b border-black/10 dark:border-white/10 py-1 pl-2 pr-8 text-[10px] uppercase tracking-[0.25em] outline-none w-40 focus:w-60 focus:border-luxury-gold transition-all duration-700 font-medium dark:text-white placeholder:text-black/20 dark:placeholder:text-white/20"
-              />
-              <Search
-                size={12}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30 group-focus-within:text-luxury-gold transition-colors"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 md:gap-4 pl-0 md:pl-4 md:border-l border-black/10 dark:border-white/10">
-            <button
-              onClick={onThemeToggle}
-              className="flex items-center justify-center w-8 h-8 md:w-10 md:h-10 rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white transition-all duration-500 cursor-pointer"
-              aria-label="Toggle Theme"
-            >
-              {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-            </button>
-
-            <div className="hidden md:flex items-center gap-2 md:gap-3">
-              {user ? (
-                <>
-                  {ADMIN_IDS.includes(user.id) && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onDashboardClick("admin")}
-                      className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 text-luxury-gold"
-                    >
-                      <Shield size={18} />
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => onDashboardClick("dashboard")}
-                    className="rounded-full w-8 h-8 md:w-10 md:h-10 p-0 overflow-hidden border border-black/10 dark:border-white/10 hover:border-luxury-gold transition-colors"
-                  >
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <LayoutGrid size={18} />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onLogoutClick}
-                    className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white ml-1"
-                  >
-                    <LogOut size={16} />
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onAuthClick}
-                  className="rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white"
+        <div className="flex items-center gap-3 md:gap-6">
+          {/* Superior Luxury Search */}
+          <div className="relative flex items-center">
+            <AnimatePresence>
+              {isSearchOpen && (
+                <motion.div 
+                  initial={{ width: 0, opacity: 0, x: 20 }}
+                  animate={{ width: 240, opacity: 1, x: 0 }}
+                  exit={{ width: 0, opacity: 0, x: 20 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  className="overflow-hidden flex items-center bg-black/60 backdrop-blur-2xl border border-white/20 rounded-full px-4 py-1.5 mr-3 shadow-2xl"
                 >
-                  <User size={18} />
-                </Button>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => onSearch(e.target.value)}
+                    placeholder="ENCANTAR COM..."
+                    autoFocus
+                    className="bg-transparent border-none text-white w-full outline-none text-[9px] uppercase tracking-[0.3em] placeholder:text-white/40"
+                  />
+                </motion.div>
               )}
-            </div>
-
-            {/* Mobile Menu Toggle */}
+            </AnimatePresence>
             <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="md:hidden flex items-center justify-center w-8 h-8 rounded-full hover:bg-black/5 dark:hover:bg-white/5 dark:text-white transition-all"
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              className={iconClass}
+              aria-label="Search"
             >
-              {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+              {isSearchOpen ? <X size={20} /> : <Search size={22} />}
             </button>
           </div>
+
+          <AnimatePresence>
+            {!isSearchOpen && (
+              <motion.div 
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="flex items-center gap-3 md:gap-6"
+              >
+                <button
+                  onClick={onThemeToggle}
+                  className={iconClass}
+                >
+                  {theme === "light" ? <Moon size={22} /> : <Sun size={22} />}
+                </button>
+
+                {user ? (
+                  <div className="flex items-center gap-3 md:gap-6">
+                    {ADMIN_IDS.includes(user.id) && (
+                      <button
+                        onClick={() => onDashboardClick("admin")}
+                        className={iconClass}
+                        title="Admin"
+                      >
+                        <Shield size={20} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onDashboardClick("dashboard")}
+                      className="hover:opacity-70 transition-all transform hover:scale-110 active:scale-95 overflow-hidden w-8 h-8 rounded-full border-2 border-white/30 shadow-2xl"
+                    >
+                      {avatarUrl ? (
+                        <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                      ) : (
+                        <User size={20} className="text-white" />
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={onAuthClick}
+                    className={iconClass}
+                  >
+                    <User size={22} />
+                  </button>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile Menu */}
       <AnimatePresence>
         {isMobileMenuOpen && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-white dark:bg-black border-b border-black/5 dark:border-white/5 overflow-hidden"
+            className="md:hidden absolute top-full left-0 w-full bg-luxury-bg border-b border-luxury-border p-6 space-y-6 shadow-2xl"
           >
-            <div className="px-6 py-8 space-y-8">
-              <div className="relative group w-full">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => onSearch(e.target.value)}
-                  placeholder="PESQUISAR NA BOUTIQUE..."
-                  className="w-full bg-transparent border-b border-black/10 dark:border-white/10 py-3 text-[10px] uppercase tracking-[0.2em] outline-none font-medium dark:text-white"
-                />
-                <Search
-                  size={14}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {user ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        onDashboardClick("dashboard");
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className="rounded-none border-black/10 dark:border-white/10 dark:text-white h-12 uppercase tracking-widest text-[9px]"
-                    >
-                      <LayoutGrid size={14} className="mr-2" /> Biblioteca
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        onLogoutClick();
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className="rounded-none border-black/10 dark:border-white/10 dark:text-white h-12 uppercase tracking-widest text-[9px]"
-                    >
-                      <LogOut size={14} className="mr-2" /> Sair
-                    </Button>
-                    {ADMIN_IDS.includes(user.id) && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          onDashboardClick("admin");
-                          setIsMobileMenuOpen(false);
-                        }}
-                        className="rounded-none border-luxury-gold/30 text-luxury-gold col-span-2 h-12 uppercase tracking-widest text-[9px]"
-                      >
-                        <Shield size={14} className="mr-2" /> Painel Admin
-                      </Button>
-                    )}
-                  </>
-                ) : (
-                  <Button
-                    onClick={() => {
-                      onAuthClick();
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="rounded-none bg-black dark:bg-white text-white dark:text-black col-span-2 h-12 uppercase tracking-widest text-[9px]"
-                  >
-                    <User size={14} className="mr-2" /> Iniciar Sessão
-                  </Button>
-                )}
-              </div>
+            <div className="flex items-center bg-black/5 dark:bg-white/5 px-4 py-3 rounded-[4px] border border-luxury-border focus-within:border-luxury-gold transition-colors">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearch(e.target.value)}
+                placeholder="Procurar..."
+                className="bg-transparent border-none text-luxury-foreground w-full outline-none text-sm placeholder:text-luxury-foreground/30"
+              />
+              <Search size={16} className="text-luxury-gold" />
             </div>
+            
+            {/* Logout button removed from here, now accessible via Profile Dashboard */}
           </motion.div>
         )}
       </AnimatePresence>
-    </nav>
+    </header>
   );
 };
+
+interface ProductCardProps {
+  key?: React.Key;
+  product: Product;
+  onBuy: (p: Product) => any;
+  onRead?: (p: Product) => any;
+  isOwned?: boolean;
+  isProcessing?: boolean;
+  className?: string;
+}
+
 function ProductCard({
   product,
   onBuy,
   onRead,
   isOwned,
   isProcessing,
-}: {
-  product: Product;
-  onBuy: (p: Product) => any;
-  onRead?: (p: Product) => any;
-  isOwned?: boolean;
-  isProcessing?: boolean;
-}) {
+  className = "",
+}: ProductCardProps) {
   return (
-    <motion.div
-      layout
+    <motion.div 
       initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -8, scale: 1.02 }}
-      transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-      className="group flex flex-col h-full bg-white dark:bg-zinc-900/80 p-3 border border-black/5 dark:border-white/10 hover:border-luxury-gold dark:hover:border-luxury-gold hover:shadow-[0_20px_40px_rgba(0,0,0,0.1)] dark:hover:shadow-[0_20px_40px_rgba(212,175,55,0.05)] transition-all duration-500 rounded-sm"
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{ y: -5 }}
+      className={`luxury-card cursor-pointer group relative overflow-hidden ${className}`}
+      onClick={() => {
+        if (isOwned && product.product_type !== 'physical' && onRead) {
+          onRead(product);
+        } else {
+          onBuy(product);
+        }
+      }}
     >
-      <div className="relative aspect-[3/4] overflow-hidden bg-neutral-100 dark:bg-zinc-800 shadow-inner rounded-sm">
+      <div className="absolute inset-0 z-0 overflow-hidden">
         <img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-[2000ms] ease-out group-hover:scale-110"
         />
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-all duration-500 flex items-center justify-center opacity-0 group-hover:opacity-100 p-4 text-center backdrop-blur-[1px]">
-          <div className="flex flex-col gap-2 w-full max-w-[140px]">
-            <Button
-              disabled={isProcessing || (product.product_type === 'physical' && !product.is_active)}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isOwned && product.product_type !== 'physical' && onRead) {
-                  onRead(product);
-                } else {
-                  onBuy(product);
-                }
-              }}
-              className={`bg-white text-black hover:bg-luxury-gold hover:text-white rounded-none w-full py-4 text-[10px] font-bold uppercase tracking-[0.25em] transition-all duration-500 transform ${isProcessing ? "translate-y-0 opacity-100" : "translate-y-8"} group-hover:translate-y-0 shadow-2xl border-none disabled:opacity-50`}
-            >
-              {isProcessing ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 size={12} className="animate-spin" />
-                  ...
-                </span>
-              ) : isOwned && product.product_type !== 'physical' ? (
-                "Ler Obra"
-              ) : product.product_type === "physical" ? (
-                product.is_active ? "Ver Detalhes" : "Esgotado"
-              ) : (
-                "Adquirir"
-              )}
-            </Button>
-          </div>
-        </div>
+        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-700" />
       </div>
-      <div className="mt-5 px-1 pb-2 space-y-1.5 flex-grow flex flex-col justify-end">
-        <div className="flex justify-between items-start gap-2">
-          <h3 className="font-serif text-[13px] leading-tight line-clamp-2 group-hover:text-luxury-gold transition-colors duration-300 dark:text-zinc-100 flex-1">
-            {product.title}
-          </h3>
-          <span className="text-[11px] font-black tracking-tight dark:text-luxury-gold">
-            €{product.pvp}
-          </span>
-        </div>
-        <div className="text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 font-mono flex items-center justify-between">
-          <span>Ref: {product.dropea_id || product.id.split('-')[0].toUpperCase()}</span>
-          {product.dropea_id && <span className="text-luxury-gold ml-2">ID: {product.dropea_id}</span>}
-          {product.product_type === 'digital' && <span className="text-[#D4AF37]">Digital</span>}
-        </div>
-        <div className="h-[1px] w-0 group-hover:w-full bg-expensive-gold transition-all duration-700 opacity-40 bg-luxury-gold" />
-        <div className="text-[10px] text-black/50 dark:text-zinc-400 line-clamp-3 leading-snug pt-1">
-          {product.description}
+
+      <div className="card-info bg-gradient-to-t from-black/80 via-black/20 to-transparent md:translate-y-6 md:group-hover:translate-y-0 md:opacity-0 md:group-hover:opacity-100 transition-all duration-700 ease-premium p-4 md:p-6">
+        <div className="flex items-center gap-3 md:gap-4">
+          <motion.div 
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            className="w-10 h-10 rounded-full border border-luxury-gold/40 flex items-center justify-center text-luxury-gold flex-shrink-0"
+          >
+            <ShoppingBag size={18} />
+          </motion.div>
+          
+          <div className="flex flex-col text-left overflow-hidden">
+            <h4 className="text-[10px] md:text-[11px] uppercase tracking-[0.2em] md:tracking-[0.3em] text-luxury-gold font-bold drop-shadow-md line-clamp-1">
+              {product.title}
+            </h4>
+            <span className="text-xl md:text-2xl font-serif text-white font-light tracking-tight drop-shadow-lg">
+              €{product.pvp}
+            </span>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -468,7 +422,7 @@ const AuthDialog = ({
               full_name: fullName,
               custom_id: customId,
               welcomed: false,
-              theme: 'dark'
+              theme: localStorage.getItem("sart_theme") || "dark"
             });
         }
         toast.success("Conta criada. Verifique o seu email.");
@@ -578,12 +532,12 @@ const AuthDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md bg-white dark:bg-zinc-950 rounded-none border-none shadow-2xl p-6 md:p-12 w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto custom-scrollbar transition-colors duration-500">
+      <DialogContent className="sm:max-w-md bg-luxury-bg rounded-none border-none shadow-2xl p-6 md:p-12 w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto custom-scrollbar transition-colors duration-500">
         <DialogHeader className="items-center text-center">
-          <DialogTitle className="font-serif text-3xl mb-2 dark:text-white">
+          <DialogTitle className="font-serif text-3xl mb-2 text-luxury-foreground">
             S.Art Atelier
           </DialogTitle>
-          <div className="text-[10px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-luxury-foreground/40">
             {mode === "login"
               ? "Entrar na Boutique Digital"
               : mode === "register"
@@ -604,7 +558,7 @@ const AuthDialog = ({
               <Button
                 onClick={handleGoogleLogin}
                 variant="outline"
-                className="w-full flex items-center justify-center gap-3 rounded-none h-12 border-black/10 dark:border-white/10 text-[10px] uppercase tracking-widest hover:bg-black hover:text-white dark:hover:bg-white dark:hover:text-black dark:text-white transition-all cursor-pointer"
+                className="w-full flex items-center justify-center gap-3 rounded-none h-12 border-luxury-border text-[10px] uppercase tracking-widest hover:bg-luxury-gold hover:text-white dark:text-luxury-foreground transition-all cursor-pointer"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path
@@ -628,25 +582,25 @@ const AuthDialog = ({
               </Button>
 
               <div className="relative flex items-center py-2">
-                <div className="flex-grow border-t border-black/5 dark:border-white/5"></div>
-                <span className="flex-shrink mx-4 text-[9px] uppercase tracking-widest text-black/30 dark:text-white/30">
+                <div className="flex-grow border-t border-luxury-border"></div>
+                <span className="flex-shrink mx-4 text-[9px] uppercase tracking-widest text-luxury-foreground/30">
                   ou usar email
                 </span>
-                <div className="flex-grow border-t border-black/5 dark:border-white/5"></div>
+                <div className="flex-grow border-t border-luxury-border"></div>
               </div>
             </>
           )}
 
           {mode === "register" && (
             <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+              <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50">
                 Nome Completo
               </label>
               <input
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white"
+                className="w-full border-b border-luxury-border bg-transparent py-3 text-xs outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
                 placeholder="Ex: Maria Antonieta"
               />
             </div>
@@ -658,7 +612,7 @@ const AuthDialog = ({
             mode === "check-email" ||
             mode === "otp") && (
             <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+              <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50">
                 Endereço de Email
               </label>
               <input
@@ -666,7 +620,7 @@ const AuthDialog = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={mode === "otp" || mode === "check-email"}
-                className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white disabled:opacity-50"
+                className="w-full border-b border-luxury-border bg-transparent py-3 text-xs outline-none focus:border-luxury-gold transition-colors text-luxury-foreground disabled:opacity-50"
                 placeholder="vogue@sart.com"
               />
             </div>
@@ -711,14 +665,14 @@ const AuthDialog = ({
           {(mode === "login" || mode === "register" || mode === "reset") && (
             <div className="space-y-2">
               <div className="flex justify-between items-end">
-                <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+                <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50">
                   {mode === "reset" ? "Nova Password" : "Palavra-passe"}
                 </label>
                 {mode === "login" && (
                   <button
                     type="button"
                     onClick={() => setAuthMode("forgot")}
-                    className="text-[9px] text-black/40 dark:text-white/40 uppercase tracking-[0.1em] hover:text-luxury-gold transition-colors"
+                    className="text-[9px] text-luxury-foreground/40 uppercase tracking-[0.1em] hover:text-luxury-gold transition-colors"
                   >
                     Esqueceu a sua password?
                   </button>
@@ -729,13 +683,13 @@ const AuthDialog = ({
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white pr-10"
+                  className="w-full border-b border-luxury-border bg-transparent py-3 text-xs outline-none focus:border-luxury-gold transition-colors text-luxury-foreground pr-10"
                   placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-black/20 dark:text-white/20 hover:text-luxury-gold dark:hover:text-luxury-gold transition-colors"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-luxury-foreground/20 hover:text-luxury-gold transition-colors"
                 >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
@@ -745,7 +699,7 @@ const AuthDialog = ({
 
           {(mode === "register" || mode === "reset") && (
             <div className="space-y-2">
-              <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">
+              <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50">
                 Confirmar Password
               </label>
               <div className="relative group">
@@ -753,13 +707,13 @@ const AuthDialog = ({
                   type={showConfirmPassword ? "text" : "password"}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-xs outline-none focus:border-black dark:focus:border-white transition-colors dark:text-white pr-10"
+                  className="w-full border-b border-luxury-border bg-transparent py-3 text-xs outline-none focus:border-luxury-gold transition-colors text-luxury-foreground pr-10"
                   placeholder="••••••••"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-black/20 dark:text-white/20 hover:text-luxury-gold dark:hover:text-luxury-gold transition-colors"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-luxury-foreground/20 hover:text-luxury-gold transition-colors"
                 >
                   {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
@@ -1258,7 +1212,52 @@ export default function App() {
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
+  const [minPrice, setMinPrice] = useState<number>(0);
+  const [maxPrice, setMaxPrice] = useState<number>(10000);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [siteHero, setSiteHero] = useState({
+    image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070",
+    title: "Luxo & Exclusividade",
+    buttonText: "Explorar Coleção"
+  });
+
+  const fetchSiteSettings = async () => {
+    try {
+      const res = await fetch("/api/settings/hero");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.image) {
+          setSiteHero(data);
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching site settings:", e);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("/api/categories");
+      if (res.ok) {
+        const data = await res.json();
+        setCategories(data);
+      }
+    } catch (e) {
+      console.error("Error fetching categories:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchCategories();
+    fetchSiteSettings();
+  }, [view]);
+
+  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+
+  const allCategories = useMemo(() => {
+    return categories.map(c => c.name).filter(c => c !== "Todos").sort();
+  }, [categories]);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
 
@@ -1282,6 +1281,37 @@ export default function App() {
     color: string;
   }>({ size: "", color: "" });
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Intelligent Search: Auto-scroll to Boutique when user starts typing
+  useEffect(() => {
+    if (searchQuery.trim().length > 0) {
+      if (view !== "home") {
+        setView("home");
+        // Give a small delay for the view to mount before scrolling
+        setTimeout(() => {
+          const boutiqueSection = document.getElementById("boutique");
+          if (boutiqueSection) {
+            const offset = 100;
+            const elementPosition = boutiqueSection.getBoundingClientRect().top + window.pageYOffset;
+            window.scrollTo({
+              top: elementPosition - offset,
+              behavior: "smooth"
+            });
+          }
+        }, 100);
+      } else {
+        const boutiqueSection = document.getElementById("boutique");
+        if (boutiqueSection) {
+          const offset = 100;
+          const elementPosition = boutiqueSection.getBoundingClientRect().top + window.pageYOffset;
+          window.scrollTo({
+            top: elementPosition - offset,
+            behavior: "smooth"
+          });
+        }
+      }
+    }
+  }, [searchQuery]);
   const [profile, setProfile] = useState<{
     full_name: string;
     avatar_url: string;
@@ -1756,6 +1786,7 @@ export default function App() {
             product_type: supaProduct.product_type || "physical",
             category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
             is_active: supaProduct.is_active,
+            is_featured: supaProduct.is_featured,
             file_url: supaProduct.file_url,
             sizes_enabled: supaProduct.sizes_enabled,
             colors_enabled: supaProduct.colors_enabled,
@@ -1768,7 +1799,8 @@ export default function App() {
         return {
           ...supaProduct,
           supabase_id: supaProduct.id,
-          pvp: supaProduct.price || 0
+          pvp: supaProduct.price || 0,
+          is_featured: supaProduct.is_featured
         } as Product;
       }).filter((p): p is Product => p !== null);
 
@@ -1915,6 +1947,13 @@ export default function App() {
     }, 500);
   };
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setIsLogoutOpen(false);
+    setView("home");
+    toast.success("Até breve.");
+  };
+
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     if (view !== "home" && query.trim() !== "") {
@@ -2011,6 +2050,7 @@ export default function App() {
             }}
             onSearch={handleSearch}
             searchQuery={searchQuery}
+            onCartClick={() => {}}
           />
 
       <Dialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
@@ -2021,10 +2061,10 @@ export default function App() {
                 <LogOut size={20} />
               </div>
             </div>
-            <DialogTitle className="text-center font-serif text-xl dark:text-white">
+            <DialogTitle className="text-center font-serif text-xl text-luxury-foreground transition-colors">
               Encerrar Sessão?
             </DialogTitle>
-            <p className="text-center text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40 leading-relaxed">
+            <p className="text-center text-[10px] uppercase tracking-widest text-luxury-foreground/40 leading-relaxed transition-colors">
               Deseja realmente sair da sua conta na boutique S.Art?
             </p>
           </DialogHeader>
@@ -2036,14 +2076,14 @@ export default function App() {
                 setView("home");
                 toast.success("Até breve.");
               }}
-              className="rounded-none bg-black dark:bg-white text-white dark:text-black h-12 uppercase tracking-[0.2em] text-[9px] font-bold hover:opacity-80 transition-opacity"
+              className="rounded-none bg-luxury-foreground text-luxury-bg h-12 uppercase tracking-[0.2em] text-[10px] font-bold hover:opacity-80 transition-opacity"
             >
               Confirmar Saída
             </Button>
             <Button
               variant="ghost"
               onClick={() => setIsLogoutOpen(false)}
-              className="rounded-none h-12 uppercase tracking-[0.2em] text-[9px] dark:text-white/60 hover:text-black dark:hover:text-white"
+              className="rounded-none h-12 uppercase tracking-[0.2em] text-[10px] text-luxury-foreground/60 hover:text-luxury-foreground transition-all"
             >
               Cancelar
             </Button>
@@ -2051,7 +2091,7 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <main className="pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full">
+      <main className={`overflow-x-hidden ${view === "home" ? "w-full" : "pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full"}`}>
         <AnimatePresence mode="wait">
           {view === "reset-password" && (
             <ResetPasswordView onComplete={() => setView("home")} />
@@ -2071,92 +2111,301 @@ export default function App() {
           {view === "home" && (
             <motion.div
               key="home"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.02 }}
-              className="space-y-12 w-full min-h-[60vh]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="w-full"
             >
-              <section className="text-center max-w-2xl mx-auto space-y-6">
-                <motion.h1
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="text-4xl sm:text-5xl md:text-7xl font-serif tracking-tight px-4"
-                >
-                  Boutique de <br />
-                  Estilos & Arte
-                </motion.h1>
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.4 }}
-                  className="text-[11px] uppercase tracking-[0.3em] text-neutral-400 font-medium"
-                >
-                  Curadoria de Produtos Físicos de Alta Estirpe & Atemporalidade
-                </motion.p>
+              <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden bg-luxury-bg">
+                {/* Background Image Container */}
+                <div className="absolute inset-0 z-0">
+                  <img 
+                    src={siteHero.image} 
+                    alt="Luxury Background" 
+                    className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-1/2 transition-opacity duration-1000"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-b from-luxury-bg/90 via-luxury-bg/30 to-luxury-bg"></div>
+                </div>
+
+                <div className="hero-content relative z-10 text-center px-4 max-w-5xl">
+                  <motion.h1 
+                    initial={{ y: 40, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                    className="font-serif text-[clamp(2.5rem,5vw,7rem)] tracking-[-0.04em] text-white drop-shadow-2xl leading-[0.9] uppercase"
+                  >
+                    {siteHero.title.split(' ').map((word, i) => (
+                      <React.Fragment key={i}>
+                        {i === 1 ? <span className="italic font-light">{word} </span> : word + ' '}
+                      </React.Fragment>
+                    ))}
+                  </motion.h1>
+                  <motion.p 
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.3, duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                    className="text-luxury-gold tracking-[0.8em] uppercase mt-8 font-medium text-xs md:text-sm mb-12 drop-shadow-sm opacity-80"
+                  >
+                    A Essência da Exclusividade
+                  </motion.p>
+                  
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.6, duration: 0.8 }}
+                  >
+                    <motion.button
+                      whileHover={{ scale: 1.02, backgroundColor: "#c78b7d", color: "#fff" }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => document.getElementById("boutique")?.scrollIntoView({ behavior: "smooth" })}
+                      className="bg-white text-black px-16 py-5 text-[10px] uppercase font-bold tracking-[0.4em] transition-all shadow-[0_20px_50px_rgba(0,0,0,0.3)] luxury-shine"
+                    >
+                      {siteHero.buttonText}
+                    </motion.button>
+                  </motion.div>
+                </div>
               </section>
 
-              {/* Category Filter Bar */}
-              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 py-6 md:py-8 border-y border-black/5 dark:border-white/5">
-                {(["Todos", "Moda", "Saúde", "Tecnologia"] as const).map(
-                  (cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => setSelectedCategory(cat)}
-                      className={`px-4 sm:px-8 py-2 text-[8px] sm:text-[10px] uppercase tracking-[0.2em] transition-all duration-300 ${
-                        selectedCategory === cat
-                          ? "bg-black dark:bg-white text-white dark:text-black font-bold"
-                          : "text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white border border-transparent hover:border-black/10 dark:hover:border-white/10"
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ),
-                )}
-              </div>
+              {/* Featured Section (Destaque) - Redesenhada com Grid de 2 Colunas (Desktop) */}
+              {products.filter(p => p.is_featured && p.is_active).length > 0 && (
+                <section id="featured-section" className="bg-luxury-bg py-32 border-b border-luxury-border overflow-hidden transition-colors duration-500">
+                  <div className="px-[5%] mb-20">
+                     <span className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-bold block mb-4">Seleção Master Premium</span>
+                     <h2 className="font-serif text-4xl md:text-5xl text-luxury-foreground italic transition-colors">Destaques da Temporada</h2>
+                     <div className="h-px w-24 bg-luxury-gold/30 mt-6"></div>
+                  </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-x-4 gap-y-10 pt-8">
-                {products
-                  .filter((p) => {
-                    const title = p.title || "";
-                    const desc = p.description || "";
-                    const matchesCategory =
-                      selectedCategory === "Todos" ||
-                      p.category === selectedCategory;
-                    const matchesSearch =
-                      title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      desc.toLowerCase().includes(searchQuery.toLowerCase());
-                    return matchesCategory && matchesSearch;
-                  })
-                  .map((product) => (
-                    <div key={product.id}>
-                      <ProductCard
-                        product={product}
-                        onBuy={handleBuy}
-                        onRead={() => setView("dashboard")}
-                        isOwned={purchasedProducts.some(
-                          (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(p.status?.toLowerCase()),
-                        )}
-                        isProcessing={checkoutLoading === product.id}
-                      />
+                  <motion.div 
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, margin: "-100px" }}
+                    variants={{
+                      hidden: { opacity: 0 },
+                      visible: {
+                        opacity: 1,
+                        transition: {
+                          staggerChildren: 0.25
+                        }
+                      }
+                    }}
+                    className="px-[5%]"
+                  >
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-24 max-w-[1700px] mx-auto">
+                      {products.filter(p => p.is_featured && p.is_active).map((featuredProduct) => (
+                        <motion.div 
+                          key={featuredProduct.id} 
+                          variants={{
+                            hidden: { opacity: 0, y: 40 },
+                            visible: { opacity: 1, y: 0, transition: { duration: 1, ease: [0.16, 1, 0.3, 1] } }
+                          }}
+                          className="flex flex-col space-y-8"
+                        >
+                          {/* Main Product Card with internal truncated title */}
+                          <div 
+                            onClick={() => {
+                              setSelectedProduct(featuredProduct);
+                              setDetailProduct(featuredProduct);
+                              setView("product-detail");
+                            }}
+                            className="relative aspect-[16/10] overflow-hidden border border-white/5 shadow-2xl group cursor-pointer"
+                          >
+                            <img 
+                              src={getImageUrl(featuredProduct.image_url || "")} 
+                              alt={featuredProduct.title}
+                              className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-[4s] ease-out"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent dark:from-black/90 dark:via-black/20 dark:to-transparent"></div>
+                            
+                            {/* Title INSIDE the card with truncation */}
+                            <div className="absolute bottom-0 left-0 p-6 md:p-10 w-full">
+                              <h3 className="font-serif text-lg md:text-xl text-white tracking-tighter truncate max-w-[85%] uppercase">
+                                {featuredProduct.title}
+                              </h3>
+                            </div>
+                          </div>
+
+                          {/* Information BELOW the card */}
+                          <div className="flex flex-col space-y-6">
+                            {/* Description Case */}
+                            <div className="border-l border-luxury-border pl-6 h-12 flex items-center">
+                              <p className="text-luxury-foreground/40 text-xs md:text-sm font-light leading-relaxed line-clamp-2 italic">
+                                "{featuredProduct.description.replace(/<[^>]*>?/gm, "")}"
+                              </p>
+                            </div>
+
+                            {/* Footer Info: Price & Action */}
+                            <div className="flex items-center justify-between gap-6 pt-6 border-t border-luxury-border">
+                              <div className="flex flex-col">
+                                <span className="text-luxury-foreground/20 text-[8px] uppercase tracking-widest mb-1 font-bold">Valor Premium</span>
+                                <div className="flex items-baseline gap-2">
+                                  <span className="text-luxury-gold text-3xl font-serif">€{featuredProduct.pvp}</span>
+                                </div>
+                              </div>
+                              
+                              <motion.button 
+                                whileHover={{ scale: 1.05, backgroundColor: "#c78b7d", color: "#fff" }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleBuy(featuredProduct);
+                                }}
+                                disabled={checkoutLoading === featuredProduct.id}
+                                className="bg-luxury-foreground text-luxury-bg px-12 py-5 rounded-full text-[9px] min-w-[200px] uppercase font-black tracking-[0.4em] transition-all duration-500 relative group overflow-hidden luxury-shine"
+                              >
+                                <span className="relative z-10 flex items-center justify-center gap-3">
+                                  {checkoutLoading === featuredProduct.id ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <>
+                                      <span className="group-hover:translate-x-1 transition-transform duration-300">COMPRAR AGORA</span>
+                                      <ArrowRight size={14} className="group-hover:translate-x-2 transition-transform duration-300" />
+                                    </>
+                                  )}
+                                </span>
+                              </motion.button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
                     </div>
-                  ))}
-              </div>
-
-              {products.filter(
-                (p) =>
-                  selectedCategory === "Todos" ||
-                  p.category === selectedCategory,
-              ).length === 0 && (
-                <div className="py-32 text-center space-y-4 animate-in fade-in duration-1000">
-                  <p className="font-serif text-2xl italic text-neutral-300">
-                    Novos e-books de {selectedCategory} em breve.
-                  </p>
-                  <p className="text-[10px] uppercase tracking-widest text-neutral-400">
-                    A nossa curadoria está em processo de seleção.
-                  </p>
-                </div>
+                  </motion.div>
+                </section>
               )}
+
+              <section className="px-[5%] py-24" id="boutique">
+                <div className="max-w-7xl mx-auto space-y-12">
+                  {/* Sticky Dropdown Filter Bar */}
+                  <div className="sticky-filter-bar flex flex-col md:flex-row items-center justify-between py-6 gap-6 transition-colors duration-500">
+                    <div className="flex items-center gap-4">
+                      <h3 className="font-serif text-2xl text-luxury-foreground italic transition-colors">Coleção Boutique</h3>
+                      <span className="text-[10px] uppercase tracking-[0.3em] text-luxury-foreground/30 pt-1">
+                        {products.filter(p => {
+                          const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
+                          const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
+                          const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
+                          return matchesCategory && matchesPrice && matchesSearch;
+                        }).length} itens
+                      </span>
+                    </div>
+                    
+                    <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
+                      {/* Custom Category Dropdown */}
+                      <div className="relative min-w-[200px]">
+                        <label className="text-[8px] uppercase tracking-[0.3em] text-luxury-gold font-bold block mb-1">Categoria</label>
+                        <div className="relative">
+                          <button 
+                            className="w-full bg-black/5 dark:bg-white/5 border border-luxury-border text-luxury-foreground p-3 text-[10px] uppercase tracking-widest outline-none hover:border-luxury-gold transition-all text-left flex justify-between items-center group/btn"
+                            onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
+                          >
+                            <span>{selectedCategory}</span>
+                            <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-300 ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                          {isCategoryMenuOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setIsCategoryMenuOpen(false)} />
+                              <div className="absolute top-full left-0 w-full bg-[#0a0a0a] border border-luxury-border z-50 shadow-2xl max-h-60 overflow-y-auto luxury-scrollbar mt-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                                {["Todos", ...allCategories].map(cat => (
+                                  <button 
+                                    key={cat}
+                                    className={`w-full text-left p-4 text-[9px] uppercase tracking-widest transition-colors hover:bg-luxury-gold hover:text-black border-b border-white/5 last:border-0 ${selectedCategory === cat ? 'bg-luxury-gold/10 text-luxury-gold font-bold' : 'text-white/60'}`}
+                                    onClick={() => {
+                                      setSelectedCategory(cat);
+                                      setIsCategoryMenuOpen(false);
+                                    }}
+                                  >
+                                    {cat}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Price Range Controls */}
+                      <div className="flex items-center gap-2 flex-grow md:flex-grow-0">
+                        <div className="relative">
+                          <label className="text-[8px] uppercase tracking-[0.3em] text-luxury-gold font-bold block mb-1">Preço Máx (€)</label>
+                          <input 
+                             type="number"
+                             value={maxPrice}
+                             onChange={(e) => setMaxPrice(Number(e.target.value))}
+                             className="bg-white/5 border border-white/10 text-white p-3 text-[10px] w-24 outline-none focus:border-luxury-gold transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <motion.div 
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={{ once: true, margin: "-100px" }}
+                    variants={{
+                      hidden: { opacity: 0 },
+                      visible: {
+                        opacity: 1,
+                        transition: {
+                          staggerChildren: 0.15
+                        }
+                      }
+                    }}
+                    className="bento-grid"
+                  >
+                    {products
+                      .filter((p) => {
+                        const title = p.title || "";
+                        const desc = p.description || "";
+                        const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
+                        const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
+                        const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase()) || desc.toLowerCase().includes(searchQuery.toLowerCase());
+                        return matchesCategory && matchesPrice && matchesSearch;
+                      })
+                      .map((product, idx) => {
+                        // More balanced patterns: Wide cards for highlights, limited tall cards
+                        const isWide = idx % 5 === 0;
+                        const isHigh = idx === 3 || idx === 8;
+                        
+                        return (
+                          <ProductCard
+                            key={product.id}
+                            product={product}
+                            onBuy={handleBuy}
+                            onRead={() => setView("dashboard")}
+                            isOwned={purchasedProducts.some(
+                              (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(p.status?.toLowerCase()),
+                            )}
+                            className={`${isWide ? "md:col-span-2" : ""} ${isHigh ? "md:row-span-2" : ""}`}
+                            isProcessing={checkoutLoading === product.id}
+                          />
+                        );
+                      })}
+                  </motion.div>
+
+                  {products.filter((p) => {
+                    const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
+                    const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
+                    const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
+                    return matchesCategory && matchesPrice && matchesSearch;
+                  }).length === 0 && (
+                    <div className="py-32 text-center space-y-6">
+                      <p className="font-serif text-3xl italic text-white/20 px-8">
+                        Lamentamos, mas nenhuma obra em nossa curadoria atual condiz com os critérios selecionados.
+                      </p>
+                      <button 
+                        onClick={() => {
+                          setSelectedCategory("Todos");
+                          setMinPrice(0);
+                          setMaxPrice(10000);
+                        }}
+                        className="text-luxury-gold uppercase tracking-[0.3em] text-xs font-bold hover:text-white transition-colors"
+                      >
+                        Redefinir Curadoria
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
             </motion.div>
           )}
 
@@ -2172,10 +2421,10 @@ export default function App() {
           {view === "shipping" && selectedProduct && (
             <div className="max-w-4xl mx-auto py-12 animate-in fade-in duration-700">
               <div className="mb-12 space-y-4 text-center">
-                <h2 className="text-4xl md:text-5xl font-serif dark:text-white">
+                <h2 className="text-4xl md:text-5xl font-serif text-luxury-foreground">
                   Finalizar Aquisição
                 </h2>
-                <div className="text-[10px] uppercase tracking-[0.3em] text-black/40 dark:text-white/40">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-foreground/40">
                   Precisamos da sua morada para a entrega física S.Art
                 </div>
               </div>
@@ -2184,7 +2433,7 @@ export default function App() {
                 <div className="lg:col-span-3 space-y-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2 md:col-span-2">
-                      <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
+                      <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
                         Nome Completo *
                       </label>
                       <input
@@ -2197,13 +2446,13 @@ export default function App() {
                             fullName: e.target.value,
                           })
                         }
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
+                        className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
                         placeholder="Nome para faturação e entrega"
                       />
                     </div>
 
                     <div className="space-y-2 md:col-span-2">
-                      <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
+                      <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
                         Morada de Entrega *
                       </label>
                       <input
@@ -2216,13 +2465,13 @@ export default function App() {
                             address: e.target.value,
                           })
                         }
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
+                        className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
                         placeholder="Rua, número, andar..."
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
+                      <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
                         Cidade *
                       </label>
                       <input
@@ -2235,13 +2484,13 @@ export default function App() {
                             city: e.target.value,
                           })
                         }
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
+                        className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
                         placeholder="Ex: Lisboa"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
+                      <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
                         Código Postal *
                       </label>
                       <input
@@ -2254,13 +2503,13 @@ export default function App() {
                             postalCode: e.target.value,
                           })
                         }
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
+                        className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
                         placeholder="0000-000"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
+                      <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
                         País *
                       </label>
                       <select
@@ -2275,16 +2524,16 @@ export default function App() {
                             phone: newPrefix
                           });
                         }}
-                        className="w-full border-b border-black/10 dark:border-white/10 bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white appearance-none cursor-pointer"
+                        className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground appearance-none cursor-pointer"
                       >
-                        <option value="" className="dark:bg-zinc-900">Selecione o País</option>
-                        <option value="Portugal" className="dark:bg-zinc-900">Portugal</option>
-                        <option value="Espanha" className="dark:bg-zinc-900">Espanha</option>
+                        <option value="" className="bg-luxury-bg">Selecione o País</option>
+                        <option value="Portugal" className="bg-luxury-bg">Portugal</option>
+                        <option value="Espanha" className="bg-luxury-bg">Espanha</option>
                       </select>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50 font-bold">
+                      <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
                         Contacto Telefónico (PT/ES) *
                       </label>
                       <input
@@ -2316,7 +2565,7 @@ export default function App() {
                             });
                           }
                         }}
-                        className="w-full border-b border-black/10 dark:border-white/10 dark:bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white font-mono"
+                        className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground font-mono"
                         placeholder={shippingInfo.country === 'Portugal' ? '+351 9xx xxx xxx' : (shippingInfo.country === 'Espanha' ? '+34 6xx xxx xxx' : 'Seleccione o país primeiro')}
                       />
                     </div>
@@ -2324,13 +2573,13 @@ export default function App() {
                 </div>
 
                 <div className="lg:col-span-2">
-                  <div className="bg-neutral-50 dark:bg-zinc-900/50 p-8 border border-black/5 dark:border-white/5 space-y-6 sticky top-32">
-                    <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-bold border-b border-black/5 dark:border-white/5 pb-4">
+                  <div className="bg-luxury-bg/50 p-8 border border-luxury-border space-y-6 sticky top-32">
+                    <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-bold border-b border-luxury-border pb-4">
                       Resumo da Aquisição
                     </div>
 
                     <div className="flex gap-4">
-                      <div className="w-16 h-20 bg-white dark:bg-zinc-800 border border-black/5 flex-shrink-0">
+                      <div className="w-16 h-20 bg-luxury-bg border border-luxury-border flex-shrink-0">
                         <img
                           src={getImageUrl(selectedProduct.image_url)}
                           alt=""
@@ -2338,7 +2587,7 @@ export default function App() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <div className="font-serif text-sm dark:text-white line-clamp-2">
+                        <div className="font-serif text-sm text-luxury-foreground line-clamp-2">
                           {selectedProduct.title}
                         </div>
                         {selectedOptions &&
@@ -2350,26 +2599,26 @@ export default function App() {
                                 `Cor: ${selectedOptions.color}`}
                             </div>
                           )}
-                        <div className="text-xs font-bold dark:text-zinc-400">
+                        <div className="text-xs font-bold text-luxury-foreground/60 transition-colors">
                           €{selectedProduct.pvp}
                         </div>
                       </div>
                     </div>
 
-                    <Separator className="bg-black/5 dark:bg-white/5" />
+                    <Separator className="bg-luxury-border" />
 
                     <div className="space-y-3">
-                      <div className="flex justify-between text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60">
+                      <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Subtotal</span>
                         <span>€{selectedProduct.pvp}</span>
                       </div>
-                      <div className="flex justify-between text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60">
+                      <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Envio S.Art VIP</span>
                         <span className="text-luxury-gold font-bold">
                           Grátis
                         </span>
                       </div>
-                      <div className="flex justify-between text-base font-serif dark:text-white pt-2 border-t border-black/5 dark:border-white/5">
+                      <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
                         <span>€{selectedProduct.pvp}</span>
                       </div>
@@ -2453,6 +2702,7 @@ export default function App() {
               purchasedProducts={purchasedProducts}
               onProfileUpdate={(data) => setProfile(data)}
               onRefundRequest={(order) => setRefundOrder(order)}
+              onLogout={handleLogout}
             />
           )}
 
@@ -2483,12 +2733,12 @@ export default function App() {
               </motion.div>
 
               <div className="space-y-6 md:space-y-8">
-                <h2 className="text-4xl md:text-6xl font-serif dark:text-white leading-[1.1] px-4">
+                <h2 className="text-4xl md:text-6xl font-serif text-luxury-foreground leading-[1.1] px-4 transition-colors">
                   Pedido <br />
                   Confirmado.
                 </h2>
                 <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
-                <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed px-6">
+                <p className="text-[11px] uppercase tracking-[0.4em] text-luxury-foreground/40 max-w-sm mx-auto leading-relaxed px-6 transition-colors">
                   O seu pedido foi processado com sucesso. A sua morada e dados de envio foram registados e receberá em breve informações sobre a entrega.
                 </p>
               </div>
@@ -2498,9 +2748,9 @@ export default function App() {
                   initial={{ opacity: 0, scale: 0.98 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: 0.3 }}
-                  className="rounded-none border border-black/5 dark:border-white/5 bg-neutral-50 dark:bg-zinc-900 overflow-hidden shadow-2xl mx-auto max-w-sm"
+                  className="rounded-none border border-luxury-border bg-luxury-bg/50 overflow-hidden shadow-2xl mx-auto max-w-sm"
                 >
-                  <div className="flex bg-white dark:bg-black/20 p-6 gap-6 text-left items-center">
+                  <div className="flex bg-luxury-card p-6 gap-6 text-left items-center transition-colors">
                     <div className="shadow-xl flex-shrink-0">
                       <img
                         src={getImageUrl(successProduct.image_url)}
@@ -2511,14 +2761,14 @@ export default function App() {
                       <p className="text-[9px] uppercase tracking-[0.3em] font-bold text-luxury-gold">
                         Novo Pedido
                       </p>
-                      <h4 className="font-serif text-xl dark:text-white leading-tight">
+                      <h4 className="font-serif text-xl text-luxury-foreground leading-tight transition-colors">
                         {successProduct.title}
                       </h4>
                       <div className="pt-2">
                         <Button
                           onClick={() => setView("dashboard")}
                           variant="ghost"
-                          className="p-0 h-auto text-[10px] uppercase tracking-[0.2em] font-bold text-black/60 dark:text-white/60 hover:text-luxury-gold dark:hover:text-luxury-gold transition-all"
+                          className="p-0 h-auto text-[10px] uppercase tracking-[0.2em] font-bold text-luxury-foreground/60 hover:text-luxury-gold transition-all"
                         >
                           Acompanhar Encomenda{" "}
                           <ArrowRight size={12} className="ml-2" />
@@ -2616,26 +2866,26 @@ export default function App() {
         </Dialog>
       )}
 
-      <footer className="border-t border-black/5 dark:border-white/5 py-20 px-6 bg-white dark:bg-black transition-colors duration-500">
+      <footer className="border-t border-luxury-border py-20 px-6 bg-luxury-bg transition-colors duration-500">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-12 text-center md:text-left">
           <div className="space-y-4">
-            <h3 className="text-3xl font-serif tracking-tighter dark:text-white">
+            <h3 className="text-3xl font-serif tracking-tighter text-luxury-foreground transition-colors">
               S.Art
             </h3>
-            <div className="text-[9px] uppercase tracking-[0.3em] text-black/40 dark:text-white/40">
+            <div className="text-[9px] uppercase tracking-[0.3em] text-luxury-foreground/40 transition-colors">
               © 2026 Boutique S.Art | S.Art-full.pt
             </div>
           </div>
-          <div className="flex gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60">
+          <div className="flex gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-luxury-foreground/60 transition-colors">
             <a
               href="#"
-              className="hover:text-black dark:hover:text-white transition-colors"
+              className="hover:text-luxury-gold transition-colors"
             >
               Instagram
             </a>
             <button
               onClick={() => setView("terms")}
-              className="hover:text-black dark:hover:text-white transition-colors text-left uppercase"
+              className="hover:text-luxury-gold transition-colors text-left uppercase"
             >
               Termos e Privacidade
             </button>

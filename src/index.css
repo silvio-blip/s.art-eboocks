@@ -1,26 +1,282 @@
 @import "tailwindcss";
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;500;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap');
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Playfair Display", serif;
   
-  --color-background: white;
-  --color-foreground: black;
-  --color-border: #ececec;
-  --color-muted: #f4f4f4;
-  --color-muted-foreground: #737373;
-  --color-primary: black;
-  --color-primary-foreground: white;
-
-  --color-luxury-gold: #D4AF37;
-  --color-luxury-black: #0a0a0a;
-  --color-luxury-dark: #141414;
-  --color-luxury-white: #FFFFFF;
+  --color-luxury-bg: var(--bg-main);
+  --color-luxury-card: var(--bg-card);
+  --color-luxury-gold: #c78b7d;
+  --color-luxury-border: var(--borda);
+  --color-luxury-foreground: var(--foreground);
+  --color-luxury-dark: var(--luxury-dark);
+  
+  /* Fallbacks for existing shadcn-style utilities */
+  --color-border: var(--borda);
+  --color-background: var(--bg-main);
+  --color-foreground: var(--foreground);
 }
 
-/* PDF Reader Fixes - Native Feel */
+@layer base {
+  :root {
+    --bg-main: #FFFFFF;
+    --bg-card: #F9F9F9;
+    --gold: #c78b7d;
+    --foreground: #101010;
+    --borda: rgba(0, 0, 0, 0.06);
+    --luxury-dark: #f8f8f8;
+    --card-gradient: linear-gradient(transparent, rgba(255, 255, 255, 0.8) 40%, rgba(255, 255, 255, 0.95));
+  }
+
+  .dark {
+    --bg-main: #050505;
+    --bg-card: #0f0f0f;
+    --gold: #c78b7d;
+    --foreground: #FFFFFF;
+    --borda: rgba(255, 255, 255, 0.08);
+    --luxury-dark: #0a0a0a;
+    --card-gradient: linear-gradient(transparent, rgba(0, 0, 0, 0.8) 40%, rgba(0, 0, 0, 0.95));
+    --premium-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .ease-premium {
+    transition-timing-function: var(--premium-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+
+  .luxury-shine {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .luxury-shine::after {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -60%;
+    width: 20%;
+    height: 200%;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgba(255, 255, 255, 0.1),
+      transparent
+    );
+    transform: rotate(30deg);
+    transition: 0.8s;
+  }
+
+  .luxury-shine:hover::after {
+    left: 140%;
+  }
+
+  .luxury-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .luxury-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .luxury-scrollbar::-webkit-scrollbar-thumb {
+    background: #c78b7d;
+    border-radius: 10px;
+  }
+
+  .luxury-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #d4af37;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-luxury-bg text-luxury-foreground font-sans antialiased transition-colors duration-500;
+    background-color: var(--bg-main);
+    color: var(--foreground);
+    scrollbar-width: thin;
+    scrollbar-color: var(--gold) transparent;
+  }
+
+  /* Custom Global Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent; 
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(199, 139, 125, 0.2);
+    border-radius: 20px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: all 0.5s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--gold);
+    background-clip: padding-box;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(199, 139, 125, 0.3);
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #D4AF37;
+  }
+}
+
+/* --- NEW LUXURY LAYOUT CLASSES --- */
+.hero-video-container {
+    position: relative;
+    height: 85vh;
+    width: 100%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 0;
+}
+
+#bg-video {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    min-width: 100%;
+    min-height: 100%;
+    width: auto;
+    height: auto;
+    z-index: -2;
+    transform: translate(-50%, -50%);
+    object-fit: cover;
+}
+
+.video-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.3), var(--bg-main));
+    z-index: -1;
+}
+
+.featured-glow {
+    position: relative;
+}
+
+.featured-glow::after {
+    content: '';
+    position: absolute;
+    inset: -20px;
+    background: radial-gradient(circle, var(--gold) 0%, transparent 70%);
+    opacity: 0.15;
+    z-index: -1;
+    filter: blur(40px);
+}
+
+#boutique {
+    scroll-margin-top: 100px;
+}
+
+aside {
+    scrollbar-width: thin;
+    scrollbar-color: var(--gold) transparent;
+}
+
+.bento-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: minmax(200px, auto);
+    gap: 20px;
+    grid-auto-flow: dense;
+}
+
+@media (min-width: 1024px) {
+    .bento-grid {
+        grid-template-columns: repeat(4, 1fr);
+        grid-auto-rows: minmax(220px, auto);
+    }
+}
+
+.luxury-card {
+    background: var(--bg-card);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--borda);
+    transition: 0.5s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.luxury-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: 0.6s;
+    aspect-ratio: 16/9; /* Much wider as requested */
+}
+
+.luxury-card.h-2 img {
+    aspect-ratio: 16/20; /* Controlled tall aspect, not too long */
+}
+
+.luxury-card.w-2 img {
+    aspect-ratio: 32/10; /* Extra wide */
+}
+
+.luxury-card:hover img {
+    transform: scale(1.05);
+    filter: brightness(0.6);
+}
+
+.card-info {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    padding: 2rem 1.5rem 1.25rem;
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0;
+    transform: translateY(10px);
+    pointer-events: none;
+    z-index: 10;
+}
+
+.luxury-card:hover .card-info {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+    .card-info {
+        opacity: 1;
+        transform: translateY(0);
+        padding: 1.5rem 1rem 0.75rem;
+    }
+    
+    .luxury-card:hover img {
+        transform: none;
+        filter: none;
+    }
+}
+
+.sticky-filter-bar {
+    position: sticky;
+    top: 65px;
+    z-index: 50;
+    background: var(--bg-main);
+    border-bottom: 1px solid var(--borda);
+    margin-bottom: 3rem;
+}
+
 .text-layer,
 .react-pdf__Page__textContent {
   position: absolute;
@@ -31,6 +287,11 @@
   opacity: 1;
   mix-blend-mode: multiply;
   pointer-events: none; /* Default to none, but children (text) have events */
+}
+
+.dark .text-layer,
+.dark .react-pdf__Page__textContent {
+  mix-blend-mode: lighten;
 }
 
 .text-layer span,
@@ -44,8 +305,9 @@
 }
 
 ::selection {
-  background: rgba(212, 175, 55, 0.3); /* Luxury Gold Selection */
-  color: inherit;
+  background: var(--gold); /* Luxury Gold Selection */
+  opacity: 0.3;
+  color: #fff;
 }
 
 .react-pdf__Page__annotations.annotationLayer {
@@ -100,17 +362,6 @@ input[type="range"]::-webkit-slider-thumb:hover {
     --color-background: #000000;
     --color-foreground: #ffffff;
     --color-border: #262626;
-    --color-muted: #171717;
-    --color-muted-foreground: #a1a1aa;
-    --color-primary: white;
-    --color-primary-foreground: black;
-  }
-  
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground font-sans antialiased;
   }
 }
 
