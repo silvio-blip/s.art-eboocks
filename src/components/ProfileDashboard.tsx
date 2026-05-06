@@ -98,6 +98,10 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const [isUploading, setIsUploading] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', description: '', avatar_url: '', notification_email: '' });
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'sent' | 'delivered' | 'refunded' | 'canceled'>('all');
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeTab]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -523,7 +527,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+              className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
               onClick={() => setSelectedOrder(null)}
             >
               <motion.div 
@@ -601,14 +605,32 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         <div className="p-4 bg-neutral-100 dark:bg-zinc-800/50 space-y-2">
                           <div className="flex justify-between items-center">
                             <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Status Pagamento</span>
-                            <span className="text-[9px] uppercase bg-emerald-500/10 text-emerald-500 px-2 py-0.5 font-bold">{selectedOrder.status === 'paid' ? 'Liquidado' : selectedOrder.status}</span>
+                            <span className={`text-[9px] uppercase px-2 py-0.5 font-bold border ${
+                              (selectedOrder.payment_status === 'refunded' || selectedOrder.status === 'refunded' || selectedOrder.status === 'reembolsado' || selectedOrder.status === 'refund_pending')
+                                ? "bg-red-500/10 text-red-500 border-red-500/20"
+                                : (selectedOrder.payment_status === 'paid' || ['paid', 'completed', 'succeeded', 'pago'].includes(selectedOrder.status?.toLowerCase() || ""))
+                                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                            }`}>
+                              {(selectedOrder.payment_status === 'refunded' || selectedOrder.status === 'refunded' || selectedOrder.status === 'reembolsado' || selectedOrder.status === 'refund_pending') ? 'Reembolsado' :
+                               (selectedOrder.payment_status === 'paid' || ['paid', 'completed', 'succeeded', 'pago'].includes(selectedOrder.status?.toLowerCase() || "")) ? 'Pago' :
+                               'Pendente'}
+                            </span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Estado do Pedido</span>
-                              <span className="text-[9px] uppercase font-bold dark:text-white">
-                                {["paid", "completed", "succeeded", "pago"].includes(selectedOrder.status?.toLowerCase() || "") ? 'Pago' : 
-                                 ["canceled", "cancelled"].includes(selectedOrder.status?.toLowerCase() || "") ? 'Cancelado' :
-                                 ["refunded", "reembolsado", "refund_pending"].includes(selectedOrder.status?.toLowerCase() || "") ? 'Reembolsado' :
+                              <span className={`text-[9px] uppercase font-bold border px-2 py-0.5 ${
+                                (selectedOrder.status === 'canceled' || selectedOrder.status === 'cancelled')
+                                  ? "bg-red-500/10 text-red-500 border-red-500/20"
+                                  : (selectedOrder.shipping_status === 'delivered')
+                                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                                    : "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                              }`}>
+                                {selectedOrder.shipping_status === 'delivered' ? 'Entregue' : 
+                                 selectedOrder.shipping_status === 'sent' ? 'Enviado' : 
+                                 (selectedOrder.status === 'canceled' || selectedOrder.status === 'cancelled') ? 'Cancelado' :
+                                 (selectedOrder.status === 'refunded' || selectedOrder.status === 'reembolsado' || selectedOrder.status === 'refund_pending') ? 'Reembolsado' :
+                                 ['paid', 'completed', 'succeeded', 'pago'].includes(selectedOrder.status?.toLowerCase() || "") ? 'Confirmado' :
                                  'Pendente'}
                               </span>
                           </div>

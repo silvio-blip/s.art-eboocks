@@ -664,7 +664,7 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
     // Identificar a ordem local vinculada pelo Dropea ID
     const { data: linkedOrder } = await supabase
       .from('orders')
-      .select('id, status, stripe_session_id, shipping_status, total_amount, customer_email')
+      .select('id, status, stripe_session_id, payment_status, shipping_status, total_amount, customer_email')
       .eq('dropea_order_id', String(dropeaOrderId))
       .maybeSingle();
 
@@ -745,20 +745,22 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       console.log(`[DROPEA WEBHOOK] Order Canceled/Failed for Dropea ID: ${dropeaOrderId}`);
       
       if (linkedOrder) {
+        let isRefundInitiated = false;
         // Se a ordem estava 'paid', iniciamos o reembolso automático no Stripe
-        if ((linkedOrder.status === 'paid' || linkedOrder.status === 'completed') && linkedOrder.stripe_session_id && stripe) {
+        if ((linkedOrder.status === 'paid' || linkedOrder.status === 'completed' || linkedOrder.payment_status === 'paid') && linkedOrder.stripe_session_id && stripe) {
           console.log(`[DROPEA WEBHOOK] Autorrefund process for Order: ${linkedOrder.id}`);
-          processRefundInternal(linkedOrder.id).catch(e => console.error('[AUTORREFUND ERROR]', e));
+          isRefundInitiated = await processRefundInternal(linkedOrder.id);
         }
 
         const { data: order } = await supabase
           .from('orders')
-          .update({ status: 'canceled' })
+          .update({ status: isRefundInitiated ? 'refund_pending' : 'canceled' })
           .eq('id', linkedOrder.id)
           .select()
           .single();
 
-        if (order) {
+        if (order && !isRefundInitiated) {
+          // Só enviamos notificação de CANCELADO se não tivermos iniciado um reembolso (que já envia sua própria notificação ou será enviado pela atualização de status)
           triggerOrderNotification(order.id, 'canceled', order.shipping_status || 'pending', order).catch(e => console.error('[WEBHOOK CANCELED EMAIL ERROR]', e));
         }
       }
@@ -805,13 +807,13 @@ async function processRefundInternal(orderId: string) {
       console.log(`[REFUND INTERNAL] Stripe refund ${refund.status} for Order: ${orderId}`);
       
       if (refund.status === 'succeeded') {
-        await supabase.from('orders').update({ status: 'refunded', payment_status: 'refunded' }).eq('id', orderId);
-        triggerOrderNotification(orderId, 'refunded', order.shipping_status).catch(e => console.error('[REFUND NOTIF ERROR]', e));
+        const { data: updated } = await supabase.from('orders').update({ status: 'refunded', payment_status: 'refunded' }).eq('id', orderId).select().single();
+        if (updated) triggerOrderNotification(orderId, 'refunded', updated.shipping_status, updated).catch(e => console.error('[REFUND NOTIF ERROR]', e));
       } else {
-        // Se estiver pendente, marcamos como refund_pending para feedback visual no dashboard
-        await supabase.from('orders').update({ status: 'refund_pending', payment_status: 'refund_pending' }).eq('id', orderId);
-        // Opcional: Enviar email avisando que o reembolso foi disparado
-        triggerOrderNotification(orderId, 'canceled', order.shipping_status).catch(e => console.error('[CANCEL NOTIF ERROR]', e));
+        // Se estiver pendente, marcamos como refund_pending
+        const { data: updated } = await supabase.from('orders').update({ status: 'refund_pending', payment_status: 'refund_pending' }).eq('id', orderId).select().single();
+        // Avisar que foi cancelado com reembolso em curso
+        if (updated) triggerOrderNotification(orderId, 'canceled', updated.shipping_status, updated).catch(e => console.error('[CANCEL NOTIF ERROR]', e));
       }
       return true;
     }
@@ -1376,13 +1378,20 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         </div>
       `;
     } else if (['canceled', 'cancelado'].includes(lowerS)) {
-      subject = `Pedido Cancelado e Reembolso em curso - Pedido ${formattedId}`;
+      subject = `Atualização sobre o seu Pedido ${formattedId}`;
       flagField = 'email_canceled_sent';
+      const isRefund = ['refunded', 'reembolsado', 'refund_pending'].includes(lowerS) || (order.payment_status === 'refunded' || order.payment_status === 'refund_pending');
+      
       emailBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
-          <h2 style="color: #ef4444;">Atualização Importante: Pedido Cancelado</h2>
-          <p>Olá, ${customerName}. Informamos que o seu pedido <strong>${formattedId}</strong> foi cancelado.</p>
-          <p><strong>Não se preocupe:</strong> O processo de reembolso já foi iniciado automaticamente no sistema da Stripe. O valor será creditado no seu método de pagamento original.</p>
+          <h2 style="color: #ef4444;">Atualização do Pedido</h2>
+          <p>Olá, ${customerName}. Informamos uma atualização no seu pedido <strong>${formattedId}</strong>.</p>
+          <p>O status atual é: <strong>Cancelado</strong>.</p>
+          ${isRefund ? `
+          <p><strong>Reembolso:</strong> O processo de reembolso já foi iniciado automaticamente no sistema da Stripe. O valor será creditado no seu método de pagamento original nos próximos dias úteis.</p>
+          ` : `
+          <p>Se o pagamento ainda não tinha sido processado, nenhuma cobrança será efetuada.</p>
+          `}
           <p>Se tiver alguma dúvida, por favor contacte o nosso suporte respondendo a este e-mail.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
           <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
@@ -1505,7 +1514,7 @@ apiRouter.post('/dropea/sync', async (req, res) => {
         price: isNew ? p.pvpr : existingMap.get(pId),
         image_url: Array.isArray(p.images) ? p.images[0] : (typeof p.images === 'string' ? p.images : ''),
         product_type: 'physical',
-        category: p.category || 'Dropshipping',
+        category: p.category || 'Coleção Boutique',
         is_active: true
       };
 
@@ -2433,7 +2442,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
         image_url: image_url,
         extra_images: extra_images,
         product_type: 'physical',
-        category: productData.category || 'Dropea Sync',
+        category: 'Coleção Boutique', // Standardize on user's preferred category
         is_active: true,
         sizes_enabled,
         colors_enabled,
@@ -2448,6 +2457,14 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
       throw upsertError;
     }
 
+    // Ensure "Coleção Boutique" is in the categories table
+    try {
+      const { data: catExists } = await supabase.from('categories').select('id').eq('name', 'Coleção Boutique').maybeSingle();
+      if (!catExists) {
+        await supabase.from('categories').insert([{ name: 'Coleção Boutique' }]);
+      }
+    } catch(cErr) { /* non-blocking */ }
+
     console.log(`[ADMIN] Produto ${dropeaId} importado com sucesso: ${upserted.title}`);
     res.json(upserted);
 
@@ -2457,6 +2474,30 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
       error: error.message || 'Erro interno na importação',
       details: error.response?.data || error
     });
+  }
+});
+
+adminRouter.post('/categories/resync', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data: products, error: pError } = await supabase.from('products').select('category');
+    if (pError) throw pError;
+    
+    const uniqueCategories = Array.from(new Set(products?.map(p => p.category).filter(Boolean) || []));
+    const { data: existingCats, error: cError } = await supabase.from('categories').select('name');
+    if (cError) throw cError;
+    
+    const existingNames = new Set(existingCats?.map(c => c.name) || []);
+    const toInsert = uniqueCategories.filter(name => !existingNames.has(name)).map(name => ({ name }));
+    
+    if (toInsert.length > 0) {
+      await supabase.from('categories').insert(toInsert);
+    }
+    
+    res.json({ success: true, added: toInsert.length });
+  } catch (err: any) {
+    console.error('[ADMIN CATEGORY RESYNC ERROR]', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

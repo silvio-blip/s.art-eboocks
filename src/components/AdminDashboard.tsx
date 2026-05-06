@@ -28,6 +28,7 @@ import {
   Loader2,
   ExternalLink,
   RefreshCw,
+  RefreshCcw,
   Truck,
   Check,
   X,
@@ -266,6 +267,27 @@ export default function AdminDashboard({
       }
     }
     fetchData();
+  };
+
+  const handleResyncCategories = async () => {
+    const syncToast = toast.loading("Sincronizando tabela de categorias com produtos...");
+    try {
+      const res = await fetch('/api/admin/categories/resync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`${data.added} novas categorias sincronizadas!`, { id: syncToast });
+        fetchCategories(); // Refresh list
+      } else {
+        toast.error("Erro ao sincronizar categorias.");
+      }
+    } catch (err) {
+      toast.error("Erro de rede na sincronização.");
+    }
   };
 
   const fetchCategories = async () => {
@@ -1118,7 +1140,16 @@ export default function AdminDashboard({
               variant="outline"
               size="sm"
               onClick={() => setIsSiteSettingsOpen(true)}
-              className="border-white/10 text-white/50 hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5"
+              className="border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold hover:text-black gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden lg:flex"
+              title="Ajustar Design e Hero"
+            >
+              <Settings size={12} /> Configurações
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSiteSettingsOpen(true)}
+              className="border-white/10 text-white/50 hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5 lg:hidden"
               title="Configurações do Site"
             >
               <Settings size={14} />
@@ -1657,13 +1688,22 @@ export default function AdminDashboard({
                   className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 px-12 py-3 text-sm outline-none focus:border-luxury-gold transition-all"
                 />
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-2">
                 <Button
                   variant="outline"
                   onClick={() => setIsCategoryModalOpen(true)}
                   className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 hover:border-luxury-gold text-luxury-gold text-[10px] uppercase tracking-widest h-12 px-6"
                 >
                   Gerir Categorias
+                </Button>
+                
+                <Button
+                  variant="outline"
+                  onClick={handleResyncCategories}
+                  title="Sincronizar categorias a partir da lista de produtos"
+                  className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 hover:border-white text-white/40 text-[10px] uppercase tracking-widest h-12 w-12 p-0 flex items-center justify-center transition-all"
+                >
+                  <RefreshCcw size={14} />
                 </Button>
                 
                 <div className="flex rounded-none p-1 border border-black/5 dark:border-white/5 bg-black/5 dark:border-white/5 h-12 items-center">
@@ -1686,80 +1726,86 @@ export default function AdminDashboard({
 
             {/* Category Management Modal */}
             {isCategoryModalOpen && (
-              <div className="fixed inset-0 z-[70] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4">
-                <Card className="max-w-md w-full bg-[#0a0a0a] border-luxury-gold/20 rounded-none p-8 space-y-6">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-xl font-serif text-luxury-gold">Gestão de Categorias</h3>
-                    <button onClick={() => setIsCategoryModalOpen(false)}><X size={20} className="text-white/40 hover:text-white" /></button>
+              <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+                <Card className="max-w-md w-full bg-[#050505] border-luxury-gold/30 rounded-none p-10 space-y-8 animate-in zoom-in-95 duration-300">
+                  <div className="flex justify-between items-center border-b border-white/10 pb-6">
+                    <h3 className="text-2xl font-serif text-luxury-gold italic">Gestão de Coleções</h3>
+                    <button onClick={() => {
+                      setIsCategoryModalOpen(false);
+                      setEditingCategoryId(null);
+                    }}><X size={24} className="text-white/40 hover:text-white transition-colors" /></button>
                   </div>
                   
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-white/40">Adicionar Nova</label>
+                  <div className="space-y-4">
+                    <label className="text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-black">Adicionar à Boutique</label>
                     <div className="flex gap-2">
                       <input
                         value={newCategoryName}
                         onChange={(e) => setNewCategoryName(e.target.value)}
-                        placeholder="Nome da categoria..."
-                        className="flex-1 bg-white/5 border border-white/10 px-4 py-2 text-sm outline-none focus:border-luxury-gold transition-colors"
+                        placeholder="NOME DA CATEGORIA..."
+                        className="flex-1 bg-white/[0.03] border border-white/10 px-5 py-3 text-[11px] uppercase tracking-widest outline-none focus:border-luxury-gold transition-all text-white"
                         onKeyPress={(e) => e.key === 'Enter' && handleAddCategory()}
                       />
-                      <Button onClick={handleAddCategory} className="bg-luxury-gold text-black hover:bg-white rounded-none h-10 px-4">
-                        <Plus size={16} />
+                      <Button onClick={handleAddCategory} className="bg-luxury-gold text-black hover:bg-white rounded-none h-12 px-6 transition-all duration-500 font-black">
+                        <Plus size={18} />
                       </Button>
                     </div>
                   </div>
                   
-                  <div className="space-y-4 pt-4 border-t border-white/5">
-                    <label className="text-[10px] uppercase tracking-widest text-white/40">Categorias Existentes</label>
-                    <div className="max-h-60 overflow-y-auto space-y-2 pr-2 luxury-scrollbar">
+                  <div className="space-y-6 pt-6 ">
+                    <label className="text-[10px] uppercase tracking-[0.4em] text-white/30 font-bold block">Categorias Ativas</label>
+                    <div className="max-h-[350px] overflow-y-auto space-y-3 pr-2 luxury-scrollbar">
                       {categories.map((cat) => (
-                        <div key={cat.id} className="flex justify-between items-center bg-white/5 p-3 group border border-white/5 hover:border-luxury-gold/30 transition-all">
+                        <div key={cat.id} className="flex justify-between items-center bg-white/[0.02] p-4 group border border-white/5 hover:border-luxury-gold/40 transition-all duration-500">
                           {editingCategoryId === cat.id ? (
-                            <div className="flex gap-2 w-full animate-in slide-in-from-left-2 duration-200">
+                            <div className="flex gap-2 w-full animate-in slide-in-from-left-4 duration-300">
                               <input
                                 value={editingCategoryName}
                                 onChange={(e) => setEditingCategoryName(e.target.value)}
-                                className="flex-1 bg-black/40 border border-luxury-gold/50 px-3 py-1.5 text-sm outline-none text-white"
+                                className="flex-1 bg-black/60 border border-luxury-gold px-4 py-2 text-[11px] uppercase tracking-widest outline-none text-white font-bold"
                                 autoFocus
                                 onKeyPress={(e) => e.key === 'Enter' && handleUpdateCategory(cat.id)}
                               />
-                              <div className="flex gap-1.5">
+                              <div className="flex gap-2">
                                 <button 
                                   onClick={() => handleUpdateCategory(cat.id)}
-                                  className="bg-luxury-gold text-black p-2 rounded hover:bg-white transition-colors"
-                                  title="Confirmar"
+                                  className="bg-emerald-500 text-white p-2.5 hover:bg-emerald-400 transition-all shadow-lg"
+                                  title="Confirmar Edição"
                                 >
-                                  <Check size={16} />
+                                  <Check size={18} />
                                 </button>
                                 <button 
-                                  onClick={() => setEditingCategoryId(null)}
-                                  className="bg-white/10 text-white p-2 rounded hover:bg-white/20 transition-colors"
+                                  onClick={() => {
+                                    setEditingCategoryId(null);
+                                    setEditingCategoryName("");
+                                  }}
+                                  className="bg-red-500/20 text-red-500 p-2.5 hover:bg-red-500 hover:text-white transition-all"
                                   title="Cancelar"
                                 >
-                                  <X size={16} />
+                                  <X size={18} />
                                 </button>
                               </div>
                             </div>
                           ) : (
                             <>
                               <div className="flex flex-col">
-                                <span className="text-sm tracking-wide text-white/80">{cat.name}</span>
+                                <span className="text-[11px] uppercase tracking-[0.2em] text-white/90 font-medium">{cat.name}</span>
                               </div>
-                              <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
                                 <button 
                                   onClick={() => {
                                     setEditingCategoryId(cat.id);
                                     setEditingCategoryName(cat.name);
                                   }}
-                                  className="text-luxury-gold hover:bg-luxury-gold/10 p-2 rounded transition-colors"
+                                  className="text-luxury-gold bg-luxury-gold/10 p-2 border border-luxury-gold/20 hover:bg-luxury-gold hover:text-black transition-all"
                                   title="Editar"
                                 >
                                   <Edit size={14} />
                                 </button>
                                 <button 
                                   onClick={() => setCategoryToDelete(cat)}
-                                  className="text-red-500 hover:bg-red-500/10 p-2 rounded transition-colors"
-                                  title="Remover"
+                                  className="text-red-500 bg-red-500/10 p-2 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all"
+                                  title="Eliminar"
                                 >
                                   <Trash2 size={14} />
                                 </button>
@@ -1768,43 +1814,44 @@ export default function AdminDashboard({
                           )}
                         </div>
                       ))}
-                    {categories.length === 0 && (
-                      <p className="text-[10px] text-center opacity-20 uppercase tracking-[0.2em] py-8">
-                        Nenhuma categoria encontrada
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                  {/* Category Delete Confirmation Overlay */}
-                  {categoryToDelete && (
-                    <div className="absolute inset-0 bg-black/95 z-[80] flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-200">
-                      <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mb-4">
-                        <Trash2 size={24} className="text-red-500" />
-                      </div>
-                      <h4 className="text-lg font-serif text-white mb-2">Eliminar Categoria?</h4>
-                      <p className="text-xs text-white/40 mb-6">
-                        Tem a certeza que deseja eliminar <span className="text-white font-bold">"{categoryToDelete.name}"</span>?<br/>
-                        Esta ação pode afetar produtos associados.
-                      </p>
-                      <div className="flex gap-3 w-full">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setCategoryToDelete(null)}
-                          className="flex-1 border-white/10 text-white/60 hover:text-white h-10 text-[10px] uppercase tracking-widest"
-                        >
-                          Cancelar
-                        </Button>
-                        <Button 
-                          onClick={() => handleDeleteCategory(categoryToDelete.id)}
-                          className="flex-1 bg-red-500 hover:bg-red-600 text-white h-10 text-[10px] uppercase tracking-widest"
-                        >
-                          Confirmar
-                        </Button>
-                      </div>
+                      {categories.length === 0 && (
+                        <div className="py-12 flex flex-col items-center justify-center opacity-20 bg-white/[0.01] border border-dashed border-white/10">
+                          <Plus size={24} className="mb-2" />
+                          <p className="text-[9px] uppercase tracking-[0.3em]">Vazio</p>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </Card>
+
+                {/* Category Delete Confirmation Overlay */}
+                {categoryToDelete && (
+                  <div className="absolute inset-0 bg-black/98 z-[80] flex flex-col items-center justify-center p-12 text-center animate-in fade-in zoom-in duration-500">
+                    <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-8 border border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.2)]">
+                      <Trash2 size={40} className="text-red-500" />
+                    </div>
+                    <h4 className="text-3xl font-serif text-white mb-4 italic">Confirmar Exclusão?</h4>
+                    <p className="text-[11px] uppercase tracking-[0.25em] text-white/40 mb-10 max-w-sm leading-loose">
+                      Tem a certeza absoluta que deseja eliminar a categoria <span className="text-luxury-gold font-black">"{categoryToDelete.name}"</span>?<br/>
+                      <span className="text-red-500/50 mt-2 block">Produtos associados serão mantidos, mas a categoria será removida.</span>
+                    </p>
+                    <div className="flex gap-4 w-full max-w-xs">
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setCategoryToDelete(null)}
+                        className="flex-1 border-white/20 text-white/60 hover:text-white h-14 text-[10px] uppercase tracking-[0.4em] rounded-none hover:bg-white/5 transition-all"
+                      >
+                        Manter
+                      </Button>
+                      <Button 
+                        onClick={() => handleDeleteCategory(categoryToDelete.id)}
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white h-14 text-[10px] uppercase tracking-[0.4em] rounded-none shadow-2xl transition-all"
+                      >
+                        Eliminar
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
