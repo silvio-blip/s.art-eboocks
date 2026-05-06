@@ -173,6 +173,7 @@ export default function AdminDashboard({
 
   const [siteHero, setSiteHero] = useState({
     image: "",
+    video_url: "",
     title: "",
     buttonText: ""
   });
@@ -766,7 +767,7 @@ export default function AdminDashboard({
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
-    type: "image" | "pdf",
+    type: "image" | "pdf" | "video",
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -783,13 +784,18 @@ export default function AdminDashboard({
             .replace(/[^a-z0-9]/g, "-")
             .replace(/-+/g, "-")
             .substring(0, 50)
-        : "arquivo";
+        : "hero-asset";
 
       const fileName = `${slug}-${Date.now()}.${fileExt}`;
 
       const bucketName = "assets";
-      const folderPath =
-        type === "image" ? `covers/${fileName}` : `ebook/${fileName}`;
+      let folderPath = "";
+      
+      if (type === "video") {
+        folderPath = `ebook/${fileName}`; // User specifically requested ebook path inside asset
+      } else {
+        folderPath = type === "image" ? `covers/${fileName}` : `ebook/${fileName}`;
+      }
 
       const { error } = await supabase.storage
         .from(bucketName)
@@ -797,18 +803,23 @@ export default function AdminDashboard({
 
       if (error) throw error;
 
-      setEditingProduct((prev) => ({
-        ...prev!,
-        [type === "image" ? "image_url" : "file_url"]: folderPath,
-      }));
-
-      toast.success(
-        `${type === "image" ? "Capa" : "PDF"} carregado com sucesso.`,
-      );
+      if (type === "video") {
+        const { data } = supabase.storage.from(bucketName).getPublicUrl(folderPath);
+        setSiteHero(prev => ({ ...prev, video_url: data.publicUrl }));
+        toast.success("Vídeo do banner carregado!");
+      } else {
+        setEditingProduct((prev) => ({
+          ...prev!,
+          [type === "image" ? "image_url" : "file_url"]: folderPath,
+        }));
+        toast.success(`${type === "image" ? "Capa" : "PDF"} carregado com sucesso.`);
+      }
     } catch (err: any) {
       toast.error(`Erro no upload: ${err.message}`);
     } finally {
       setUploading(false);
+      // Clear input
+      e.target.value = "";
     }
   };
 
@@ -3385,77 +3396,127 @@ export default function AdminDashboard({
 
       {/* Site Settings Modal */}
       {isSiteSettingsOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
           <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="max-w-xl w-full bg-[#0a0a0a] border border-white/10 p-8 space-y-8 animate-in zoom-in duration-300"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            onClick={() => setIsSiteSettingsOpen(false)}
+            className="absolute inset-0 bg-[#050505]/95 backdrop-blur-md"
+          />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="relative w-full max-w-xl bg-[#080808] border border-white/10 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
           >
-            <div className="flex justify-between items-center border-b border-white/5 pb-6">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-white/5 flex justify-between items-center bg-[#080808] z-10 shrink-0">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-luxury-gold/10 flex items-center justify-center">
-                  <Settings size={22} className="text-luxury-gold" />
+                <div className="w-10 h-10 bg-luxury-gold/10 flex items-center justify-center">
+                  <Settings size={20} className="text-luxury-gold" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-serif text-white">Configurações do Site</h3>
-                  <p className="text-[10px] text-white/30 uppercase tracking-widest mt-1">Personalizar Elementos Visuais Base</p>
+                  <h3 className="text-lg font-serif text-white leading-none">Configurações do Site</h3>
+                  <p className="text-[9px] text-white/30 uppercase tracking-[0.2em] mt-1.5">Identidade Visual da Boutique</p>
                 </div>
               </div>
               <button 
                 onClick={() => setIsSiteSettingsOpen(false)}
-                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/5 transition-colors"
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/5 transition-colors text-white/40 hover:text-white"
               >
-                <X size={24} className="text-white/40 hover:text-white" />
+                <X size={20} />
               </button>
             </div>
 
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Imagem Hero (Background URL)</label>
-                <input
-                  value={siteHero.image}
-                  onChange={(e) => setSiteHero({ ...siteHero, image: e.target.value })}
-                  placeholder="https://exemplo.com/imagem.jpg"
-                  className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80 placeholder:text-white/10"
-                />
-              </div>
+            {/* Modal Scrollable Body */}
+            <div className="p-6 space-y-8 overflow-y-auto custom-scrollbar flex-1">
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Vídeo do Banner (Background)</label>
+                    <label className="cursor-pointer text-[10px] text-luxury-gold uppercase tracking-widest font-black hover:opacity-100 opacity-60">
+                      {uploading ? "A carregar..." : "Carregar Vídeo"}
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="video/*"
+                        onChange={(e) => handleFileUpload(e, "video")}
+                        disabled={uploading}
+                      />
+                    </label>
+                  </div>
+                  <input
+                    value={siteHero.video_url}
+                    onChange={(e) => setSiteHero({ ...siteHero, video_url: e.target.value })}
+                    placeholder="https://exemplo.com/banner.mp4"
+                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80 placeholder:text-white/10"
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Título do Banner</label>
-                <input
-                  value={siteHero.title}
-                  onChange={(e) => setSiteHero({ ...siteHero, title: e.target.value })}
-                  placeholder="Luxo & Exclusividade"
-                  className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
-                />
-              </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Imagem Hero (Background URL)</label>
+                  <input
+                    value={siteHero.image}
+                    onChange={(e) => setSiteHero({ ...siteHero, image: e.target.value })}
+                    placeholder="https://exemplo.com/imagem.jpg"
+                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80 placeholder:text-white/10"
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Texto do Botão Hero</label>
-                <input
-                  value={siteHero.buttonText}
-                  onChange={(e) => setSiteHero({ ...siteHero, buttonText: e.target.value })}
-                  placeholder="Explorar Coleção"
-                  className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
-                />
-              </div>
-              
-              {siteHero.image && (
-                <div className="space-y-3 pt-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/20">Pré-visualização em tempo real</label>
-                  <div className="aspect-[21/9] w-full bg-cover bg-center border border-white/5 relative overflow-hidden" style={{ backgroundImage: `url(${siteHero.image})` }}>
-                    <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4">
-                      <h4 className="text-[10px] md:text-sm font-serif text-white text-center max-w-[80%] drop-shadow-lg">{siteHero.title}</h4>
-                      <button className="mt-2 px-3 py-1 bg-luxury-gold text-[7px] md:text-[8px] uppercase tracking-widest text-black font-black whitespace-nowrap">
-                        {siteHero.buttonText}
-                      </button>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Título do Banner</label>
+                  <input
+                    value={siteHero.title}
+                    onChange={(e) => setSiteHero({ ...siteHero, title: e.target.value })}
+                    placeholder="Luxo & Exclusividade"
+                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Texto do Botão Hero</label>
+                  <input
+                    value={siteHero.buttonText}
+                    onChange={(e) => setSiteHero({ ...siteHero, buttonText: e.target.value })}
+                    placeholder="Explorar Coleção"
+                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
+                  />
+                </div>
+                
+                {siteHero.video_url && (
+                  <div className="space-y-3 pt-2">
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/20">Pré-visualização do Vídeo</label>
+                    <div className="aspect-[21/9] w-full border border-white/5 relative overflow-hidden bg-black">
+                       <video 
+                         key={siteHero.video_url}
+                         src={siteHero.video_url} 
+                         className="w-full h-full object-cover opacity-60" 
+                         autoPlay 
+                         muted 
+                         loop 
+                         playsInline 
+                       />
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+
+                {siteHero.image && (
+                  <div className="space-y-3 pt-2">
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/20">Pré-visualização da Hero</label>
+                    <div className="aspect-[21/9] w-full bg-cover bg-center border border-white/5 relative overflow-hidden" style={{ backgroundImage: `url(${siteHero.image})` }}>
+                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4">
+                        <h4 className="text-[10px] md:text-sm font-serif text-white text-center max-w-[80%] drop-shadow-lg">{siteHero.title}</h4>
+                        <button className="mt-2 px-3 py-1 bg-luxury-gold text-[7px] md:text-[8px] uppercase tracking-widest text-black font-black whitespace-nowrap">
+                          {siteHero.buttonText}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="flex gap-4 pt-4">
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-white/5 flex gap-4 bg-[#080808] shrink-0">
               <Button
                 variant="outline"
                 onClick={() => setIsSiteSettingsOpen(false)}

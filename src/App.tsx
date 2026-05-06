@@ -1,5 +1,14 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
+import { 
+  motion, 
+  AnimatePresence, 
+  useScroll, 
+  useVelocity, 
+  useSpring, 
+  useTransform, 
+  useAnimationFrame,
+  useMotionValue
+} from "motion/react";
 import "react-pdf/dist/esm/Page/TextLayer.css";
 import "react-pdf/dist/esm/Page/AnnotationLayer.css";
 import {
@@ -60,6 +69,208 @@ const getImageUrl = (url: string) => {
     console.warn("Error generating public URL for image:", err);
     return "";
   }
+};
+
+// --- Animation Components ---
+
+const wrap = (min: number, max: number, v: number) => {
+  const rangeSize = max - min;
+  return ((((v - min) % rangeSize) + rangeSize) % rangeSize) + min;
+};
+
+const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
+  const activeProducts = useMemo(() => products.filter(p => p.is_active && p.image_url), [products]);
+  if (activeProducts.length === 0) return null;
+
+  const baseX = useMotionValue(0);
+  const { scrollY } = useScroll();
+  const scrollVelocity = useVelocity(scrollY);
+  const smoothVelocity = useSpring(scrollVelocity, {
+    stiffness: 400,
+    damping: 50
+  });
+
+  const velocityFactor = useTransform(smoothVelocity, [0, 1000], [0, 2], {
+    clamp: false
+  });
+
+  // Extremely slow base speed (percent per second)
+  const baseVelocity = -1.2;
+  const directionFactor = React.useRef<number>(1);
+
+  // Seamless wrap at 1/3
+  const x = useTransform(baseX, (v) => `${wrap(-33.333, 0, v)}%`);
+
+  useAnimationFrame((t, delta) => {
+    // Determine direction from scroll velocity
+    const velocity = scrollVelocity.get();
+    if (velocity > 0) {
+      directionFactor.current = 1; // Scroll down -> move left
+    } else if (velocity < 0) {
+      directionFactor.current = -1; // Scroll up -> move right
+    }
+
+    // delta is in ms, delta/1000 is seconds
+    let moveBy = directionFactor.current * baseVelocity * (delta / 1000); 
+    
+    const factor = Math.abs(velocityFactor.get());
+    if (factor > 0) {
+      moveBy += moveBy * (factor * 0.5);
+    }
+    
+    baseX.set(baseX.get() + moveBy);
+  });
+
+  const marqueeItems = useMemo(() => {
+    let list = [...activeProducts];
+    // Ensure we have a high enough count to prevent gaps anywhere
+    while (list.length < 20) {
+      list = [...list, ...activeProducts];
+    }
+    // Triple it for the wrap logic
+    return [...list, ...list, ...list];
+  }, [activeProducts]);
+
+  return (
+    <div className="relative py-14 overflow-hidden bg-[#050505] select-none pointer-events-none">
+      <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-[#050505] to-transparent z-10" />
+      <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-[#050505] to-transparent z-10" />
+      
+      <motion.div 
+        className="flex gap-6 pr-6 w-max" 
+        style={{ x }}
+      >
+        {marqueeItems.map((product, i) => (
+          <div 
+            key={`${product.id}-${i}`} 
+            className="flex-shrink-0 flex items-center gap-4 w-[240px] h-14 pr-4"
+          >
+            <div className="w-14 h-full flex-shrink-0 overflow-hidden ml-2">
+              <img 
+                src={getImageUrl(product.image_url)} 
+                alt="" 
+                className="w-full h-full object-cover grayscale opacity-30"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+            <div className="flex-1 flex flex-col justify-center gap-0.5 overflow-hidden">
+              <p className="text-luxury-gold text-[7px] uppercase tracking-[0.3em] font-black truncate leading-none opacity-50">
+                {product.title}
+              </p>
+              <div className="h-[1px] w-4 bg-luxury-gold/20"></div>
+            </div>
+          </div>
+        ))}
+      </motion.div>
+    </div>
+  );
+};
+
+const MagneticButton = ({ children, className = "" }: { children: React.ReactNode, className?: string }) => {
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  const handleMouse = (e: React.MouseEvent) => {
+    const { clientX, clientY } = e;
+    const { left, top, width, height } = ref.current!.getBoundingClientRect();
+    const x = clientX - (left + width / 2);
+    const y = clientY - (top + height / 2);
+    setPosition({ x, y });
+  };
+
+  const reset = () => {
+    setPosition({ x: 0, y: 0 });
+  };
+
+  return (
+    <motion.div
+      ref={ref}
+      onMouseMove={handleMouse}
+      onMouseLeave={reset}
+      animate={{ x: position.x * 0.2, y: position.y * 0.2 }}
+      transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+};
+
+const MovingParticles = () => {
+  return (
+    <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-40">
+      {[...Array(15)].map((_, i) => (
+        <motion.div
+          key={i}
+          initial={{ 
+            x: Math.random() * 100 + "%", 
+            y: Math.random() * 100 + "%",
+            opacity: Math.random() * 0.3 + 0.1,
+            scale: Math.random() * 0.5 + 0.5
+          }}
+          animate={{ 
+            x: [null, Math.random() * 100 + "%", Math.random() * 100 + "%"],
+            y: [null, Math.random() * 100 + "%", Math.random() * 100 + "%"],
+            rotate: [0, 180, 360]
+          }}
+          transition={{ 
+            duration: Math.random() * 20 + 20, 
+            repeat: Infinity, 
+            ease: "linear" 
+          }}
+          className="absolute w-1 h-1 bg-luxury-gold rounded-full blur-[1px]"
+        />
+      ))}
+      <motion.div 
+        animate={{ 
+          opacity: [0.1, 0.2, 0.1],
+          scale: [1, 1.1, 1]
+        }}
+        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-luxury-gold/5 rounded-full blur-[120px]"
+      />
+      <motion.div 
+        animate={{ 
+          opacity: [0.1, 0.15, 0.1],
+          scale: [1, 1.2, 1]
+        }}
+        transition={{ duration: 15, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+        className="absolute bottom-1/4 right-1/4 w-[600px] h-[600px] bg-luxury-gold/5 rounded-full blur-[150px]"
+      />
+    </div>
+  );
+};
+
+const SectionHeading = ({ subtitle, title }: { subtitle: string, title: string }) => {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-100px" }}
+      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+      className="px-[5%] mb-20"
+    >
+      <motion.span 
+        initial={{ opacity: 0, x: -20 }}
+        whileInView={{ opacity: 1, x: 0 }}
+        viewport={{ once: true }}
+        transition={{ delay: 0.2, duration: 0.8 }}
+        className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-bold block mb-4"
+      >
+        {subtitle}
+      </motion.span>
+      <h2 className="font-serif text-4xl md:text-5xl text-luxury-foreground italic transition-colors">
+        {title}
+      </h2>
+      <motion.div 
+        initial={{ width: 0 }}
+        whileInView={{ width: 96 }}
+        viewport={{ once: true }}
+        transition={{ delay: 0.4, duration: 1, ease: [0.16, 1, 0.3, 1] }}
+        className="h-px bg-luxury-gold/30 mt-6"
+      ></motion.div>
+    </motion.div>
+  );
 };
 
 // --- Types ---
@@ -149,7 +360,7 @@ const Navbar = ({
   const iconClass = "text-white hover:text-luxury-gold transition-all duration-300 transform hover:scale-110 active:scale-95 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]";
 
   return (
-    <header className={`fixed w-full top-0 z-[1000] transition-all duration-1000 ease-in-out ${
+    <header className={`fixed w-full top-0 z-[50] transition-all duration-1000 ease-in-out ${
       isScrolled 
         ? "py-3 bg-black/80 backdrop-blur-3xl border-b border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.5)]" 
         : "py-6 bg-transparent"
@@ -295,11 +506,11 @@ function ProductCard({
 }: ProductCardProps) {
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 30 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-100px" }}
-      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-      whileHover={{ y: -5 }}
+      transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{ y: -8 }}
       className={`luxury-card cursor-pointer group relative overflow-hidden ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
@@ -310,13 +521,23 @@ function ProductCard({
       }}
     >
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <img
+        <motion.img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-[2000ms] ease-out group-hover:scale-110"
+          className="w-full h-full object-cover transition-transform duration-[2500ms] ease-out group-hover:scale-110"
         />
         <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-700" />
+        
+        {/* Shine effect on hover */}
+        <div className="absolute inset-0 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-1000 pointer-events-none">
+          <motion.div 
+            initial={{ x: "-100%", skewX: -20 }}
+            whileHover={{ x: "200%" }}
+            transition={{ duration: 1.5, ease: "easeInOut" }}
+            className="absolute top-0 left-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent"
+          />
+        </div>
       </div>
 
       <div className="card-info bg-gradient-to-t from-black/80 via-black/20 to-transparent md:translate-y-6 md:group-hover:translate-y-0 md:opacity-0 md:group-hover:opacity-100 transition-all duration-700 ease-premium p-4 md:p-6">
@@ -1202,6 +1423,15 @@ const ProductDetailsPage = ({
 };
 
 export default function App() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.play().catch(error => {
+        console.error("Video background failed to play:", error);
+      });
+    }
+  }, []);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1226,6 +1456,7 @@ export default function App() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [siteHero, setSiteHero] = useState({
     image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070",
+    video_url: "",
     title: "Luxo & Exclusividade",
     buttonText: "Explorar Coleção"
   });
@@ -2107,18 +2338,34 @@ export default function App() {
       <main className={`overflow-x-hidden ${view === "home" ? "w-full" : "pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full"}`}>
         <AnimatePresence mode="wait">
           {view === "reset-password" && (
-            <ResetPasswordView onComplete={() => setView("home")} />
+            <motion.div
+              key="reset-password"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.5 }}
+            >
+              <ResetPasswordView onComplete={() => setView("home")} />
+            </motion.div>
           )}
 
           {view === "admin" && user && ADMIN_IDS.includes(user.id) && (
-            <AdminDashboard
-              user={user}
-              theme={theme}
-              onBack={() => {
-                setView("home");
-                fetchProducts();
-              }}
-            />
+            <motion.div
+              key="admin"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.5 }}
+            >
+              <AdminDashboard
+                user={user}
+                theme={theme}
+                onBack={() => {
+                  setView("home");
+                  fetchProducts();
+                }}
+              />
+            </motion.div>
           )}
 
           {view === "home" && (
@@ -2129,64 +2376,110 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="w-full"
             >
-              <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden bg-luxury-bg">
-                {/* Background Image Container */}
-                <div className="absolute inset-0 z-0">
-                  <img 
-                    src={siteHero.image} 
-                    alt="Luxury Background" 
-                    className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-1/2 transition-opacity duration-1000"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-b from-luxury-bg/90 via-luxury-bg/30 to-luxury-bg"></div>
+                <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden bg-luxury-bg">
+                  <MovingParticles />
+                {/* Background Video/Image Container */}
+                <div className="absolute inset-0 z-0 bg-[#050505]">
+                  {siteHero.video_url ? (
+                    <video
+                      key={siteHero.video_url}
+                      ref={videoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      preload="auto"
+                      poster={siteHero.image}
+                      onEnded={(e) => {
+                        (e.target as HTMLVideoElement).pause();
+                      }}
+                      className="w-full h-full object-cover opacity-90 transition-opacity duration-1000 grayscale-[10%]"
+                    >
+                      <source src={siteHero.video_url} type="video/mp4" />
+                      {/* Fallback image if video fails to load */}
+                      <img 
+                        src={siteHero.image} 
+                        alt="Luxury Background" 
+                        className="w-full h-full object-cover"
+                      />
+                    </video>
+                  ) : (
+                    <img 
+                      src={siteHero.image} 
+                      alt="Luxury Background" 
+                      className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-[10%] transition-opacity duration-1000"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/60 via-transparent to-[#050505]"></div>
                 </div>
 
                 <div className="hero-content relative z-10 text-center px-4 max-w-5xl">
-                  <motion.h1 
-                    initial={{ y: 40, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                    className="font-serif text-[clamp(2.5rem,5vw,7rem)] tracking-[-0.04em] text-white drop-shadow-2xl leading-[0.9] uppercase"
-                  >
-                    {siteHero.title.split(' ').map((word, i) => (
-                      <React.Fragment key={i}>
-                        {i === 1 ? <span className="italic font-light">{word} </span> : word + ' '}
-                      </React.Fragment>
-                    ))}
-                  </motion.h1>
-                  <motion.p 
-                    initial={{ y: 20, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 0.3, duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                    className="text-luxury-gold tracking-[0.8em] uppercase mt-8 font-medium text-xs md:text-sm mb-12 drop-shadow-sm opacity-80"
-                  >
-                    A Essência da Exclusividade
-                  </motion.p>
-                  
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.6, duration: 0.8 }}
-                  >
-                    <motion.button
-                      whileHover={{ scale: 1.02, backgroundColor: "#c78b7d", color: "#fff" }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => document.getElementById("boutique")?.scrollIntoView({ behavior: "smooth" })}
-                      className="bg-white text-black px-16 py-5 text-[10px] uppercase font-bold tracking-[0.4em] transition-all shadow-[0_20px_50px_rgba(0,0,0,0.3)] luxury-shine"
+                    <motion.div
+                      initial="hidden"
+                      animate="visible"
+                      variants={{
+                        visible: {
+                          transition: {
+                            staggerChildren: 0.15
+                          }
+                        }
+                      }}
                     >
-                      {siteHero.buttonText}
-                    </motion.button>
-                  </motion.div>
+                      <motion.h1 
+                        variants={{
+                          hidden: { y: 100, opacity: 0 },
+                          visible: { y: 0, opacity: 1, transition: { duration: 1.8, ease: [0.16, 1, 0.3, 1] } }
+                        }}
+                        className="font-serif text-[clamp(2.5rem,7vw,9.5rem)] tracking-[-0.05em] text-white drop-shadow-2xl leading-[0.8] uppercase"
+                      >
+                        {siteHero.title.split(' ').map((word, i) => (
+                          <motion.span 
+                            key={i}
+                            variants={{
+                              hidden: { opacity: 0, scale: 0.9 },
+                              visible: { opacity: 1, scale: 1 }
+                            }}
+                            className="inline-block mr-[0.2em]"
+                          >
+                            {i === 1 ? <span className="italic font-light text-luxury-gold">{word}</span> : word}
+                          </motion.span>
+                        ))}
+                      </motion.h1>
+                      
+                      <motion.p 
+                        variants={{
+                          hidden: { opacity: 0, y: 20 },
+                          visible: { opacity: 0.9, y: 0, transition: { duration: 1.2, ease: "easeOut" } }
+                        }}
+                        className="text-luxury-gold tracking-[0.8em] md:tracking-[1.2em] uppercase mt-12 font-medium text-[9px] md:text-[11px] mb-16 drop-shadow-sm opacity-80"
+                      >
+                        A Essência da Exclusividade
+                      </motion.p>
+                      
+                      <motion.div
+                        variants={{
+                          hidden: { opacity: 0, y: 30 },
+                          visible: { opacity: 1, y: 0, transition: { duration: 1, ease: "easeOut" } }
+                        }}
+                      >
+                        <MagneticButton className="inline-block">
+                          <motion.button
+                            whileHover={{ scale: 1.05, backgroundColor: "#c78b7d", color: "#fff" }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => document.getElementById("featured-section")?.scrollIntoView({ behavior: "smooth" })}
+                            className="bg-white text-black px-16 py-6 text-[10px] uppercase font-bold tracking-[0.5em] transition-all shadow-[0_30px_60px_rgba(0,0,0,0.4)] luxury-shine border border-white/20"
+                          >
+                            {siteHero.buttonText}
+                          </motion.button>
+                        </MagneticButton>
+                      </motion.div>
+                    </motion.div>
                 </div>
               </section>
 
               {/* Featured Section (Destaque) - Redesenhada com Grid de 2 Colunas (Desktop) */}
               {products.filter(p => p.is_featured && p.is_active).length > 0 && (
                 <section id="featured-section" className="bg-luxury-bg py-32 border-b border-luxury-border overflow-hidden transition-colors duration-500">
-                  <div className="px-[5%] mb-20">
-                     <span className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-bold block mb-4">Seleção Master Premium</span>
-                     <h2 className="font-serif text-4xl md:text-5xl text-luxury-foreground italic transition-colors">Destaques da Temporada</h2>
-                     <div className="h-px w-24 bg-luxury-gold/30 mt-6"></div>
-                  </div>
+                  <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
 
                   <motion.div 
                     initial="hidden"
@@ -2255,27 +2548,29 @@ export default function App() {
                                 </div>
                               </div>
                               
-                              <motion.button 
-                                whileHover={{ scale: 1.05, backgroundColor: "#c78b7d", color: "#fff" }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleBuy(featuredProduct);
-                                }}
-                                disabled={checkoutLoading === featuredProduct.id}
-                                className="bg-luxury-foreground text-luxury-bg px-12 py-5 rounded-full text-[9px] min-w-[200px] uppercase font-black tracking-[0.4em] transition-all duration-500 relative group overflow-hidden luxury-shine"
-                              >
-                                <span className="relative z-10 flex items-center justify-center gap-3">
-                                  {checkoutLoading === featuredProduct.id ? (
-                                    <Loader2 size={14} className="animate-spin" />
-                                  ) : (
-                                    <>
-                                      <span className="group-hover:translate-x-1 transition-transform duration-300">COMPRAR AGORA</span>
-                                      <ArrowRight size={14} className="group-hover:translate-x-2 transition-transform duration-300" />
-                                    </>
-                                  )}
-                                </span>
-                              </motion.button>
+                              <MagneticButton>
+                                <motion.button 
+                                  whileHover={{ scale: 1.05, backgroundColor: "#c78b7d", color: "#fff" }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleBuy(featuredProduct);
+                                  }}
+                                  disabled={checkoutLoading === featuredProduct.id}
+                                  className="bg-luxury-foreground text-luxury-bg px-12 py-5 rounded-full text-[9px] min-w-[200px] uppercase font-black tracking-[0.4em] transition-all duration-500 relative group overflow-hidden luxury-shine"
+                                >
+                                  <span className="relative z-10 flex items-center justify-center gap-3">
+                                    {checkoutLoading === featuredProduct.id ? (
+                                      <Loader2 size={14} className="animate-spin" />
+                                    ) : (
+                                      <>
+                                        <span className="group-hover:translate-x-1 transition-transform duration-300">COMPRAR AGORA</span>
+                                        <ArrowRight size={14} className="group-hover:translate-x-2 transition-transform duration-300" />
+                                      </>
+                                    )}
+                                  </span>
+                                </motion.button>
+                              </MagneticButton>
                             </div>
                           </div>
                         </motion.div>
@@ -2285,13 +2580,15 @@ export default function App() {
                 </section>
               )}
 
-              <section className="px-[5%] py-24" id="boutique">
-                <div className="max-w-7xl mx-auto space-y-12">
+              <InfiniteProductMarquee products={products} />
+
+              <section className="py-24 w-full overflow-hidden" id="boutique">
+                <SectionHeading subtitle="Curadoria Exclusiva" title="Coleção Boutique" />
+                <div className="space-y-12 w-full px-[2%]">
                   {/* Sticky Dropdown Filter Bar */}
                   <div className="sticky-filter-bar flex flex-col md:flex-row items-center justify-between py-6 gap-6 transition-colors duration-500">
                     <div className="flex items-center gap-4">
-                      <h3 className="font-serif text-2xl text-luxury-foreground italic transition-colors">Coleção Boutique</h3>
-                      <span className="text-[10px] uppercase tracking-[0.3em] text-luxury-foreground/30 pt-1">
+                      <span className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold pt-1 font-bold">
                         {products.filter(p => {
                           const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
                           const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
@@ -2879,7 +3176,7 @@ export default function App() {
         </Dialog>
       )}
 
-      <footer className="border-t border-luxury-border py-20 px-6 bg-luxury-bg transition-colors duration-500">
+      <footer className="border-t border-white/5 py-24 px-6 bg-[#050505] transition-colors duration-500">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-12 text-center md:text-left">
           <div className="space-y-4">
             <h3 className="text-3xl font-serif tracking-tighter text-luxury-foreground transition-colors">
