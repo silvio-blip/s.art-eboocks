@@ -2459,7 +2459,7 @@ export default function App() {
                             hidden: { opacity: 0, y: 20 },
                             visible: { opacity: 1, y: 0, transition: { duration: 1.2, ease: "easeOut", delay: 0.8 } }
                           }}
-                          className="text-luxury-gold tracking-[0.8em] md:tracking-[1.5em] uppercase mt-12 font-medium text-[10px] md:text-[12px] mb-16 drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
+                          className="text-luxury-gold tracking-[0.8em] md:tracking-[1.5em] uppercase mt-12 font-medium text-[10px] md:text-[12px] mb-24 md:mb-32 drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
                         >
                           {siteHero.subtitle}
                         </motion.p>
@@ -2468,8 +2468,9 @@ export default function App() {
                       <motion.div
                         variants={{
                           hidden: { opacity: 0, y: 30 },
-                          visible: { opacity: 1, y: 0, transition: { duration: 1, ease: "easeOut" } }
+                          visible: { opacity: 1, y: 0, transition: { duration: 1, ease: "easeOut", delay: 1.2 } }
                         }}
+                        className="mt-8 md:mt-12"
                       >
                         <MagneticButton className="inline-block">
                           <motion.button
