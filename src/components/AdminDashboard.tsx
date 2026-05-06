@@ -1553,9 +1553,6 @@ export default function AdminDashboard({
                         Data
                       </th>
                       <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
-                        Qtd
-                      </th>
-                      <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Valor
                       </th>
                       <th id="th-status" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
@@ -1593,9 +1590,7 @@ export default function AdminDashboard({
                         <td className="px-6 py-4 opacity-40">
                           {new Date(order.created_at).toLocaleDateString()}
                         </td>
-                        <td className="px-8 py-4 font-mono text-center">
-                          {order.quantity || 1}
-                        </td>
+
                         <td className="px-6 py-4 font-medium">
                           €{order.total_amount}
                         </td>
@@ -2441,9 +2436,6 @@ export default function AdminDashboard({
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
                       Data de Venda
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30 text-center">
-                      Qtd
-                    </th>
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
                       Total
                     </th>
@@ -2505,9 +2497,7 @@ export default function AdminDashboard({
                       <td className="px-8 py-6 text-white/40">
                         {order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "-"}
                       </td>
-                      <td className="px-8 py-6 text-center text-white font-mono">
-                        {order.quantity || 1}
-                      </td>
+
                       <td className="px-8 py-6 font-medium text-lg">
                         €{order.total_amount}
                       </td>

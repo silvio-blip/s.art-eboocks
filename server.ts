@@ -242,35 +242,44 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       const internalProductId = metadata.product_id;
       const userId = customerData.userId;
 
-      // 2. CRIAR PEDIDO
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
+      // 2. CRIAR PEDIDOS (UM REGISTO POR ITEM)
+      const quantity = session.line_items?.data?.[0]?.quantity || 1;
+      const ordersToInsert = [];
+
+      for (let i = 0; i < quantity; i++) {
+        ordersToInsert.push({
           user_id: userId,
           product_id: internalProductId,
           status: 'paid',
           payment_status: 'paid',
           shipping_status: 'pending',
-          total_amount: session.amount_total ? session.amount_total / 100 : 0,
-          quantity: session.line_items?.data?.[0]?.quantity || 1,
+          total_amount: (session.amount_total ? session.amount_total / 100 : 0) / quantity,
           stripe_session_id: session.id,
           stripe_payment_intent: session.payment_intent as string,
           shipping_details: customerDataRaw,
-          customer_email: session.customer_details?.email || customerData?.email || metadata?.email // Tripla redundância de e-mail
-        })
-        .select()
-        .single();
+          customer_email: session.customer_details?.email || customerData?.email || metadata?.email
+        });
+      }
+
+      const { data: createdOrders, error: orderError } = await supabase
+        .from('orders')
+        .insert(ordersToInsert)
+        .select();
 
       if (orderError) throw orderError;
       
-      console.log(`[STRIPE WEBHOOK SUCCESS] Ordem ${orderData.id} criada. Iniciando Sincronização e Email...`);
+      console.log(`[STRIPE WEBHOOK SUCCESS] Criadas ${createdOrders?.length} ordens individuais. Iniciando Sincronização e Email...`);
 
-      // 3. DISPARAR TUDO AUTOMATICAMENTE (SEM TRIGGERS DO BANCO)
-      // Enviar e-mail de confirmação de pagamento IMEDIATAMENTE
-      triggerOrderNotification(orderData.id, 'paid', 'pending', orderData).catch(e => console.error(`[AUTO-EMAIL ERROR]`, e));
-      
-      // Sincronizar com a Dropea IMEDIATAMENTE
-      processOrderFulfillment(orderData).catch(e => console.error(`[AUTO-FULFILL ERROR]`, e));
+      // 3. DISPARAR TUDO AUTOMATICAMENTE PARA CADA ORDEM
+      if (createdOrders) {
+        for (const order of createdOrders) {
+          // Enviar e-mail de confirmação de pagamento IMEDIATAMENTE
+          triggerOrderNotification(order.id, 'paid', 'pending', order).catch(e => console.error(`[AUTO-EMAIL ERROR]`, e));
+          
+          // Sincronizar com a Dropea IMEDIATAMENTE
+          processOrderFulfillment(order).catch(e => console.error(`[AUTO-FULFILL ERROR]`, e));
+        }
+      }
 
     } catch (err: any) {
       console.error("[STRIPE WEBHOOK FATAL PROCESSING ERROR]", err);
@@ -2694,27 +2703,33 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
     }
 
     const dropeaStatus = String(dropeaData.status).toUpperCase();
+    const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
     
     // Mapeamento Refinado
     if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus)) {
       updateData.shipping_status = 'sent';
-      if (['paid', 'completed'].includes(order.status)) {
-        updateData.status = (dropeaStatus === 'FULFILLED') ? 'completed' : order.status;
+      if (order.status !== 'refunded') {
+        updateData.status = (dropeaStatus === 'FULFILLED') ? 'completed' : 'paid';
       }
     } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
       updateData.shipping_status = 'delivered';
       updateData.status = 'completed';
     } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
       // Somente mudamos para cancelado se NÃO estiver já em processo de reembolso
+      // E SE o pedido não for extremamente recente (menos de 10 minutos), para evitar race conditions na Dropea
       if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
-        updateData.status = 'canceled';
-        // REMOVED AUTO-REFUND during admin sync
+        if (orderAgeMinutes > 10) {
+          updateData.status = 'canceled';
+        } else {
+          console.log(`[SYNC SKIP CANCELED] Pedido ${id} marcado como cancelado na Dropea, mas é muito recente (${Math.round(orderAgeMinutes)}min). Ignorando...`);
+        }
       }
     } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
       updateData.status = 'refunded';
       updateData.payment_status = 'refunded';
     } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP'].includes(dropeaStatus)) {
-       if (!['completed', 'canceled', 'refunded', 'refund_pending'].includes(order.status)) {
+       // Permitir recuperação de 'canceled' se a Dropea disser que está PAID/PROCESSING
+       if (order.status !== 'refunded' && order.status !== 'completed') {
          updateData.status = 'paid';
          updateData.payment_status = 'paid';
        }
