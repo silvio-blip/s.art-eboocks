@@ -17,6 +17,7 @@ import {
   Download,
   CheckCircle,
   XCircle,
+  AlertTriangle,
   TrendingUp,
   DollarSign,
   ShoppingBag,
@@ -360,6 +361,34 @@ export default function AdminDashboard({
       }
     } catch (e) {
       toast.error("Erro de rede.");
+    }
+  };
+
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [orderToRefund, setOrderToRefund] = useState<Order | null>(null);
+
+  const confirmRefundAction = async () => {
+    if (!orderToRefund) return;
+    
+    const refundToast = toast.loading('Processando Reembolso no Stripe...');
+    try {
+      const response = await fetch(`/api/admin/orders/${orderToRefund.id}/refund`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success(`Reembolso efetuado com sucesso`, { id: refundToast });
+        setIsRefundModalOpen(false);
+        fetchDashboardData();
+      } else {
+        toast.error(data.error || 'Erro ao processar reembolso.', { id: refundToast });
+      }
+    } catch(e) {
+      toast.error('Erro de rede ao processar reembolso.', { id: refundToast });
     }
   };
 
@@ -1524,6 +1553,9 @@ export default function AdminDashboard({
                         Data
                       </th>
                       <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                        Qtd
+                      </th>
+                      <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Valor
                       </th>
                       <th id="th-status" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
@@ -1535,7 +1567,7 @@ export default function AdminDashboard({
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${theme === 'dark' ? 'divide-white/5' : 'divide-black/5'}`}>
-                    {orders.slice(0, 5).map((order) => (
+                    {orders.slice(0, 10).map((order) => (
                       <tr
                         key={order.id}
                         className={`${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors`}
@@ -1560,6 +1592,9 @@ export default function AdminDashboard({
                         </td>
                         <td className="px-6 py-4 opacity-40">
                           {new Date(order.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-8 py-4 font-mono text-center">
+                          {order.quantity || 1}
                         </td>
                         <td className="px-6 py-4 font-medium">
                           €{order.total_amount}
@@ -2406,6 +2441,9 @@ export default function AdminDashboard({
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
                       Data de Venda
                     </th>
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30 text-center">
+                      Qtd
+                    </th>
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
                       Total
                     </th>
@@ -2466,6 +2504,9 @@ export default function AdminDashboard({
                       </td>
                       <td className="px-8 py-6 text-white/40">
                         {order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "-"}
+                      </td>
+                      <td className="px-8 py-6 text-center text-white font-mono">
+                        {order.quantity || 1}
                       </td>
                       <td className="px-8 py-6 font-medium text-lg">
                         €{order.total_amount}
@@ -2596,29 +2637,9 @@ export default function AdminDashboard({
 
                           {(order.status === 'paid' || order.status === 'completed') && (
                             <Button
-                               onClick={async () => {
-                                 const confirmRefund = window.confirm("Tem a certeza que deseja PROCESSAR o reembolso automático no Stripe e cancelar o pedido?");
-                                 if (!confirmRefund) return;
-
-                                 const refundToast = toast.loading('Processando Reembolso no Stripe...');
-                                 try {
-                                   const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
-                                     method: 'POST',
-                                     headers: {
-                                       'Content-Type': 'application/json',
-                                       'x-user-id': user.id
-                                     }
-                                   });
-                                   const data = await response.json();
-                                   if (data.success) {
-                                     toast.success(`Reembolso efetuado com sucesso`, { id: refundToast });
-                                     fetchDashboardData();
-                                   } else {
-                                     toast.error(data.error || 'Erro ao processar reembolso.', { id: refundToast });
-                                   }
-                                 } catch(e) {
-                                   toast.error('Erro de rede ao processar reembolso.', { id: refundToast });
-                                 }
+                               onClick={() => {
+                                 setOrderToRefund(order);
+                                 setIsRefundModalOpen(true);
                                }}
                                variant="ghost"
                                title="Executar Reembolso Real (Stripe + Status)"
@@ -2644,6 +2665,70 @@ export default function AdminDashboard({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Modal de Confirmação de Reembolso */}
+        {isRefundModalOpen && orderToRefund && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-zinc-900 border border-white/10 w-full max-w-md overflow-hidden relative"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-red-600"></div>
+              
+              <div className="p-8">
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center text-red-500">
+                    <AlertTriangle size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white tracking-tight">Confirmar Reembolso</h3>
+                    <p className="text-white/40 text-xs uppercase tracking-widest mt-1">Ação Irreversível</p>
+                  </div>
+                </div>
+
+                <div className="bg-white/5 border border-white/5 p-4 mb-6 space-y-3">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40 uppercase tracking-widest">Pedido</span>
+                    <span className="text-white font-mono">SART-{orderToRefund.id.split('-')[0].toUpperCase()}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40 uppercase tracking-widest">Valor</span>
+                    <span className="text-white font-bold">€{orderToRefund.total_amount}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/40 uppercase tracking-widest">Cliente</span>
+                    <span className="text-white truncate max-w-[150px]">{orderToRefund.customer_email}</span>
+                  </div>
+                </div>
+
+                <p className="text-sm text-white/60 mb-8 leading-relaxed">
+                  Esta ação irá processar o estorno automático via <strong>Stripe</strong>. 
+                  O status do pedido será alterado para <span className="text-red-400 font-bold uppercase tracking-widest text-[10px]">Reembolsado</span>.
+                  
+                  <br /><br />
+                  O cliente receberá o valor integral na sua conta e o acesso aos itens (se digitais) será removido.
+                </p>
+
+                <div className="flex gap-3">
+                  <Button 
+                    variant="outline"
+                    className="flex-1 rounded-none border-white/10 hover:bg-white/5 text-white/60 h-12"
+                    onClick={() => setIsRefundModalOpen(false)}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold uppercase tracking-widest text-[10px] h-12"
+                    onClick={confirmRefundAction}
+                  >
+                    Confirmar Estorno
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
           </div>
         )}
 

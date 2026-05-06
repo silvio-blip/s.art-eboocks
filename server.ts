@@ -59,6 +59,7 @@ const initDB = async () => {
         { name: 'email_refunded_sent', type: 'BOOLEAN DEFAULT FALSE' },
         { name: 'stripe_payment_intent', type: 'TEXT' },
         { name: 'payment_status', type: 'TEXT DEFAULT \'pending\'' },
+        { name: 'quantity', type: 'INTEGER DEFAULT 1' },
         { name: 'shipping_status_metadata', type: 'JSONB DEFAULT \'{}\'::jsonb' },
         { name: 'updated_at', type: 'TIMESTAMP WITH TIME ZONE DEFAULT timezone(\'utc\'::text, now())' }
       ];
@@ -251,6 +252,7 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
           payment_status: 'paid',
           shipping_status: 'pending',
           total_amount: session.amount_total ? session.amount_total / 100 : 0,
+          quantity: session.line_items?.data?.[0]?.quantity || 1,
           stripe_session_id: session.id,
           stripe_payment_intent: session.payment_intent as string,
           shipping_details: customerDataRaw,
