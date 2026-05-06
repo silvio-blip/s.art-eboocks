@@ -2562,11 +2562,11 @@ export default function AdminDashboard({
                         </div>
                       </td>
                       <td className="px-8 py-6">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           {!["refunded", "delivered"].includes(order.status?.toLowerCase() || "") && (
-                            <button
+                            <Button
                                onClick={async () => {
-                                 const syncToast = toast.loading('Sincronizando com Stripe e Dropea...');
+                                 const syncToast = toast.loading('Sincronizando status...');
                                  try {
                                    const response = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
                                      method: 'POST',
@@ -2577,26 +2577,30 @@ export default function AdminDashboard({
                                    });
                                    const data = await response.json();
                                    if (data.success) {
-                                     toast.success(data.message || 'Dados sincronizados com sucesso!', { id: syncToast });
+                                     toast.success(data.message || 'Sincronizado!', { id: syncToast });
                                      fetchDashboardData();
                                    } else {
-                                     toast.info(data.message || 'Sincronização concluída. Nenhuma alteração detectada.', { id: syncToast });
+                                     toast.info(data.message || 'Sem novas alterações.', { id: syncToast });
                                    }
                                  } catch(e) {
                                    toast.error('Erro de sincronização.', { id: syncToast });
                                  }
                                }}
-                               title="Sincronizar com Stripe/Dropea"
-                               className="text-white/40 hover:text-luxury-gold p-1.5 rounded-full transition-colors flex bg-white/5 hover:bg-white/10"
+                               variant="outline"
+                               title="Sincronizar dados com Dropea/Stripe (Apenas leitura)"
+                               className="border-white/10 text-white/40 hover:text-luxury-gold hover:bg-white/5 h-8 px-3 text-[8px] uppercase tracking-widest font-bold whitespace-nowrap"
                              >
-                               <RefreshCw size={12} />
-                             </button>
+                               <RefreshCw size={10} className="mr-1" /> Sincronizar
+                             </Button>
                           )}
 
-                          {(order.status === 'refund_pending' || order.status === 'paid' || order.status === 'completed') && (
-                            <button
+                          {(order.status === 'paid' || order.status === 'completed') && (
+                            <Button
                                onClick={async () => {
-                                 // Processar direto
+                                 const confirmRefund = window.confirm("Tem a certeza que deseja PROCESSAR o reembolso automático no Stripe e cancelar o pedido?");
+                                 if (!confirmRefund) return;
+
+                                 const refundToast = toast.loading('Processando Reembolso no Stripe...');
                                  try {
                                    const response = await fetch(`/api/admin/orders/${order.id}/refund`, {
                                      method: 'POST',
@@ -2607,20 +2611,21 @@ export default function AdminDashboard({
                                    });
                                    const data = await response.json();
                                    if (data.success) {
-                                     toast.success(`Reembolso processado com sucesso`);
+                                     toast.success(`Reembolso efetuado com sucesso`, { id: refundToast });
                                      fetchDashboardData();
                                    } else {
-                                     toast.error(data.error || 'Erro ao processar reembolso.');
+                                     toast.error(data.error || 'Erro ao processar reembolso.', { id: refundToast });
                                    }
                                  } catch(e) {
-                                   toast.error('Erro de rede ao processar reembolso.');
+                                   toast.error('Erro de rede ao processar reembolso.', { id: refundToast });
                                  }
                                }}
-                               title="Processar Reembolso na Dropea"
-                               className="text-red-500 hover:text-red-400 p-1.5 rounded-full transition-colors flex bg-red-500/10 hover:bg-red-500/20"
+                               variant="ghost"
+                               title="Executar Reembolso Real (Stripe + Status)"
+                               className="text-red-500 hover:text-white hover:bg-red-500/20 h-8 px-3 text-[8px] uppercase tracking-widest font-bold border border-red-500/20 whitespace-nowrap"
                              >
-                               <Undo2 size={12} />
-                             </button>
+                               <Undo2 size={10} className="mr-1" /> Reembolsar
+                             </Button>
                           )}
                         </div>
                       </td>
@@ -2668,18 +2673,18 @@ export default function AdminDashboard({
                     </thead>
                     <tbody className="divide-y divide-white/5">
                       {orders.filter(o => 
-                        ['refund_requested', 'refund_pending', 'refunded', 'reembolsado', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || "") ||
+                        ['refund_requested', 'refund_pending', 'refunded', 'reembolsado'].includes(o.status?.toLowerCase() || "") ||
                         o.payment_status === 'refunded'
                       ).length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-8 py-20 text-center text-white/20 text-xs uppercase tracking-[0.2em]">
-                            Nenhuma solicitação de reembolso encontrada.
+                            Nenhuma solicitação de reembolso ativa encontrada.
                           </td>
                         </tr>
                       ) : (
                         orders
                           .filter(o => 
-                            ['refund_requested', 'refund_pending', 'refunded', 'reembolsado', 'canceled', 'cancelled'].includes(o.status?.toLowerCase() || "") ||
+                            ['refund_requested', 'refund_pending', 'refunded', 'reembolsado'].includes(o.status?.toLowerCase() || "") ||
                             o.payment_status === 'refunded'
                           )
                           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())

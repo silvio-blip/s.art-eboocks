@@ -97,6 +97,14 @@ interface Order {
 
 // --- Components ---
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [pathname]);
+  return null;
+}
+
 const Navbar = ({
   user,
   profile,
@@ -1276,7 +1284,7 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "instant" });
   }, [view, selectedProduct]);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -2034,6 +2042,7 @@ export default function App() {
     <div
       className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700`}
     >
+      <ScrollToTop />
       {isReviewPage ? (
         <Routes>
           <Route path="/evaluate/:orderId" element={<ProductReview />} />

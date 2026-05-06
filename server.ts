@@ -591,10 +591,7 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
               if (!['canceled', 'cancelled', 'refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
                 updateData.status = 'canceled';
                 statusChanged = true;
-                // AUTO-REFUND
-                if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
-                  processRefundInternal(order.id).catch(e => console.error('[AUTO SYNC REFUND ERROR]', e));
-                }
+                // REMOVED AUTO-REFUND during sync - User wants manual control
               }
             } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(ds)) {
               if (order.status !== 'refunded') {
@@ -745,22 +742,15 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       console.log(`[DROPEA WEBHOOK] Order Canceled/Failed for Dropea ID: ${dropeaOrderId}`);
       
       if (linkedOrder) {
-        let isRefundInitiated = false;
-        // Se a ordem estava 'paid', iniciamos o reembolso automático no Stripe
-        if ((linkedOrder.status === 'paid' || linkedOrder.status === 'completed' || linkedOrder.payment_status === 'paid') && linkedOrder.stripe_session_id && stripe) {
-          console.log(`[DROPEA WEBHOOK] Autorrefund process for Order: ${linkedOrder.id}`);
-          isRefundInitiated = await processRefundInternal(linkedOrder.id);
-        }
-
+        // User wants manual control of refunds, so we only mark as canceled locally
         const { data: order } = await supabase
           .from('orders')
-          .update({ status: isRefundInitiated ? 'refund_pending' : 'canceled' })
+          .update({ status: 'canceled' })
           .eq('id', linkedOrder.id)
           .select()
           .single();
 
-        if (order && !isRefundInitiated) {
-          // Só enviamos notificação de CANCELADO se não tivermos iniciado um reembolso (que já envia sua própria notificação ou será enviado pela atualização de status)
+        if (order) {
           triggerOrderNotification(order.id, 'canceled', order.shipping_status || 'pending', order).catch(e => console.error('[WEBHOOK CANCELED EMAIL ERROR]', e));
         }
       }
@@ -2716,10 +2706,7 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
       // Somente mudamos para cancelado se NÃO estiver já em processo de reembolso
       if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
         updateData.status = 'canceled';
-        // AUTO-REFUND
-        if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
-          processRefundInternal(order.id).catch(e => console.error('[ADM SYNC REFUND ERROR]', e));
-        }
+        // REMOVED AUTO-REFUND during admin sync
       }
     } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
       updateData.status = 'refunded';
@@ -2924,22 +2911,21 @@ adminRouter.post('/orders/:id/refund', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    // Update status to 'refunded'
-    await supabase.from('orders').update({ 
-      status: 'refunded', 
-      payment_status: 'refunded',
-      selected_options: {
-        ...(order.selected_options || {}),
-        refund_approved_at: new Date().toISOString()
-      }
-    }).eq('id', id);
-
-    console.log(`[ADMIN REFUND] Order ${id} marked as refunded.`);
+    // Trigger real Stripe refund
+    const refundSuccess = await processRefundInternal(id);
     
-    return res.json({ 
-      success: true, 
-      message: 'Reembolso processado com sucesso. O acesso foi removido.'
-    });
+    if (refundSuccess) {
+      return res.json({ 
+        success: true, 
+        message: 'Reembolso processado com sucesso na Stripe e Dropea.'
+      });
+    } else {
+      // Fallback: If Stripe call failed but we want to mark it locally anyway?
+      // Better to return error if financial side failed.
+      return res.status(500).json({ 
+        error: 'Falha ao processar reembolso na Stripe. Verifique os logs.'
+      });
+    }
   } catch (err: any) {
     console.error('[ADMIN REFUND ERROR]', err);
     res.status(500).json({ error: err.message });
