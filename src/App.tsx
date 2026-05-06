@@ -2392,7 +2392,7 @@ export default function App() {
                       onEnded={(e) => {
                         (e.target as HTMLVideoElement).pause();
                       }}
-                      className="w-full h-full object-cover opacity-90 transition-opacity duration-1000 grayscale-[10%]"
+                      className="w-full h-full object-cover opacity-100 transition-opacity duration-1000"
                     >
                       <source src={siteHero.video_url} type="video/mp4" />
                       {/* Fallback image if video fails to load */}
@@ -2409,7 +2409,7 @@ export default function App() {
                       className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-[10%] transition-opacity duration-1000"
                     />
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/60 via-transparent to-[#050505]"></div>
+                  <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505]"></div>
                 </div>
 
                 <div className="hero-content relative z-10 text-center px-4 max-w-5xl">
