@@ -2412,7 +2412,7 @@ export default function App() {
                   <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505]"></div>
                 </div>
 
-                <div className="hero-content relative z-10 text-center px-4 max-w-5xl">
+                <div className="hero-content relative z-10 text-center px-8 py-16 max-w-5xl backdrop-blur-[1.5px] rounded-[3rem] border border-white/5 bg-white/1 shadow-[0_20px_50px_rgba(0,0,0,0.3)] mx-auto">
                     <motion.div
                       initial="hidden"
                       animate="visible"
@@ -2429,18 +2429,25 @@ export default function App() {
                           hidden: { y: 100, opacity: 0 },
                           visible: { y: 0, opacity: 1, transition: { duration: 1.8, ease: [0.16, 1, 0.3, 1] } }
                         }}
-                        className="font-serif text-[clamp(2.5rem,7vw,9.5rem)] tracking-[-0.05em] text-white drop-shadow-2xl leading-[0.8] uppercase"
+                        className="font-serif text-[clamp(2.5rem,7vw,9.5rem)] tracking-[-0.05em] text-white leading-[0.85] uppercase"
                       >
                         {siteHero.title.split(' ').map((word, i) => (
                           <motion.span 
                             key={i}
                             variants={{
-                              hidden: { opacity: 0, scale: 0.9 },
-                              visible: { opacity: 1, scale: 1 }
+                              hidden: { opacity: 0, scale: 0.9, y: 20 },
+                              visible: { opacity: 1, scale: 1, y: 0 }
                             }}
-                            className="inline-block mr-[0.2em]"
+                            className="inline-block mr-[0.2em] drop-shadow-[0_15px_25px_rgba(0,0,0,0.6)]"
                           >
-                            {i === 1 ? <span className="italic font-light text-luxury-gold">{word}</span> : word}
+                            {i === 1 ? (
+                              <span className="italic font-light text-luxury-gold drop-shadow-[0_0_20px_rgba(212,175,55,0.4)]">{word}</span>
+                            ) : (
+                              <span className="relative">
+                                {word}
+                                <span className="absolute inset-0 -z-10 text-white/5 mix-blend-overlay blur-[2px]">{word}</span>
+                              </span>
+                            )}
                           </motion.span>
                         ))}
                       </motion.h1>
@@ -2448,9 +2455,9 @@ export default function App() {
                       <motion.p 
                         variants={{
                           hidden: { opacity: 0, y: 20 },
-                          visible: { opacity: 0.9, y: 0, transition: { duration: 1.2, ease: "easeOut" } }
+                          visible: { opacity: 1, y: 0, transition: { duration: 1.2, ease: "easeOut", delay: 0.8 } }
                         }}
-                        className="text-luxury-gold tracking-[0.8em] md:tracking-[1.2em] uppercase mt-12 font-medium text-[9px] md:text-[11px] mb-16 drop-shadow-sm opacity-80"
+                        className="text-luxury-gold tracking-[0.8em] md:tracking-[1.5em] uppercase mt-12 font-medium text-[10px] md:text-[12px] mb-16 drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]"
                       >
                         A Essência da Exclusividade
                       </motion.p>
