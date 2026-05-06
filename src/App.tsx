@@ -1458,6 +1458,7 @@ export default function App() {
     image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070",
     video_url: "",
     title: "Luxo & Exclusividade",
+    subtitle: "A Essência da Exclusividade",
     buttonText: "Explorar Coleção"
   });
 
@@ -2410,9 +2411,11 @@ export default function App() {
                     />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505]"></div>
+                  {/* Soft radial glow to pop the text */}
+                  <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[60%] bg-radial from-black/40 via-transparent to-transparent pointer-events-none"></div>
                 </div>
 
-                <div className="hero-content relative z-10 text-center px-8 py-16 max-w-5xl backdrop-blur-[1.5px] rounded-[3rem] border border-white/5 bg-white/1 shadow-[0_20px_50px_rgba(0,0,0,0.3)] mx-auto">
+                <div className="hero-content relative z-10 text-center px-4 max-w-5xl mx-auto">
                     <motion.div
                       initial="hidden"
                       animate="visible"
@@ -2423,6 +2426,7 @@ export default function App() {
                           }
                         }
                       }}
+                      className="flex flex-col items-center"
                     >
                       <motion.h1 
                         variants={{
@@ -2438,29 +2442,28 @@ export default function App() {
                               hidden: { opacity: 0, scale: 0.9, y: 20 },
                               visible: { opacity: 1, scale: 1, y: 0 }
                             }}
-                            className="inline-block mr-[0.2em] drop-shadow-[0_15px_25px_rgba(0,0,0,0.6)]"
+                            className="inline-block mr-[0.2em] drop-shadow-[0_10px_40px_rgba(0,0,0,0.9)]"
                           >
                             {i === 1 ? (
-                              <span className="italic font-light text-luxury-gold drop-shadow-[0_0_20px_rgba(212,175,55,0.4)]">{word}</span>
+                              <span className="italic font-light text-luxury-gold drop-shadow-[0_0_30px_rgba(212,175,55,0.4)]">{word}</span>
                             ) : (
-                              <span className="relative">
-                                {word}
-                                <span className="absolute inset-0 -z-10 text-white/5 mix-blend-overlay blur-[2px]">{word}</span>
-                              </span>
+                              word
                             )}
                           </motion.span>
                         ))}
                       </motion.h1>
                       
-                      <motion.p 
-                        variants={{
-                          hidden: { opacity: 0, y: 20 },
-                          visible: { opacity: 1, y: 0, transition: { duration: 1.2, ease: "easeOut", delay: 0.8 } }
-                        }}
-                        className="text-luxury-gold tracking-[0.8em] md:tracking-[1.5em] uppercase mt-12 font-medium text-[10px] md:text-[12px] mb-16 drop-shadow-[0_2px_10px_rgba(0,0,0,0.5)]"
-                      >
-                        A Essência da Exclusividade
-                      </motion.p>
+                      {siteHero.subtitle && (
+                        <motion.p 
+                          variants={{
+                            hidden: { opacity: 0, y: 20 },
+                            visible: { opacity: 1, y: 0, transition: { duration: 1.2, ease: "easeOut", delay: 0.8 } }
+                          }}
+                          className="text-luxury-gold tracking-[0.8em] md:tracking-[1.5em] uppercase mt-12 font-medium text-[10px] md:text-[12px] mb-16 drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
+                        >
+                          {siteHero.subtitle}
+                        </motion.p>
+                      )}
                       
                       <motion.div
                         variants={{

@@ -81,7 +81,7 @@ const initDB = async () => {
 
           -- Seed default site settings if empty
           INSERT INTO site_settings (key, value)
-          SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
+          SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
           WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
           
           -- Ensure defaults exist

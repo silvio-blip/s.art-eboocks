@@ -175,6 +175,7 @@ export default function AdminDashboard({
     image: "",
     video_url: "",
     title: "",
+    subtitle: "",
     buttonText: ""
   });
 
@@ -3468,6 +3469,16 @@ export default function AdminDashboard({
                     value={siteHero.title}
                     onChange={(e) => setSiteHero({ ...siteHero, title: e.target.value })}
                     placeholder="Luxo & Exclusividade"
+                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Subtítulo do Banner</label>
+                  <input
+                    value={siteHero.subtitle}
+                    onChange={(e) => setSiteHero({ ...siteHero, subtitle: e.target.value })}
+                    placeholder="A Essência da Exclusividade"
                     className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80"
                   />
                 </div>
