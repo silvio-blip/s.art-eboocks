@@ -586,13 +586,15 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     }
   }
 
-  variables.products = [{
-    product_id: dropeaProductId,
-    variant_id: variantId,
+  // Build product list
+  const productEntry: any = {
+    product_id: variantId || dropeaProductId, // If variant exists, we might need to use it as product_id if variant_id is not allowed
     quantity: parseInt(String(product.quantity || 1), 10),
     total_value: parseFloat(String(product.total_value || product.pvp || 0)),
     unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
-  }];
+  };
+
+  variables.products = [productEntry];
 
   console.log(`[DROPEA INTERNAL] Executando orderCreate para e-mail: ${variables.customer.email}`);
   
@@ -657,12 +659,11 @@ async function executeDropeaQuery(query: string, variables: any, rootField: stri
 async function findDropeaOrderByEmail(email: string, expectedAmount?: number) {
   const graphqlQuery = `
     query FindOrdersByEmail {
-      orders(limit: 100) {
+      orders(limit: 50) {
         data {
           id
           customer { email }
           status
-          total
           created_at
         }
       }
@@ -670,37 +671,32 @@ async function findDropeaOrderByEmail(email: string, expectedAmount?: number) {
   `;
   try {
     const result = await executeDropeaQuery(graphqlQuery, {}, 'orders');
+    
+    if (result && typeof result === 'object' && 'errors' in result) {
+      console.error('[DROPEA MATCH] Erro GraphQL na busca:', result.errors);
+      return null;
+    }
+
     if (result && Array.isArray(result)) {
-      // Procurar match que não esteja cancelado e que tenha email correspondente
-      // Priorizar os mais recentes (reverse)
-      const matches = [...result].reverse().filter(o => 
-        o.customer?.email?.toLowerCase() === email.toLowerCase()
+      const lowerEmail = email.toLowerCase().trim();
+      const matches = [...result].filter(o => 
+        o.customer?.email?.toLowerCase()?.trim() === lowerEmail
       );
 
-      if (matches.length === 0) return null;
-
-      // Se tivermos um valor esperado, procurar por valor aproximado (+- 0.05 devido a arredondamentos)
-      if (expectedAmount !== undefined) {
-        const valueMatch = matches.find(o => Math.abs(parseFloat(o.total) - expectedAmount) < 0.1);
-        if (valueMatch) {
-          console.log(`[DROPEA MATCH] Encontrado pedido por email e valor: ${valueMatch.id} (€${valueMatch.total})`);
-          return valueMatch.id;
-        }
+      if (matches.length === 0) {
+        console.warn(`[DROPEA MATCH] Nenhum pedido encontrado para o e-mail: ${lowerEmail}`);
+        return null;
       }
 
-      // Se não encontrou por valor, aceitar o mais recente que NÃO esteja cancelado
-      const validMatch = matches.find(o => !['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(String(o.status).toUpperCase()));
+      // Se não temos o valor para comparar (devido ao erro no campo 'total'), 
+      // aceitamos o mais recente que NÃO esteja cancelado
+      const validMatch = matches.sort((a,b) => b.id - a.id).find(o => 
+        !['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(String(o.status).toUpperCase())
+      );
       
       if (validMatch) {
-        console.log(`[DROPEA MATCH] Encontrado pedido por email (Status: ${validMatch.status}): ${validMatch.id}`);
+        console.log(`[DROPEA MATCH] Encontrado pedido por email: ${validMatch.id}`);
         return validMatch.id;
-      }
-
-      // Se só existem cancelados, ver se o mais recente é MUITO recente (menos de 5 minutos)
-      const mostRecent = matches[0];
-      const ageMs = new Date().getTime() - new Date(mostRecent.created_at).getTime();
-      if (ageMs < 5 * 60 * 1000) {
-        return mostRecent.id;
       }
     }
   } catch (err) {
@@ -998,7 +994,16 @@ async function processRefundInternal(orderId: string) {
     }
 
     // 1. Get PaymentIntent from Checkout Session
-    const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+    let session;
+    try {
+      session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+    } catch (sErr: any) {
+      if (sErr.message?.includes('No such checkout.session')) {
+         console.warn(`[REFUND INTERNAL] Stripe session ${order.stripe_session_id} not found (likely test data or expired)`);
+         return false;
+      }
+      throw sErr;
+    }
     const paymentIntentId = session.payment_intent as string;
 
     if (!paymentIntentId) {
@@ -1198,6 +1203,9 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
     let dropeaId = order.dropea_order_id;
 
     if (!dropeaId) {
+      // Remover tentativa de fulfillment automático no sync para evitar confusão.
+      // O sync deve apenas procurar pedidos existentes.
+      
       // Tentar encontrar por email (customer_email ou via profiles se existir)
       let email = order.customer_email;
       
@@ -1219,6 +1227,8 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
             await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
           } else {
             console.warn(`[SYNC] Aviso: O pedido Dropea ${dropeaId} já está vinculado ao registro local ${duplicate.id}.`);
+            // Se for duplicado, não vinculamos a este para não causar confusão de status
+            dropeaId = null;
           }
         }
       }
@@ -1266,8 +1276,12 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
           } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
              updateData.payment_status = 'paid';
           }
-        } catch (stripeErr) {
-          console.error(`[USER SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+        } catch (stripeErr: any) {
+          if (stripeErr.message?.includes('No such checkout.session')) {
+            console.warn(`[USER SYNC STRIPE WARN] Session ${order.stripe_session_id} not found for order ${id}. Skipping Stripe sync.`);
+          } else {
+            console.error(`[USER SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+          }
         }
       }
 
@@ -2730,6 +2744,7 @@ adminRouter.put('/orders/:id/shipping', async (req, res) => {
 adminRouter.post('/orders/:id/fulfill', async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(`[ADMIN FULFILL] Recebida solicitação manual para ordem ${id}`);
     const supabase = getSupabase();
 
     const { data: order, error: orderError } = await supabase
@@ -2746,10 +2761,8 @@ adminRouter.post('/orders/:id/fulfill', async (req, res) => {
       return res.status(400).json({ error: 'Apenas pedidos pagos podem ser enviados para a Dropea' });
     }
 
-    // Mesmo que já tenha ID, permitimos re-enviar se o admin insistir (ou podemos bloquear se preferir)
-    // Aqui vou deixar aberto para casos de erro onde o admin quer tentar de novo.
-    
-    await processOrderFulfillment(order);
+    // Mesmo que já tenha ID, permitimos re-enviar se o admin insistir
+    await processOrderFulfillment(order, true);
     
     // Buscar ordem atualizada para retornar pro front
     const { data: updatedOrder } = await supabase.from('orders').select('*').eq('id', id).single();
@@ -2845,8 +2858,12 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
            // Se não tem charge expandida mas o PI foi um sucesso, pelo menos sabemos que foi pago
            updateData.payment_status = 'paid';
         }
-      } catch (stripeErr) {
-        console.error(`[SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+      } catch (stripeErr: any) {
+        if (stripeErr.message?.includes('No such checkout.session')) {
+          console.warn(`[SYNC STRIPE WARN] Session ${order.stripe_session_id} not found for order ${id}. Skipping Stripe sync.`);
+        } else {
+          console.error(`[SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+        }
       }
     }
 
@@ -3224,67 +3241,102 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
-async function processOrderFulfillment(order: any) {
+async function processOrderFulfillment(order: any, forceManual: boolean = false) {
   try {
     const supabase = getSupabase();
     
-    // Verificação de segurança: Buscar o estado mais recente no DB para evitar double-tap
+    // Fetch fresh local order data without the join (which is failing)
     const { data: latestOrder, error: fetchErr } = await supabase
       .from('orders')
-      .select('*, products(*)')
+      .select('*')
       .eq('id', order.id)
-      .single();
+      .maybeSingle();
 
-    if (fetchErr || !latestOrder) {
-      console.error(`[FULFILLMENT ERROR] Erro ao buscar ordem ${order.id} no DB:`, fetchErr);
+    if (fetchErr) {
+      console.error(`[FULFILLMENT ERROR] Erro na query DB para ordem ${order.id}:`, JSON.stringify(fetchErr));
+      // Se houver erro de query, tentamos seguir com o objeto original
+    }
+
+    const currentOrder = latestOrder || order;
+    
+    if (!currentOrder || !currentOrder.id) {
+       console.error(`[FULFILLMENT FATAL] Dados de ordem inválidos.`);
+       return;
+    }
+
+    if (currentOrder.dropea_order_id && !forceManual) {
+      console.log(`[FULFILLMENT SKIP] Ordem ${currentOrder.id} já possui dropea_order_id: ${currentOrder.dropea_order_id}`);
       return;
     }
 
-    if (latestOrder.dropea_order_id) {
-      console.log(`[FULFILLMENT SKIP] Ordem ${order.id} já possui dropea_order_id: ${latestOrder.dropea_order_id}`);
-      return;
-    }
+    console.log(`[FULFILLMENT START] Ordem ${currentOrder.id} - Manual: ${forceManual}`);
 
     // Normalizar shipping_details
-    const customerData = typeof latestOrder.shipping_details === 'string' 
-      ? JSON.parse(latestOrder.shipping_details) 
-      : (latestOrder.shipping_details || {});
+    const customerData = typeof currentOrder.shipping_details === 'string' 
+      ? JSON.parse(currentOrder.shipping_details) 
+      : (currentOrder.shipping_details || {});
+
+    // Garantir que temos o e-mail (usar customer_email do DB como fallback)
+    if (!customerData.email && currentOrder.customer_email) {
+      customerData.email = currentOrder.customer_email;
+    }
+
+    if (!customerData.email) {
+      console.warn(`[FULFILLMENT] Aviso: E-mail ausente para a ordem ${order.id}. Tentando buscar do perfil...`);
+      const { data: profile } = await supabase.from('profiles').select('email').eq('id', currentOrder.user_id).maybeSingle();
+      if (profile?.email) {
+        customerData.email = profile.email;
+      }
+    }
+
+    if (!customerData.email) {
+      throw new Error("Não foi possível encontrar o e-mail do cliente para o envio.");
+    }
 
     // Se no DB não tem o produto join, buscar manualmente
-    let productInDb = latestOrder.products;
+    let productInDb = currentOrder.products;
     if (!productInDb) {
-      const { data: p } = await supabase.from('products').select('*').eq('id', latestOrder.product_id).single();
-      productInDb = p;
+      const productId = currentOrder.product_id;
+      if (productId) {
+        const { data: p } = await supabase.from('products').select('*').eq('id', productId).maybeSingle();
+        productInDb = p;
+      }
     }
 
     if (!productInDb?.dropea_id) {
-      console.error(`[FULFILLMENT ERROR] Produto ${latestOrder.product_id} não possui dropea_id. Impossível sincronizar.`);
-      return;
+      throw new Error(`O produto vinculado (ID ${currentOrder.product_id}) não tem um ID Dropea configurado.`);
     }
 
-    console.log(`[FULFILLMENT] Enviando ordem ${order.id} para Dropea...`);
+    // Resolver preço de venda: Usar o valor da ordem, mas garantir que não é 0.
+    // Algumas APIs Dropea rejeitam se o preço for inferior ao custo de dropshipping.
+    // Usamos o maior valor entre o pago e o PVP se disponível para evitar rejeições técnicas.
+    const priceToSubmit = Math.max(
+      parseFloat(String(currentOrder.total_amount || 0)),
+      parseFloat(String(productInDb.pvp || 0))
+    );
+
+    console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para Dropea... (Email: ${customerData.email}, Preço: ${priceToSubmit})`);
     const dropeaOrderId = await createDropeaOrderInternal(Number(DROPEA_SHOP_ID), customerData, {
       product_id: productInDb.dropea_id,
       quantity: 1,
-      total_value: latestOrder.total_amount,
-      unit_price: latestOrder.total_amount,
-      selected_options: latestOrder.selected_options
+      total_value: priceToSubmit,
+      unit_price: priceToSubmit,
+      selected_options: (typeof currentOrder.selected_options === 'string') ? JSON.parse(currentOrder.selected_options) : currentOrder.selected_options
     });
 
     if (dropeaOrderId) {
       console.log(`[FULFILLMENT SUCCESS] Dropea Order ID: ${dropeaOrderId}`);
-      await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', order.id);
+      await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', currentOrder.id);
       
       // Disparar email de pagamento confirmado após sucesso na Dropea
-      // Usamos force=true para garantir que o cliente receba o e-mail de "preparando envio"
-      triggerOrderNotification(order.id, 'paid', 'pending', { ...latestOrder, dropea_order_id: String(dropeaOrderId) }, true)
+      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, true)
         .catch(e => console.error('[FULFILLMENT EMAIL ERROR]', e));
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");
     }
   } catch (err: any) {
     console.error(`[FULFILLMENT SYSTEM ERROR] Falha Crítica na Ordem ${order.id}:`, err.message);
-    // Podíamos adicionar um retry delay aqui se fosse server-side worker, mas em serverless/request-based logamos.
+    throw err; // RE-THROW ERROR
   }
 }
 

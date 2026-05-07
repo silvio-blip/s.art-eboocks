@@ -994,7 +994,7 @@ export default function AdminDashboard({
 
   const handleManualFulfill = async (orderId: string) => {
     try {
-      toast.loading("A processar pedido na Dropea...", { id: "fulfill" });
+      toast.loading("A enviar pedido manualmente para a Dropea...", { id: "fulfill" });
       const res = await fetch(`/api/admin/orders/${orderId}/fulfill`, {
         method: 'POST',
         headers: {
@@ -1004,9 +1004,9 @@ export default function AdminDashboard({
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao sincronizar com Dropea");
+      if (!res.ok) throw new Error(data.error || "Erro ao enviar pedido para a Dropea");
       
-      toast.success("Pedido sincronizado com sucesso na Dropea!", { id: "fulfill" });
+      toast.success("Pedido ENVIADO com sucesso para a Dropea!", { id: "fulfill" });
       
       // Atualizar estado local
       if (viewingOrder && viewingOrder.id === orderId) {
