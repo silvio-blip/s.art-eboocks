@@ -18,6 +18,10 @@ const DROPEA_API_KEY = process.env.DROPEA_API_KEY || 'AIzaioJLOztZH3TKWlXAZSZaI1
 const DROPEA_USER_ID = process.env.DROPEA_USER_ID || '38827';
 const DROPEA_SHOP_ID = process.env.DROPEA_SHOP_ID || '16172';
 
+// Caching for Dropea catalog
+let dropeaCatalogCache: { data: any, timestamp: number } | null = null;
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
+
 const getSupabase = () => {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -378,6 +382,105 @@ app.all(['/dropea-api*', '/api/dropea-api*'], async (req: any, res: any) => {
         details: error.message,
         target: url
       });
+    }
+  }
+});
+
+// Moving dropea-products to direct app route for debugging/reliability
+app.get('/api/dropea-products', async (req, res) => {
+  console.log('[DROPEA] Acessando /api/dropea-products (Direct App Route)');
+  
+  // Use cache if available and valid
+  if (dropeaCatalogCache && (Date.now() - dropeaCatalogCache.timestamp < CACHE_DURATION)) {
+    console.log('[DROPEA] Returning cached products');
+    return res.json(dropeaCatalogCache.data);
+  }
+
+  try {
+    const supabase = getSupabase();
+    
+    // 1. Fetch Dropea catalog (Page 1)
+    const targetUrl = DROPEA_API_URL;
+    const graphqlQuery = { 
+      query: `query { 
+        products(page: 1) { 
+          data { 
+            id 
+            name 
+            images 
+            pvpr 
+            category 
+            description 
+          } 
+        } 
+      }` 
+    };
+    
+    if (!DROPEA_API_KEY || DROPEA_API_KEY.includes('AIza')) {
+       console.warn('[DROPEA] WARNING: API Key appears to be invalid or placeholder.');
+    }
+    
+    const response = await axios.post(targetUrl, graphqlQuery, { 
+      headers: { 
+        'x-api-key': DROPEA_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'SArt-Boutique-Boutique/1.0'
+      }, 
+      timeout: 10000 
+    }).catch(err => {
+      console.warn('[DROPEA] API unreachable or timed out:', err.message);
+      return { data: { data: { products: { data: [] } } } };
+    });
+    
+    // Safety check on response structure
+    const rawProducts = response?.data?.data?.products?.data || [];
+    if (!Array.isArray(rawProducts)) {
+      console.error('[DROPEA] Unexpected API response format');
+      return res.json([]);
+    }
+    
+    console.log(`[DROPEA] Raw products count: ${rawProducts.length}`);
+    
+    // 2. Fetch Supabase overrides
+    let supabaseProducts: any[] = [];
+    try {
+      const { data, error: sbError } = await supabase
+        .from('products')
+        .select('id, title, price, dropea_id')
+        .not('dropea_id', 'is', null);
+      if (!sbError && data) supabaseProducts = data;
+    } catch (e) {
+      console.error('[DROPEA] Supabase merge fetch failed:', e);
+    }
+    
+    // 3. Merge optimized with a Map
+    const overrideMap = new Map();
+    supabaseProducts.forEach(s => {
+      if (s.dropea_id) overrideMap.set(String(s.dropea_id), s);
+    });
+
+    const products = rawProducts.map((p: any) => {
+      if (!p || typeof p !== 'object') return null;
+      const override = overrideMap.get(String(p.id));
+      return {
+        ...p,
+        id: String(p.id),
+        name: override ? override.title : p.name,
+        pvp: override ? Number(override.price) : Number(p.pvpr),
+        pvpr: Number(p.pvpr)
+      };
+    }).filter(Boolean);
+
+    console.log(`[DROPEA] Success: ${products.length} products merged.`);
+    
+    // Update Cache
+    dropeaCatalogCache = { data: products, timestamp: Date.now() };
+
+    return res.json(products);
+  } catch (error: any) {
+    console.error('[DROPEA FATAL ERROR]', error.stack || error.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Falha interna ao processar produtos', details: error.message });
     }
   }
 });
@@ -830,6 +933,7 @@ async function processRefundInternal(orderId: string) {
 // Recovery Proxy Routes
 
 apiRouter.use((req, res, next) => {
+  console.log(`[API ROUTER DEBUG] ${req.method} ${req.url}`);
   next();
 });
 
@@ -966,108 +1070,6 @@ apiRouter.get('/ping', (req, res) => {
 apiRouter.get('/test-api', (req, res) => {
   console.log('[API TEST] Test route hit');
   res.json({ success: true, message: 'API is working' });
-});
-
-let dropeaCatalogCache: { data: any, timestamp: number } | null = null;
-const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes
-
-// Get Dropea Products (GraphQL)
-apiRouter.get('/dropea-products', async (req, res) => {
-  console.log('[DROPEA] Acessando /api/dropea-products');
-  
-  // Use cache if available and valid
-  if (dropeaCatalogCache && (Date.now() - dropeaCatalogCache.timestamp < CACHE_DURATION)) {
-    console.log('[DROPEA] Returning cached products');
-    return res.json(dropeaCatalogCache.data);
-  }
-
-  try {
-    const supabase = getSupabase();
-    
-    // 1. Fetch Dropea catalog (Page 1)
-    const targetUrl = DROPEA_API_URL;
-    const graphqlQuery = { 
-      query: `query { 
-        products(page: 1) { 
-          data { 
-            id 
-            name 
-            images 
-            pvpr 
-            category 
-            description 
-          } 
-        } 
-      }` 
-    };
-    
-    if (!DROPEA_API_KEY || DROPEA_API_KEY.includes('AIza')) {
-       console.warn('[DROPEA] WARNING: API Key appears to be invalid or placeholder.');
-    }
-    
-    const response = await axios.post(targetUrl, graphqlQuery, { 
-      headers: { 
-        'x-api-key': DROPEA_API_KEY,
-        'Content-Type': 'application/json',
-        'User-Agent': 'SArt-Boutique-Boutique/1.0'
-      }, 
-      timeout: 8000 // Shorter timeout for faster feedback
-    }).catch(err => {
-      console.warn('[DROPEA] API unreachable or timed out:', err.message);
-      return { data: { data: { products: { data: [] } } } };
-    });
-    
-    // Safety check on response structure
-    const rawProducts = response?.data?.data?.products?.data || [];
-    if (!Array.isArray(rawProducts)) {
-      console.error('[DROPEA] Unexpected API response format');
-      return res.json([]);
-    }
-    
-    console.log(`[DROPEA] Raw products count: ${rawProducts.length}`);
-    
-    // 2. Fetch Supabase overrides
-    let supabaseProducts: any[] = [];
-    try {
-      const { data, error: sbError } = await supabase
-        .from('products')
-        .select('id, title, price, dropea_id')
-        .not('dropea_id', 'is', null);
-      if (!sbError && data) supabaseProducts = data;
-    } catch (e) {
-      console.error('[DROPEA] Supabase merge fetch failed:', e);
-    }
-    
-    // 3. Merge optimized with a Map
-    const overrideMap = new Map();
-    supabaseProducts.forEach(s => {
-      if (s.dropea_id) overrideMap.set(String(s.dropea_id), s);
-    });
-
-    const products = rawProducts.map((p: any) => {
-      if (!p || typeof p !== 'object') return null;
-      const override = overrideMap.get(String(p.id));
-      return {
-        ...p,
-        id: String(p.id),
-        name: override ? override.title : p.name,
-        pvp: override ? Number(override.price) : Number(p.pvpr),
-        pvpr: Number(p.pvpr)
-      };
-    }).filter(Boolean);
-
-    console.log(`[DROPEA] Success: ${products.length} products merged.`);
-    
-    // Update Cache
-    dropeaCatalogCache = { data: products, timestamp: Date.now() };
-
-    return res.json(products);
-  } catch (error: any) {
-    console.error('[DROPEA FATAL ERROR]', error.stack || error.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Falha interna ao processar produtos', details: error.message });
-    }
-  }
 });
 
 // Sync Order Status manually (Client Triggered)
@@ -3046,6 +3048,16 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     console.error("[STRIPE ERROR]", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Global catch-all for any unmatched /api routes to prevent HTML fallback
+app.all('/api/*', (req, res) => {
+  console.warn(`[API 404] ${req.method} ${req.url}`);
+  res.status(404).json({ 
+    error: 'API route not found', 
+    path: req.url,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // --- VITE MIDDLEWARE ---

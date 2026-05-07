@@ -386,19 +386,20 @@ const CustomCursor = ({ active }: { active: boolean }) => {
   const mouseX = useMotionValue(typeof window !== 'undefined' ? window.innerWidth / 2 : 0);
   const mouseY = useMotionValue(typeof window !== 'undefined' ? window.innerHeight - 60 : 0);
   const [isPointer, setIsPointer] = useState(false);
-  const [hasStartedMoving, setHasStartedMoving] = useState(false);
+  const [hasExited, setHasExited] = useState(false);
 
   useEffect(() => {
-    if (!active) return;
-
-    // Initial position: where the dot was (approx bottom center)
-    mouseX.set(window.innerWidth / 2);
-    mouseY.set(window.innerHeight - 60);
+    if (!active) {
+      setHasExited(false);
+      return;
+    }
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!hasStartedMoving) setHasStartedMoving(true);
-      mouseX.set(e.clientX);
-      mouseY.set(e.clientY);
+      // Once it has exited the circle, follow mouse
+      if (hasExited) {
+        mouseX.set(e.clientX);
+        mouseY.set(e.clientY);
+      }
       
       const target = e.target as HTMLElement;
       setIsPointer(window.getComputedStyle(target).cursor === 'pointer');
@@ -406,7 +407,17 @@ const CustomCursor = ({ active }: { active: boolean }) => {
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [active, mouseX, mouseY]);
+  }, [active, hasExited]);
+
+  useEffect(() => {
+    if (active && !hasExited) {
+      // Small delay to peak the agitation before flying toward cursor
+      const timer = setTimeout(() => {
+        setHasExited(true);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [active, hasExited]);
 
   if (!active) return null;
 
@@ -415,30 +426,38 @@ const CustomCursor = ({ active }: { active: boolean }) => {
       <style>
         {`
           * {
-            cursor: none !important;
+            cursor: ${hasExited ? 'none !important' : 'auto'};
           }
         `}
       </style>
       <motion.div
         style={{
-          x: mouseX,
-          y: mouseY,
+          x: hasExited ? mouseX : window.innerWidth / 2,
+          y: hasExited ? mouseY : window.innerHeight - 60,
           translateX: "-50%",
           translateY: "-50%",
         }}
-        className="fixed top-0 left-0 w-4 h-4 bg-luxury-gold rounded-full z-[100000] pointer-events-none mix-blend-difference hidden md:block"
+        className="fixed top-0 left-0 w-2.5 h-2.5 bg-luxury-gold rounded-full z-[100000] pointer-events-none mix-blend-difference hidden md:block"
         animate={{
-          scale: isPointer ? 2.5 : 1,
+          scale: isPointer ? 3 : (!hasExited ? [1, 2.2, 0.8, 1.8] : 1),
           backgroundColor: isPointer ? "rgba(212, 175, 55, 0.4)" : "rgba(212, 175, 55, 1)",
           boxShadow: isPointer 
-            ? "0 0 20px rgba(212, 175, 55, 0.4)" 
-            : "0 0 10px rgba(212, 175, 55, 0.2)",
+            ? "0 0 30px rgba(212, 175, 55, 0.7)" 
+            : (!hasExited 
+                ? "0 0 40px rgba(212, 175, 55, 0.9)" 
+                : "0 0 10px rgba(212, 175, 55, 0.2)"),
+          // Agitation shake while inside
+          rotate: !hasExited ? [0, -15, 15, -10, 10, 0] : 0,
         }}
         transition={{ 
-          type: "spring", 
-          stiffness: hasStartedMoving ? 350 : 120, // Softer spring for the initial jump
-          damping: 25,
-          mass: 0.8
+          scale: !hasExited ? { duration: 0.15, repeat: Infinity } : { type: "spring", stiffness: 300, damping: 20 },
+          rotate: !hasExited ? { duration: 0.1, repeat: Infinity } : { duration: 0.2 },
+          default: { 
+            type: "spring", 
+            stiffness: hasExited ? 450 : 80, 
+            damping: hasExited ? 28 : 20,
+            mass: 0.6
+          }
         }}
       />
     </>
@@ -1653,6 +1672,13 @@ export default function App() {
 
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   const [isCursorTransformed, setIsCursorTransformed] = useState(false);
+  const [cursorPreferEnabled, setCursorPreferEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('luxury_cursor_enabled');
+      return saved !== 'false';
+    }
+    return true;
+  });
   const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {
@@ -1935,6 +1961,7 @@ export default function App() {
         setProfile({
           full_name: newProfile.full_name || "",
           avatar_url: newProfile.avatar_url || "",
+          custom_cursor_enabled: newProfile.custom_cursor_enabled !== false,
         });
         if (newProfile.welcomed === false) {
           sendWelcomeEmail(userObj, newProfile);
@@ -1972,7 +1999,7 @@ export default function App() {
 
       setProfile({
         full_name: data.full_name || userObj.user_metadata?.full_name || userObj.user_metadata?.name || "",
-        avatar_url: finalAvatar || googleAvatar || "", // Fallback final para UI imediata
+        avatar_url: finalAvatar || googleAvatar || "", 
       });
 
       // Só envia e-mail se ainda não foi marcado como welcomed
@@ -2435,9 +2462,9 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700 ${isCursorTransformed ? 'md:cursor-none' : ''}`}
+      className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700 ${(isCursorTransformed && cursorPreferEnabled) ? 'md:cursor-none' : ''}`}
     >
-      <CustomCursor active={isCursorTransformed} />
+      <CustomCursor active={isCursorTransformed && cursorPreferEnabled} />
       <ScrollToTop />
       {isReviewPage ? (
         <Routes>
@@ -2612,9 +2639,11 @@ export default function App() {
                             hidden: { opacity: 0, scale: 0.95 },
                             visible: { opacity: 1, scale: 1, transition: { duration: 1.5, ease: "easeOut", delay: 1.2 } }
                           }}
-                          className="text-luxury-gold tracking-[0.4em] md:tracking-[0.8em] uppercase mt-4 md:mt-6 font-serif italic text-sm md:text-base mb-4 md:mb-6 drop-shadow-[0_2px_15px_rgba(212,175,55,0.3)] max-w-[90vw] text-center"
+                          className="mt-6 md:mt-8 tracking-[0.4em] md:tracking-[0.8em] uppercase font-serif italic text-sm md:text-base mb-4 md:mb-6 drop-shadow-[0_2px_15px_rgba(0,0,0,0.5)] max-w-[90vw] text-center"
                         >
-                          {siteHero.subtitle}
+                          <span className="bg-luxury-gold text-black px-3 py-1 selection:bg-white selection:text-black shadow-[0_0_20px_rgba(212,175,55,0.4)]">
+                            {siteHero.subtitle}
+                          </span>
                         </motion.p>
                       )}
                       
@@ -2636,42 +2665,40 @@ export default function App() {
                 >
                   <motion.div 
                     animate={isCursorTransformed ? {
-                      y: -400, // Launch upwards
-                      x: [0, 50, -50, 0],
-                      opacity: [1, 1, 0.5, 0],
-                      scale: [1, 1.5, 0.5, 0],
-                      transition: { duration: 0.6, ease: "anticipate" }
+                      y: -300, 
+                      opacity: 0,
+                      scale: 0.2,
+                      transition: { duration: 0.5, ease: "anticipate" }
                     } : { 
-                      x: [0, -3, 3, -2, 2, 0].map(v => v * (1 + scrollProgress * 8)),
-                      y: [0, 2, -2, 1, -1, 0].map(v => v * (1 + scrollProgress * 8)),
-                      rotate: [0, -2, 2, -1, 1, 0].map(v => v * (1 + scrollProgress * 8)),
-                      scale: [1, 1.05, 0.95, 1.02, 0.98, 1].map(v => v * (1 + scrollProgress * 0.4))
+                      x: [0, -4, 4, -3, 3, 0].map(v => v * (1 + scrollProgress * 10)),
+                      y: [0, 3, -3, 2, -2, 0].map(v => v * (1 + scrollProgress * 10)),
+                      rotate: [0, -3, 3, -2, 2, 0].map(v => v * (1 + scrollProgress * 10)),
                     }}
                     transition={{ 
-                      duration: Math.max(0.04, 0.15 - scrollProgress * 0.12), 
+                      duration: Math.max(0.04, 0.12 - scrollProgress * 0.1), 
                       repeat: isCursorTransformed ? 0 : Infinity,
-                      repeatDelay: Math.max(0, 0.4 - scrollProgress * 0.4)
+                      repeatDelay: 0
                     }}
                     className="w-[28px] h-[48px] border-2 border-white/40 rounded-[1.2rem] flex items-center justify-center relative overflow-hidden"
                   >
                     <motion.div 
                       animate={isCursorTransformed ? {
-                        y: [-20, -100, -300],
-                        scale: [1, 2, 0.2],
-                        opacity: [1, 1, 0],
+                        y: -150,
+                        scale: 2,
+                        opacity: 0,
                       } : { 
                         y: [-16, 16, -12, 14, -16],
-                        x: [0, 6, -6, 4, -4, 0].map(v => v * (1 + scrollProgress * 4)),
-                        scale: [1, 1.4, 0.8, 1.3, 1],
+                        x: [0, 8, -8, 6, -6, 0].map(v => v * (1 + scrollProgress * 6)),
+                        scale: [1, 1.6, 0.7, 1.5, 1],
                         opacity: [0.8, 1, 0.8, 1, 0.8]
                       }}
                       transition={{ 
-                        duration: Math.max(0.15, 0.6 - scrollProgress * 0.45), 
+                        duration: Math.max(0.1, 0.5 - scrollProgress * 0.4), 
                         repeat: isCursorTransformed ? 0 : Infinity, 
                         ease: "anticipate",
                         repeatType: "mirror"
                       }}
-                      className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,1)]"
+                      className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,1)]"
                     />
                   </motion.div>
                 </motion.div>
@@ -3303,7 +3330,12 @@ export default function App() {
             <ProfileDashboard
               user={user}
               purchasedProducts={purchasedProducts}
-              onProfileUpdate={(data) => setProfile(data)}
+              onProfileUpdate={(data) => {
+                setProfile(prev => prev ? { ...prev, ...data } : data as any);
+                if (typeof data.custom_cursor_enabled !== 'undefined') {
+                  setCursorPreferEnabled(data.custom_cursor_enabled);
+                }
+              }}
               onRefundRequest={(order) => setRefundOrder(order)}
               onLogout={handleLogout}
             />

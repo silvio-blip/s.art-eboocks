@@ -42,25 +42,32 @@ export const DropeaService = {
         return [];
       }
       
-      const rawProducts = await response.json();
-      
-      if (!Array.isArray(rawProducts)) {
-        console.error('--- [DropeaService] Invalid data format from server ---');
-        return [];
-      }
-      
-      // Map to our DropeaProduct interface
-      const products = rawProducts.map((p: any) => ({
-        id: String(p.id),
-        name: p.name,
-        pvp: Number(p.pvp || p.pvpr),
-        pvpr: Number(p.pvpr),
-        description: p.description || "",
-        images: Array.isArray(p.images) ? p.images : [],
-        category: p.category || "General"
-      }));
+      const responseText = await response.text();
+      try {
+        const rawProducts = JSON.parse(responseText);
+        
+        if (!Array.isArray(rawProducts)) {
+          console.error('--- [DropeaService] Invalid data format from server ---', responseText);
+          return [];
+        }
+        
+        // Map to our DropeaProduct interface
+        const products = rawProducts.map((p: any) => ({
+          id: String(p.id),
+          name: p.name,
+          pvp: Number(p.pvp || p.pvpr),
+          pvpr: Number(p.pvpr),
+          description: p.description || "",
+          images: Array.isArray(p.images) ? p.images : [],
+          category: p.category || "General"
+        }));
 
-      return products;
+        return products;
+      } catch (parseError) {
+        console.error('--- [DropeaService] JSON Parse Error ---', parseError);
+        console.error('--- [DropeaService] Response Body was: ---', responseText.substring(0, 500));
+        throw parseError;
+      }
     } catch (error: any) {
       if (retries > 0) {
         console.log(`--- [DropeaService] Retrying fetch in 2s... (${retries} left) ---`);
@@ -92,7 +99,15 @@ export const DropeaService = {
         })
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error('[DROPEA SERVICE] Response was not JSON:', responseText.substring(0, 500));
+        throw new Error('Servidor retornou formato inválido (HTML). Erro 502/404 provável.');
+      }
+
       if (!response.ok) {
         throw new Error(data.error || 'Erro ao importar produto da Dropea');
       }
@@ -173,7 +188,14 @@ export const DropeaService = {
         }),
       });
 
-      const jsonResponse = await response.json();
+      const responseText = await response.text();
+      let jsonResponse;
+      try {
+        jsonResponse = JSON.parse(responseText);
+      } catch (e) {
+        console.error('[DropeaService] GraphQL response was not JSON:', responseText.substring(0, 500));
+        return null;
+      }
       const orderData = jsonResponse?.data?.orders?.data?.[0];
 
       if (orderData) {

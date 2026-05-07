@@ -2,22 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
-  BookOpen, 
   ShoppingBag, 
   Edit, 
   Save, 
   Camera, 
-  CheckCircle2, 
-  Clock, 
   Truck, 
-  Package,
+  Clock,
   ChevronRight,
-  Download,
-  Book,
   X,
   FileText,
   Mail,
-  LogOut
+  LogOut,
+  ArrowUpRight,
+  MapPin,
+  Calendar,
+  CreditCard,
+  Hash
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -54,7 +54,8 @@ interface Order {
   customer_email?: string;
   user_id?: string;
   selected_options?: { size?: string, color?: string, shipping_details?: any };
-  stripe_session_id?: string;
+  shipping_details?: any;
+  notifications_enabled?: boolean;
 }
 
 interface Profile {
@@ -63,18 +64,13 @@ interface Profile {
   avatar_url: string;
   description: string;
   custom_id: string;
-}
-
-interface ReadingProgress {
-  book_id: string;
-  last_page_read: number;
-  total_pages: number;
+  notification_email: string;
 }
 
 interface ProfileDashboardProps {
   user: any;
   purchasedProducts: Order[];
-  onProfileUpdate: (data: { full_name: string, avatar_url: string }) => void;
+  onProfileUpdate: (data: { full_name?: string, avatar_url?: string, custom_cursor_enabled?: boolean }) => void;
   onRefundRequest: (order: Order) => void;
   onLogout: () => void;
 }
@@ -96,46 +92,28 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [editForm, setEditForm] = useState({ full_name: '', description: '', avatar_url: '', notification_email: '' });
+  const [editForm, setEditForm] = useState({ 
+    full_name: '', 
+    description: '', 
+    avatar_url: '', 
+    notification_email: ''
+  });
+  const [cursorEnabled, setCursorEnabled] = useState(true);
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'sent' | 'delivered' | 'refunded' | 'canceled'>('all');
-
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [activeTab]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const handleSyncOrder = async (orderId: string) => {
-    setIsSyncing(true);
-    const toastId = toast.loading('Sincronizando status com Dropea...');
-    try {
-      const res = await fetch(`/api/orders/${orderId}/sync`, { method: 'POST' });
-      const data = await res.json();
-      
-      if (!res.ok) throw new Error(data.error || 'Erro ao sincronizar');
-      
-      if (data.success) {
-        toast.success('Status atualizado com sucesso!', { id: toastId });
-        // Update local state if it's the selected order
-        if (selectedOrder && selectedOrder.id === orderId) {
-          // Relativamente hacky mas funciona para atualizar o modal sem recarregar tudo
-          // Idealmente recarregaríamos a lista de orders do pai
-          window.location.reload(); 
-        }
-      } else {
-        toast.info('Nenhuma atualização disponível no momento.', { id: toastId });
-      }
-    } catch (err: any) {
-      toast.error(err.message, { id: toastId });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeTab]);
 
   useEffect(() => {
     if (user) {
       loadProfile();
+      // Load cursor preference from localStorage
+      const saved = localStorage.getItem('luxury_cursor_enabled');
+      setCursorEnabled(saved !== 'false');
     }
   }, [user]);
 
@@ -155,7 +133,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         avatar_url: data.avatar_url || '',
         description: data.description || '',
         custom_id: data.custom_id || `SART-${data.id.substring(0, 4).toUpperCase()}`,
-        notification_email: data.notification_email || user.email || ''
+        notification_email: data.notification_email || user.email || '',
       };
 
       setProfile(profileData);
@@ -163,10 +141,9 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         full_name: profileData.full_name,
         description: profileData.description,
         avatar_url: profileData.avatar_url,
-        notification_email: profileData.notification_email
+        notification_email: profileData.notification_email,
       });
 
-      // If custom_id is missing in DB, update it
       if (!data.custom_id) {
         await supabase.from('profiles').update({ custom_id: profileData.custom_id }).eq('id', user.id);
       }
@@ -191,15 +168,13 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}-${Math.random()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`; // Usando pasta avatars dentro do bucket assets
+      const filePath = `avatars/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
         .from('assets')
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage.from('assets').getPublicUrl(filePath);
 
       const { error: updateError } = await supabase
         .from('profiles')
@@ -220,169 +195,271 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   };
 
   const handleSaveProfile = async () => {
+    const toastId = toast.loading('Salvando alterações...');
     try {
-      const { error } = await supabase
+      // Ensure we have the user ID
+      if (!user?.id) throw new Error('Utilizador não autenticado');
+
+      const { data: updateData, error } = await supabase
         .from('profiles')
         .update({
           full_name: editForm.full_name,
           description: editForm.description,
           avatar_url: editForm.avatar_url,
-          notification_email: editForm.notification_email
+          notification_email: editForm.notification_email,
         })
-        .eq('id', user.id);
+        .eq('id', user.id)
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
       setProfile(prev => prev ? { ...prev, ...editForm } : null);
-      onProfileUpdate({ full_name: editForm.full_name, avatar_url: editForm.avatar_url });
+      onProfileUpdate({ 
+        full_name: editForm.full_name, 
+        avatar_url: editForm.avatar_url,
+        custom_cursor_enabled: cursorEnabled
+      });
       setIsEditing(false);
-      toast.success('Perfil atualizado com sucesso.');
+      toast.success('Perfil atualizado com sucesso.', { id: toastId });
     } catch (err: any) {
-      toast.error(err.message || 'Erro ao salvar perfil.');
+      console.error('Final error in handleSaveProfile:', err);
+      toast.error(err.message || 'Erro ao salvar perfil.', { id: toastId });
     }
   };
 
   const filteredOrders = purchasedProducts.filter(o => {
     if (orderFilter === 'all') return true;
     if (orderFilter === 'refunded') return o.status === 'refunded' || o.status === 'refund_pending';
-    if (orderFilter === 'canceled') return ['canceled', 'cancelled', 'refunded', 'refund_pending'].includes(o.status || '');
+    if (orderFilter === 'canceled') return ['canceled', 'cancelled'].includes(o.status || '');
     return o.shipping_status === orderFilter;
   });
 
   if (loading) return null;
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
-      {/* Tab Navigation */}
-      <div className="flex border-b border-black/5 dark:border-white/5 overflow-x-auto no-scrollbar">
-        <button 
-          onClick={() => setActiveTab('general')}
-          className={`px-8 py-4 text-[10px] uppercase tracking-[0.25em] font-bold transition-all border-b-2 ${activeTab === 'general' ? 'border-luxury-gold text-black dark:text-white' : 'border-transparent text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white'}`}
-        >
-          Geral
-        </button>
-        <button 
-          onClick={() => setActiveTab('orders')}
-          className={`px-8 py-4 text-[10px] uppercase tracking-[0.25em] font-bold transition-all border-b-2 ${activeTab === 'orders' ? 'border-luxury-gold text-black dark:text-white' : 'border-transparent text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white'}`}
-        >
-          Meus Pedidos
-        </button>
+    <div className="max-w-6xl mx-auto px-4 py-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+      {/* Premium Tab Navigation */}
+      <div className="flex flex-col items-center gap-8 border-b border-white/5 pb-8 relative overflow-hidden">
+        <div className="flex p-1 bg-white/5 backdrop-blur-xl border border-white/10 rounded-full">
+          <button 
+            onClick={() => setActiveTab('general')}
+            className={`relative px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
+              activeTab === 'general' ? 'text-black' : 'text-white/40 hover:text-white'
+            }`}
+          >
+            {activeTab === 'general' && (
+              <motion.div 
+                layoutId="nav-bg"
+                className="absolute inset-0 bg-luxury-gold"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              <User size={14} /> GERAL
+            </span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('orders')}
+            className={`relative px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
+              activeTab === 'orders' ? 'text-black' : 'text-white/40 hover:text-white'
+            }`}
+          >
+            {activeTab === 'orders' && (
+              <motion.div 
+                layoutId="nav-bg"
+                className="absolute inset-0 bg-luxury-gold"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              <ShoppingBag size={14} /> PEDIDOS
+            </span>
+          </button>
+        </div>
       </div>
 
       <AnimatePresence mode="wait">
         {activeTab === 'general' && (
           <motion.div 
             key="general"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-8"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-12"
           >
-            <div className="md:col-span-1 space-y-6">
+            {/* Profile Visual Sidebar */}
+            <div className="lg:col-span-4 space-y-8">
               <div className="relative group">
-                <div className="aspect-square w-full bg-neutral-100 dark:bg-zinc-800 rounded-none overflow-hidden border border-black/5 dark:border-white/5 shadow-2xl">
-                  <img 
+                <div className="aspect-[4/5] w-full bg-white/5 overflow-hidden border border-white/10 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)]">
+                  <motion.img 
+                    initial={{ scale: 1.1 }}
+                    animate={{ scale: 1 }}
                     src={getImageUrl(profile?.avatar_url || user?.user_metadata?.avatar_url || user?.user_metadata?.picture || '')} 
                     alt="Avatar" 
                     referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" 
+                    className="w-full h-full object-cover transition-transform duration-[2000ms] group-hover:scale-110" 
                   />
-                </div>
-                {isEditing && (
-                  <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white text-[10px] uppercase tracking-widest gap-2 cursor-pointer z-10 backdrop-blur-[2px]">
-                    <Camera size={20} /> 
-                    <span>{isUploading ? 'A carregar...' : 'Alterar Foto'}</span>
-                    <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} disabled={isUploading} />
-                  </label>
-                )}
-              </div>
-              <div className="p-4 bg-neutral-50 dark:bg-zinc-900 border border-black/5 dark:border-white/5 text-center">
-                <p className="text-[9px] uppercase tracking-[0.25em] text-luxury-gold font-bold mb-1">ID Exclusivo</p>
-                <p className="text-xl font-serif dark:text-white">{profile?.custom_id}</p>
-              </div>
-            </div>
-
-            <div className="md:col-span-2 space-y-8">
-              <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-serif dark:text-white">Informações da Conta</h2>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
-                  className="rounded-none text-[9px] uppercase tracking-widest h-10 border-black/10 dark:border-white/10 dark:text-white"
-                >
-                  {isEditing ? <><Save className="mr-2" size={12} /> Salvar Alterações</> : <><Edit className="mr-2" size={12} /> Editar Perfil</>}
-                </Button>
-              </div>
-
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[9px] uppercase tracking-widest text-luxury-gold font-bold">Email para Notificações</label>
-                  {isEditing ? (
-                    <input 
-                      type="email"
-                      value={editForm.notification_email}
-                      onChange={e => setEditForm(prev => ({ ...prev, notification_email: e.target.value }))}
-                      className="w-full bg-transparent border-b border-black/10 dark:border-white/10 py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
-                      placeholder="seu@email.com"
-                    />
-                  ) : (
-                    <p className="text-lg font-serif dark:text-white py-2">{profile?.notification_email || user?.email || 'Nenhum definido'}</p>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60" />
+                  
+                  {isEditing && (
+                    <label className="absolute inset-x-0 bottom-0 py-12 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center text-white text-[9px] uppercase tracking-[0.4em] gap-3 cursor-pointer z-10 transition-all duration-500 group-hover:bg-luxury-gold group-hover:text-black">
+                      <Camera size={20} className="animate-pulse" /> 
+                      <span className="font-black">{isUploading ? 'PROCESSANDO...' : 'ATUALIZAR FOTOGRAFIA'}</span>
+                      <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} disabled={isUploading} />
+                    </label>
                   )}
                 </div>
 
+                {/* Exclusive ID Tag */}
+                <div className="absolute -top-4 -right-4 bg-luxury-gold text-black p-4 md:p-6 shadow-2xl group-hover:scale-105 transition-transform duration-500">
+                  <p className="text-[7px] uppercase tracking-[0.4em] font-black opacity-60 mb-1">MEMBRO ELITE</p>
+                  <p className="text-sm font-mono font-black">{profile?.custom_id}</p>
+                </div>
+              </div>
+
+              {/* Stats/Quick Actions */}
+              <div className="grid grid-cols-1 gap-4">
+                <div className="p-6 bg-white/5 border border-white/10 backdrop-blur-md">
+                   <div className="flex items-center gap-4">
+                     <div className="w-10 h-10 rounded-full bg-luxury-gold/20 flex items-center justify-center text-luxury-gold">
+                       <ShoppingBag size={18} />
+                     </div>
+                     <div>
+                       <p className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Total Gastos</p>
+                       <p className="text-xl font-serif text-white">€{purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0).toFixed(2)}</p>
+                     </div>
+                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Profile Content Area */}
+            <div className="lg:col-span-8 space-y-12">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
                 <div className="space-y-2">
-                  <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Nome Completo</label>
+                  <span className="text-luxury-gold text-[9px] uppercase tracking-[0.5em] font-black">Área de Membros</span>
+                  <h2 className="text-4xl md:text-5xl font-serif italic text-white tracking-tight">
+                    {profile?.full_name || 'Eminente Convidado'}
+                  </h2>
+                </div>
+                <Button 
+                  onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
+                  className={`rounded-none h-12 px-8 text-[9px] uppercase tracking-[0.3em] font-black transition-all duration-500 border ${
+                    isEditing 
+                      ? 'bg-luxury-gold text-black border-luxury-gold hover:bg-white hover:border-white' 
+                      : 'bg-transparent text-white border-white/20 hover:border-luxury-gold hover:text-luxury-gold'
+                  }`}
+                >
+                  {isEditing ? <><Save className="mr-3" size={14} /> GUARDAR</> : <><Edit className="mr-3" size={14} /> EDITAR PERFIL</>}
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
+                <div className="space-y-3">
+                  <label className="text-[9px] uppercase tracking-[0.4em] text-luxury-gold font-black block">Identidade Visual</label>
                   {isEditing ? (
                     <input 
                       type="text" 
                       value={editForm.full_name} 
                       onChange={(e) => setEditForm(prev => ({ ...prev, full_name: e.target.value }))}
-                      className="w-full bg-transparent border-b border-black/10 dark:border-white/10 py-3 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white"
+                      className="w-full bg-white/5 border border-white/10 p-4 text-sm text-white focus:border-luxury-gold outline-none transition-all font-serif"
                     />
                   ) : (
-                    <p className="text-lg font-serif dark:text-white py-2">{profile?.full_name || 'Sem nome definido'}</p>
+                    <p className="text-lg text-white/80 font-serif border-b border-white/5 pb-2">{profile?.full_name || 'N/A'}</p>
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-[9px] uppercase tracking-widest text-black/50 dark:text-white/50">Descrição / Biografia Artistica</label>
+                <div className="space-y-3">
+                  <label className="text-[9px] uppercase tracking-[0.4em] text-luxury-gold font-black block">E-mail de Notificações</label>
+                  {isEditing ? (
+                    <input 
+                      type="email"
+                      value={editForm.notification_email}
+                      onChange={e => setEditForm(prev => ({ ...prev, notification_email: e.target.value }))}
+                      className="w-full bg-white/5 border border-white/10 p-4 text-sm text-white focus:border-luxury-gold outline-none transition-all font-mono"
+                    />
+                  ) : (
+                    <p className="text-lg text-white/80 font-mono border-b border-white/5 pb-2 truncate">{profile?.notification_email || user.email}</p>
+                  )}
+                </div>
+
+                <div className="md:col-span-2 space-y-3">
+                  <label className="text-[9px] uppercase tracking-[0.4em] text-luxury-gold font-black block">Manifesto Artistico (Bio)</label>
                   {isEditing ? (
                     <textarea 
                       value={editForm.description} 
                       onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full bg-transparent border border-black/10 dark:border-white/10 p-4 text-sm outline-none focus:border-luxury-gold transition-colors dark:text-white h-32 resize-none"
+                      className="w-full bg-white/5 border border-white/10 p-6 text-sm text-white focus:border-luxury-gold outline-none transition-all h-40 resize-none font-serif italic"
+                      placeholder="Descreva a sua essência artística..."
                     />
                   ) : (
-                    <p className="text-sm text-black/60 dark:text-white/60 leading-relaxed font-serif italic py-2">
-                      {profile?.description || 'Adicione uma pequena descrição sobre si ou sobre o seu interesse artístico.'}
+                    <p className="text-sm text-white/50 leading-relaxed font-serif italic bg-white/5 p-6 border-l-2 border-luxury-gold/30">
+                      {profile?.description || 'A sua voz artística ainda não foi manifestada. Edite o seu perfil para partilhar a sua visão.'}
                     </p>
                   )}
                 </div>
 
-                <div className="pt-4 grid grid-cols-2 gap-4">
-                  <div className="p-4 border border-black/5 dark:border-white/5 rounded-none">
-                    <p className="text-[9px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40 mb-1">E-mail de Acesso</p>
-                    <p className="text-xs font-medium dark:text-white">{user.email}</p>
-                  </div>
-                  <div className="p-4 border border-black/5 dark:border-white/5 rounded-none">
-                    <p className="text-[9px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40 mb-1">Membro desde</p>
-                    <p className="text-xs font-medium dark:text-white">{new Date(user.created_at).toLocaleDateString()}</p>
+                {/* Navigation Preference (Cursor) */}
+                <div className="md:col-span-2 pt-8 mt-4 border-t border-white/5 space-y-6">
+                  <label className="text-[9px] uppercase tracking-[0.4em] text-luxury-gold font-black block">Preferências de Visualização</label>
+                  <div className="flex items-center justify-between p-6 bg-white/5 border border-white/10 group hover:border-luxury-gold/30 transition-all duration-500">
+                    <div className="space-y-1">
+                      <p className="text-xs text-white font-serif">Cursor de Fluxo Artístico</p>
+                      <p className="text-[9px] text-white/40 uppercase tracking-widest">Habilita a partícula de luxo que segue os seus movimentos</p>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const newVal = !cursorEnabled;
+                        setCursorEnabled(newVal);
+                        localStorage.setItem('luxury_cursor_enabled', String(newVal));
+                        onProfileUpdate({ custom_cursor_enabled: newVal });
+                        toast.success(newVal ? 'Cursor de fluxo ativado' : 'Cursor de fluxo desativado', {
+                          style: { background: '#0a0a0a', border: '1px solid #D4AF37', color: '#fff' }
+                        });
+                      }}
+                      className={`relative w-12 h-6 rounded-full transition-all duration-500 ${
+                        cursorEnabled ? 'bg-luxury-gold' : 'bg-white/10'
+                      }`}
+                    >
+                      <motion.div 
+                        animate={{ x: cursorEnabled ? 24 : 4 }}
+                        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-lg"
+                      />
+                    </button>
                   </div>
                 </div>
+              </div>
 
-                <div className="pt-8 border-t border-black/5 dark:border-white/5">
-                  <Button 
-                    variant="ghost" 
+              {/* Security & Access Section */}
+              <div className="pt-12 mt-12 border-t border-white/5">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-8">
+                  <div className="flex gap-10">
+                    <div className="space-y-1">
+                      <p className="text-[8px] uppercase tracking-[0.3em] text-white/30 font-bold">Membro Desde</p>
+                      <p className="text-xs text-white/70">{new Date(user.created_at).toLocaleDateString('pt-PT', { year: 'numeric', month: 'long' })}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[8px] uppercase tracking-[0.3em] text-white/30 font-bold">Tipo de Assinante</p>
+                      <p className="text-xs text-white/70">Prestígio</p>
+                    </div>
+                  </div>
+                  
+                  <button 
                     onClick={onLogout}
-                    className="group border border-red-500/20 hover:bg-red-500/10 hover:border-red-500/50 text-red-500 rounded-none h-14 px-8 uppercase tracking-[0.2em] text-[10px] font-black transition-all duration-500 w-full sm:w-auto"
+                    className="group flex items-center gap-4 px-10 py-5 bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] uppercase tracking-[0.4em] font-black hover:bg-red-500 hover:text-white transition-all duration-700 w-full md:w-auto overflow-hidden relative"
                   >
-                    <LogOut className="mr-3 group-hover:translate-x-1 transition-transform" size={16} /> 
-                    Terminar Sessão
-                  </Button>
-                  <p className="mt-4 text-[9px] uppercase tracking-[0.15em] text-black/30 dark:text-white/30 italic">
-                    A sua sessão será encerrada com segurança em todos os dispositivos.
-                  </p>
+                     <motion.div 
+                        initial={{ x: -20, opacity: 0 }}
+                        whileHover={{ x: 0, opacity: 1 }}
+                        className="absolute left-4"
+                     >
+                       <LogOut size={16} />
+                     </motion.div>
+                     <span className="group-hover:pl-4 transition-all duration-500">TERMINAR SESSÃO</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -392,341 +469,305 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         {activeTab === 'orders' && (
           <motion.div 
             key="orders"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="space-y-8"
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 30 }}
+            className="space-y-12"
           >
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-              <div>
-                <h2 className="text-3xl font-serif dark:text-white">Meus Pedidos</h2>
-                <p className="text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40 mt-1">Histórico de Aquisições</p>
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8 pb-8 border-b border-white/5">
+              <div className="space-y-2">
+                <span className="text-luxury-gold text-[9px] uppercase tracking-[0.5em] font-black">Historial de Aquisições</span>
+                <h2 className="text-4xl font-serif text-white italic">Manifestações de Arte</h2>
               </div>
-              <div className="flex bg-neutral-50 dark:bg-zinc-900 p-1 border border-black/5 dark:border-white/5 overflow-x-auto no-scrollbar">
-                {(['all', 'pending', 'sent', 'delivered', 'refunded', 'canceled'] as const).map((f) => (
+              
+              <div className="flex bg-white/5 backdrop-blur-md p-1 border border-white/10 rounded-full overflow-x-auto no-scrollbar w-full lg:w-auto">
+                {(['all', 'pending', 'sent', 'delivered'] as const).map((f) => (
                   <button 
                     key={f}
                     onClick={() => setOrderFilter(f)}
-                    className={`px-4 py-2 text-[8px] uppercase tracking-[0.15em] font-bold transition-all whitespace-nowrap ${orderFilter === f ? 'bg-black dark:bg-white text-white dark:text-black shadow-md' : 'text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white'}`}
+                    className={`relative px-6 py-2 text-[8px] uppercase tracking-[0.2em] font-black transition-all rounded-full whitespace-nowrap ${
+                      orderFilter === f ? 'text-black' : 'text-white/40 hover:text-white'
+                    }`}
                   >
-                    {f === 'all' ? 'Todos' : f === 'pending' ? 'Pendentes' : f === 'sent' ? 'Enviados' : f === 'delivered' ? 'Concluídos' : f === 'refunded' ? 'Reembolsos' : 'Cancelados'}
+                    {orderFilter === f && (
+                      <motion.div 
+                        layoutId="order-filter-bg"
+                        className="absolute inset-0 bg-white"
+                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                      />
+                    )}
+                    <span className="relative z-10">
+                      {f === 'all' ? 'TODOS' : f === 'pending' ? 'PENDENTES' : f === 'sent' ? 'TRANSITO' : 'ENTREGUE'}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-6">
               {filteredOrders.length === 0 ? (
-                <div className="py-24 text-center bg-neutral-50/50 dark:bg-zinc-900/30 border border-black/5 dark:border-white/5">
-                  <Package className="mx-auto mb-4 text-black/10 dark:text-white/10" size={40} />
-                  <p className="text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40">Nenhum pedido encontrado com este filtro.</p>
+                <div className="py-40 text-center flex flex-col items-center justify-center space-y-6">
+                  <div className="w-20 h-20 rounded-full border border-white/5 flex items-center justify-center text-white/5">
+                    <ShoppingBag size={40} />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase tracking-[0.4em] text-white/30 font-black">Nenhuma obra encontrada</p>
+                    <p className="text-sm text-white/10 font-serif italic">A sua galeria pessoal aguarda o primeiro manifesto.</p>
+                  </div>
                 </div>
               ) : (
                 filteredOrders.map((order) => (
-                  <div 
-                    key={order.id} 
+                  <motion.div 
+                    key={order.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    whileHover={{ scale: 1.01 }}
+                    className="group relative bg-[#0a0a0a] border border-white/5 hover:border-luxury-gold/40 transition-all duration-700 cursor-pointer overflow-hidden p-4 md:p-0"
                     onClick={() => setSelectedOrder(order)}
-                    className="group bg-white dark:bg-zinc-900 border border-black/5 dark:border-white/5 overflow-hidden hover:border-luxury-gold/30 transition-all duration-500 cursor-pointer"
                   >
-                    <div className="p-4 md:p-6 flex items-center gap-6">
-                      <div className="w-16 h-20 bg-neutral-100 dark:bg-zinc-800 flex-shrink-0">
+                    <div className="flex flex-col md:flex-row items-stretch">
+                      {/* Product Visual */}
+                      <div className="w-full md:w-32 lg:w-40 aspect-square md:aspect-auto bg-white/5 overflow-hidden">
                         <img 
                           src={getImageUrl(order.product?.image_url || '')} 
-                          referrerPolicy="no-referrer"
                           alt="" 
-                          className="w-full h-full object-cover" 
+                          className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" 
                         />
                       </div>
-                      
-                      <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                        <div className="md:col-span-2">
-                          <p className="text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40 mb-1">Produto</p>
-                          <h4 className="font-serif text-sm dark:text-white truncate">{order.product?.title || 'Obra Removida'}</h4>
-                          {order.selected_options && (order.selected_options.size || order.selected_options.color) && (
-                            <div className="text-[9px] text-luxury-gold uppercase tracking-tighter mt-0.5 font-bold">
-                              {order.selected_options.size && `Tam: ${order.selected_options.size}`}
-                              {order.selected_options.size && order.selected_options.color && ' | '}
-                              {order.selected_options.color && `Cor: ${order.selected_options.color}`}
-                            </div>
-                          )}
-                          <p className="text-[10px] font-black text-luxury-gold mt-1">€{order.total_amount}</p>
-                          <p className="text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 mt-2 font-mono select-all" title="Utilize este ID caso precise de suporte.">
-                            ID: SART-{order.id.split('-')[0].toUpperCase()}
-                          </p>
-                        </div>
-                        
-                        <div>
-                          <p className="text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40 mb-1">Data</p>
-                          <p className="text-[10px] dark:text-zinc-300">{new Date(order.created_at).toLocaleDateString()}</p>
-                        </div>
-                        
-                        <div className="md:col-span-1 flex flex-col items-center gap-1">
-                          {/* Order Status */}
-                          <div className="flex flex-col items-center gap-1 w-full">
-                            <p className="text-[7px] uppercase tracking-widest text-black/40 dark:text-white/40">Pedido</p>
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-black w-full justify-center border ${
-                              order.status === 'canceled' || order.status === 'cancelled'
-                                ? "bg-red-500/10 text-red-500 border-red-500/20"
-                                : order.status === 'refunded'
-                                  ? "bg-slate-500/10 text-slate-500 border-slate-500/20"
-                                  : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                            }`}>
-                              {order.shipping_status === 'delivered' ? 'Entregue' : 
-                               order.shipping_status === 'sent' ? 'Em Trânsito' : 
-                                (order.status === 'canceled' || order.status === 'cancelled') ? 'Cancelado' :
-                                (order.status === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado' || order.status === 'refund_pending') ? 'Reembolsado' : 
-                                ['paid', 'succeeded', 'completed', 'pago'].includes(order.status?.toLowerCase() || "") ? 'Pago' : 'Pendente'}
-                            </span>
-                          </div>
 
-                          {/* Payment Status (Only show if paid or refunded or canceled) */}
-                          <div className="flex flex-col items-center gap-1 w-full">
-                            <p className="text-[7px] uppercase tracking-widest text-black/40 dark:text-white/40">Pagamento</p>
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-black w-full justify-center border ${
-                              (order.payment_status === 'refunded' || order.status === 'refunded')
-                                ? "bg-red-500 text-white border-red-600"
-                                : (order.payment_status === 'paid' || order.status === 'paid' || order.status === 'completed' || order.status === 'succeeded')
-                                  ? "bg-emerald-500 text-white border-emerald-600"
-                                  : "bg-amber-500 text-white border-amber-600"
-                            }`}>
-                              {(order.payment_status === 'refunded' || order.status === 'refunded' || order.status === 'reembolsado' || order.status === 'refund_pending') ? 'Reembolsado' :
-                               (order.payment_status === 'paid' || order.status === 'paid' || order.status === 'completed' || order.status === 'succeeded' || order.status === 'pago') ? 'Pago' :
-                               'Pendente'}
+                      {/* Content Row */}
+                      <div className="flex-1 p-6 md:p-8 flex flex-col md:flex-row items-center gap-8">
+                        <div className="flex-1 min-w-0 space-y-3 text-center md:text-left">
+                          <div className="flex flex-col md:flex-row items-center gap-3">
+                            <span className="text-[8px] uppercase tracking-[0.3em] font-black text-luxury-gold py-1 px-2 border border-luxury-gold/20 rounded-sm">
+                              {order.shipping_status === 'delivered' ? 'CONCLUÍDO' : 'EM PROCESSAMENTO'}
                             </span>
+                            <p className="text-[7px] font-mono text-white/20 uppercase tracking-widest whitespace-nowrap">ID: SART-{order.id.split('-')[0].toUpperCase()}</p>
+                          </div>
+                          <h4 className="text-xl md:text-2xl font-serif text-white truncate group-hover:text-luxury-gold transition-colors duration-500">
+                            {order.product?.title || 'Manifestação Sem Nome'}
+                          </h4>
+                          <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold mb-4 md:mb-0">
+                            <div className="flex items-center gap-2"><Calendar size={12} className="text-luxury-gold" /> {new Date(order.created_at).toLocaleDateString()}</div>
+                            <div className="flex items-center gap-2 font-mono font-black text-white">€{order.total_amount.toFixed(2)}</div>
                           </div>
                         </div>
-                        
-                        <Button variant="ghost" size="icon" className="hidden md:flex text-black/20 dark:text-white/20 group-hover:text-luxury-gold transition-colors">
-                          <ChevronRight size={18} />
-                        </Button>
+
+                        {/* Status Pillars */}
+                        <div className="flex flex-row md:flex-col lg:flex-row items-center gap-3 md:gap-4 w-full md:w-auto">
+                           <div className="flex-1 md:w-32 p-3 bg-white/5 border border-white/10 text-center space-y-1">
+                              <p className="text-[7px] uppercase tracking-widest text-white/30 font-black">LOGÍSTICA</p>
+                              <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
+                                order.shipping_status === 'delivered' ? 'text-emerald-500' : 'text-luxury-gold'
+                              }`}>
+                                {order.shipping_status === 'delivered' ? 'ENTREGUE' : order.shipping_status === 'sent' ? 'TRANSITO' : 'PRODUÇÃO'}
+                              </p>
+                           </div>
+                           <div className="flex-1 md:w-32 p-3 bg-white/5 border border-white/10 text-center space-y-1">
+                              <p className="text-[7px] uppercase tracking-widest text-white/30 font-black">FINANCEIRO</p>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500 truncate">Satisfeito</p>
+                           </div>
+                        </div>
+
+                        <div className="hidden lg:flex items-center justify-center w-12 h-12 rounded-full border border-white/5 group-hover:border-luxury-gold/40 group-hover:bg-luxury-gold group-hover:text-black transition-all duration-700">
+                          <ArrowUpRight size={20} />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </motion.div>
                 ))
-                )}
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Order Detail Modal for User */}
+      {/* Modern Order Detail Slide-over / Modal */}
       <AnimatePresence>
-        {selectedOrder && (() => {
-          const shippingData = (() => {
-            if (!selectedOrder.shipping_details) return selectedOrder.selected_options?.shipping_details;
-            if (typeof selectedOrder.shipping_details === 'object') return selectedOrder.shipping_details;
-            try {
-              return JSON.parse(selectedOrder.shipping_details);
-            } catch(e) {
-              return null;
-            }
-          })();
-
-          return (
+        {selectedOrder && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10000] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4"
+            onClick={() => setSelectedOrder(null)}
+          >
             <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-              onClick={() => setSelectedOrder(null)}
+              initial={{ scale: 0.9, opacity: 0, rotateY: 30 }}
+              animate={{ scale: 1, opacity: 1, rotateY: 0 }}
+              exit={{ scale: 0.9, opacity: 0, rotateY: 30 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="bg-[#050505] w-full max-w-4xl border border-white/10 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative"
+              onClick={(e) => e.stopPropagation()}
             >
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="bg-white dark:bg-[#121212] w-full max-w-2xl border border-black/5 dark:border-white/5 overflow-hidden shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex justify-between items-center p-6 border-b border-black/5 dark:border-white/5">
-                  <h3 className="text-xl font-serif dark:text-white">Detalhes do Pedido</h3>
-                  <button onClick={() => setSelectedOrder(null)} className="text-black/40 dark:text-white/40 hover:text-black dark:hover:text-white transition-colors">
-                    <X size={20} />
-                  </button>
+              {/* Luxury Detail Header */}
+              <div className="relative h-64 md:h-80 overflow-hidden">
+                <img 
+                  src={getImageUrl(selectedOrder.product?.image_url || '')} 
+                  alt="" 
+                  className="w-full h-full object-cover grayscale opacity-40 hover:grayscale-0 hover:opacity-70 transition-all duration-1000" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
+                <button 
+                  onClick={() => setSelectedOrder(null)} 
+                  className="absolute top-8 right-8 w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-white hover:bg-luxury-gold hover:text-black hover:border-luxury-gold transition-all duration-500 z-10"
+                >
+                  <X size={20} />
+                </button>
+                
+                <div className="absolute bottom-10 left-10 space-y-2">
+                   <p className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-black">Manifesto Detalhado</p>
+                   <h3 className="text-4xl md:text-5xl font-serif italic text-white">{selectedOrder.product?.title || 'Manifestação Sem Nome'}</h3>
                 </div>
+              </div>
 
-                <div className="p-8 space-y-8 max-h-[80vh] overflow-y-auto custom-scrollbar">
-                  {/* Product Info */}
-                  <div className="flex gap-6 items-start">
-                    <div className="w-24 h-32 bg-neutral-100 dark:bg-zinc-800 flex-shrink-0 border border-black/5 dark:border-white/5">
-                      <img 
-                        src={getImageUrl(selectedOrder.product?.image_url || '')} 
-                        alt="" 
-                        className="w-full h-full object-cover" 
-                      />
+              <div className="p-10 grid grid-cols-1 md:grid-cols-12 gap-12 max-h-[60vh] overflow-y-auto luxury-scrollbar">
+                {/* Secondary details */}
+                <div className="md:col-span-7 space-y-8">
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 text-luxury-gold">
+                      <Truck size={18} />
+                      <span className="text-[10px] uppercase tracking-[0.4em] font-black">LOGÍSTICA DE LUXO</span>
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-[10px] uppercase tracking-widest text-black/40 dark:text-white/40">Item de Luxo</p>
-                      <h4 className="text-2xl font-serif dark:text-white leading-tight">{selectedOrder.product?.title || 'Obra Removida'}</h4>
-                      {selectedOrder.selected_options && (selectedOrder.selected_options.size || selectedOrder.selected_options.color) && (
-                        <div className="text-xs text-luxury-gold uppercase tracking-widest font-bold">
-                          {selectedOrder.selected_options.size && `Tam: ${selectedOrder.selected_options.size} `}
-                          {selectedOrder.selected_options.color && `| Cor: ${selectedOrder.selected_options.color}`}
+                    {selectedOrder.shipping_details ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-8 bg-white/5 border border-white/10 border-l-luxury-gold border-l-2">
+                        <div className="space-y-4">
+                          <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Destinatário</p>
+                          <p className="text-sm text-white font-serif italic leading-relaxed">
+                            {selectedOrder.shipping_details.fullName || 
+                             `${selectedOrder.shipping_details.firstName || ''} ${selectedOrder.shipping_details.lastName || ''}`.trim() || 
+                             'Nome Preservado'}
+                          </p>
                         </div>
-                      )}
-                      <p className="text-lg font-black text-luxury-gold pt-2">€{selectedOrder.total_amount}</p>
-                    </div>
+                        <div className="space-y-4">
+                          <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Residência de Entrega</p>
+                          <p className="text-sm text-white/70 font-mono leading-relaxed">
+                            {selectedOrder.shipping_details.address}<br />
+                            {selectedOrder.shipping_details.postalCode} {selectedOrder.shipping_details.city}<br />
+                            <span className="text-luxury-gold">{selectedOrder.shipping_details.country || 'PT'}</span>
+                          </p>
+                        </div>
+                        <div className="md:col-span-2 space-y-4 border-t border-white/5 pt-4">
+                           <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Contacto Seguro</p>
+                           <p className="text-sm text-white font-mono">{selectedOrder.shipping_details.phone || 'Privado'}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-white/20 font-serif italic bg-white/5 p-6 border border-white/10">Os detalhes logísticos estão em fase de digitalização.</p>
+                    )}
                   </div>
 
-                  {/* Shipping Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-4">
-                      <div className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold flex items-center gap-2">
-                        <Truck size={14} /> Detalhes de Envio
-                      </div>
-                      {shippingData ? (
-                        <div className="text-sm space-y-3 dark:text-white/80">
-                          <div>
-                            <p className="text-[9px] uppercase text-black/40 dark:text-white/40 tracking-wider">Destinatário</p>
-                            <p className="font-medium">{shippingData.fullName || `${shippingData.firstName || ''} ${shippingData.lastName || ''}`.trim() || shippingData.name || 'N/A'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] uppercase text-black/40 dark:text-white/40 tracking-wider">Morada</p>
-                            <p>{shippingData.address || 'N/A'}</p>
-                            <p>{shippingData.postalCode || shippingData.zip || ''} {shippingData.city || ''}</p>
-                            <p className="uppercase tracking-widest text-[10px] mt-1">{shippingData.country || 'PT'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[9px] uppercase text-black/40 dark:text-white/40 tracking-wider">Contacto</p>
-                            <p>{shippingData.phone || 'N/A'}</p>
-                          </div>
+                  <div className="space-y-4">
+                     <div className="flex items-center gap-3 text-luxury-gold">
+                        <FileText size={18} />
+                        <span className="text-[10px] uppercase tracking-[0.4em] font-black">Rastreamento de Elite</span>
+                     </div>
+                     <div className="p-8 bg-white/5 border border-white/10 space-y-6">
+                        <div className="grid grid-cols-2 gap-8">
+                           <div className="space-y-1">
+                              <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Estado Atual</p>
+                              <p className="text-xs text-white font-black uppercase tracking-widest">{selectedOrder.shipping_status || 'Aguardando Verificação'}</p>
+                           </div>
+                           <div className="space-y-1">
+                              <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">SLA Estimado</p>
+                              <p className="text-xs text-luxury-gold font-black uppercase tracking-widest">Premium (4-7 Dias)</p>
+                           </div>
                         </div>
-                      ) : (
-                        <div className="p-4 bg-neutral-50 dark:bg-zinc-900/50 border border-black/5 dark:border-white/5 border-dashed text-center">
-                          <p className="text-xs text-black/40 dark:text-white/40 italic">Informação de envio não disponível para itens digitais ou processamento pendente.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold flex items-center gap-2">
-                        <FileText size={14} /> Resumo do Status
-                      </div>
-                      <div className="space-y-4 text-sm">
-                        <div className="p-4 bg-neutral-100 dark:bg-zinc-800/50 space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Status Pagamento</span>
-                            <span className={`text-[9px] uppercase px-2 py-0.5 font-bold border ${
-                              (selectedOrder.payment_status === 'refunded' || selectedOrder.status === 'refunded' || selectedOrder.status === 'reembolsado' || selectedOrder.status === 'refund_pending')
-                                ? "bg-red-500/10 text-red-500 border-red-500/20"
-                                : (selectedOrder.payment_status === 'paid' || ['paid', 'completed', 'succeeded', 'pago'].includes(selectedOrder.status?.toLowerCase() || ""))
-                                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                                  : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                            }`}>
-                              {(selectedOrder.payment_status === 'refunded' || selectedOrder.status === 'refunded' || selectedOrder.status === 'reembolsado' || selectedOrder.status === 'refund_pending') ? 'Reembolsado' :
-                               (selectedOrder.payment_status === 'paid' || ['paid', 'completed', 'succeeded', 'pago'].includes(selectedOrder.status?.toLowerCase() || "")) ? 'Pago' :
-                               'Pendente'}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Estado do Pedido</span>
-                              <span className={`text-[9px] uppercase font-bold border px-2 py-0.5 ${
-                                (selectedOrder.status === 'canceled' || selectedOrder.status === 'cancelled')
-                                  ? "bg-red-500/10 text-red-500 border-red-500/20"
-                                  : (selectedOrder.shipping_status === 'delivered')
-                                    ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                                    : "bg-blue-500/10 text-blue-500 border-blue-500/20"
-                              }`}>
-                                {selectedOrder.shipping_status === 'delivered' ? 'Entregue' : 
-                                 selectedOrder.shipping_status === 'sent' ? 'Enviado' : 
-                                 (selectedOrder.status === 'canceled' || selectedOrder.status === 'cancelled') ? 'Cancelado' :
-                                 (selectedOrder.status === 'refunded' || selectedOrder.status === 'reembolsado' || selectedOrder.status === 'refund_pending') ? 'Reembolsado' :
-                                 ['paid', 'completed', 'succeeded', 'pago'].includes(selectedOrder.status?.toLowerCase() || "") ? 'Confirmado' :
-                                 'Pendente'}
-                              </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Estado Envio</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[9px] uppercase font-bold dark:text-white">
-                                {selectedOrder.shipping_status === 'sent' ? 'Enviado' : 
-                                 selectedOrder.shipping_status === 'delivered' ? 'Entregue' : 
-                                 selectedOrder.shipping_status || 'A Processar'}
-                              </span>
-                              {selectedOrder.dropea_order_id && (
-                                <button 
-                                  onClick={() => handleSyncOrder(selectedOrder.id)}
-                                  disabled={isSyncing}
-                                  className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded-full transition-colors disabled:opacity-50"
-                                  title="Sincronizar com Dropea"
-                                >
-                                  <Clock size={10} className={`${isSyncing ? 'animate-spin' : ''}`} />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex justify-between items-center pt-2 border-t border-black/5 dark:border-white/5 mt-2">
-                             <div className="flex items-center gap-2">
-                               <Mail size={12} className="text-luxury-gold" />
-                               <span className="text-[9px] uppercase tracking-wider text-black/50 dark:text-white/50">Alertas por E-mail</span>
-                             </div>
-                             <button
-                               onClick={async () => {
-                                 try {
-                                   const newValue = !(selectedOrder.notifications_enabled !== false);
-                                   const { error } = await supabase
-                                     .from('orders')
-                                     .update({ notifications_enabled: newValue })
-                                     .eq('id', selectedOrder.id);
-                                   
-                                   if (error) throw error;
-                                   
-                                   // Update UI
-                                   setSelectedOrder(prev => prev ? { ...prev, notifications_enabled: newValue } : null);
-                                   toast.success(newValue ? "Notificações ativadas" : "Notificações desativadas");
-                                   
-                                   // Optional: reload to sync list state
-                                   setTimeout(() => window.location.reload(), 1000);
-                                 } catch (err: any) {
-                                   toast.error("Erro ao atualizar preferências: " + err.message);
-                                 }
-                               }}
-                               className={`w-8 h-4 rounded-full transition-colors relative flex items-center px-0.5 ${ (selectedOrder.notifications_enabled !== false) ? 'bg-emerald-500' : 'bg-black/20 dark:bg-white/20' }`}
-                             >
-                               <div className={`w-3 h-3 bg-white rounded-full transition-transform ${ (selectedOrder.notifications_enabled !== false) ? 'translate-x-4' : 'translate-x-0' } shadow-sm`} />
-                             </button>
-                          </div>
-                          {selectedOrder.shipping_status_metadata?.trackingNumber && (
-                            <div className="pt-2 mt-2 border-t border-black/5 dark:border-white/5 space-y-1">
-                              <p className="text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40">Código de Rastreio</p>
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-mono font-bold dark:text-white">{selectedOrder.shipping_status_metadata.trackingNumber}</span>
+                        
+                        {selectedOrder.shipping_status_metadata?.trackingNumber && (
+                          <div className="pt-6 border-t border-white/10 space-y-4">
+                             <div className="flex justify-between items-center bg-black/40 p-4 rounded-sm border border-white/5">
+                                <span className="font-mono text-xl text-white tracking-tighter">{selectedOrder.shipping_status_metadata.trackingNumber}</span>
                                 {selectedOrder.shipping_status_metadata.trackingUrl && (
                                   <a 
                                     href={selectedOrder.shipping_status_metadata.trackingUrl} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
-                                    className="text-[8px] uppercase tracking-widest text-luxury-gold hover:underline font-bold"
+                                    className="flex items-center gap-2 text-luxury-gold text-[9px] uppercase tracking-widest font-black hover:text-white transition-colors"
                                   >
-                                    Seguir Objeto
+                                    RASTREAR AGORA <ArrowUpRight size={14} />
                                   </a>
                                 )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="text-[9px] text-black/40 dark:text-white/40 font-mono space-y-1">
-                          <p>ORDEM: SART-{selectedOrder.id.toUpperCase()}</p>
-                          <p>DATA: {new Date(selectedOrder.created_at).toLocaleString()}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 flex gap-4">
-                    <Button 
-                      className="flex-1 rounded-none h-12 bg-black dark:bg-white text-white dark:text-black text-[10px] uppercase tracking-widest font-bold"
-                      onClick={() => setSelectedOrder(null)}
-                    >
-                      Fechar Detalhes
-                    </Button>
+                             </div>
+                          </div>
+                        )}
+                     </div>
                   </div>
                 </div>
-              </motion.div>
+
+                {/* Vertical Info Pillar */}
+                <div className="md:col-span-5 space-y-8">
+                   <div className="p-8 bg-luxury-gold text-black space-y-6">
+                      <div className="flex items-center gap-3 opacity-60">
+                         <CreditCard size={18} />
+                         <span className="text-[10px] uppercase tracking-[0.4em] font-black">INVESTIMENTO</span>
+                      </div>
+                      <div className="space-y-1">
+                         <p className="text-5xl font-serif font-black tracking-tighter">€{selectedOrder.total_amount.toFixed(2)}</p>
+                         <p className="text-[9px] uppercase tracking-widest font-black">Total Transacionado</p>
+                      </div>
+                      <div className="pt-6 border-t border-black/10 flex flex-col gap-4">
+                         <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
+                            <span>Status</span>
+                            <span className="bg-white/20 px-2 py-0.5">COMPLETO</span>
+                         </div>
+                         <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
+                            <span>Tópico</span>
+                            <span>AQUISIÇÃO ÚNICA</span>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div className="p-8 bg-white/5 border border-white/10 space-y-6">
+                      <div className="flex items-center gap-3 text-luxury-gold">
+                         <Hash size={18} />
+                         <span className="text-[10px] uppercase tracking-[0.4em] font-black">METADADOS</span>
+                      </div>
+                      <div className="space-y-4 text-[10px] font-mono text-white/40 leading-relaxed">
+                         <div className="flex justify-between"><span>REFERÊNCIA</span><span className="text-white select-all">SART-{selectedOrder.id.toUpperCase()}</span></div>
+                         <div className="flex justify-between"><span>HORÁRIO</span><span className="text-white">{new Date(selectedOrder.created_at).toLocaleTimeString()}</span></div>
+                         <div className="flex justify-between"><span>DATA</span><span className="text-white">{new Date(selectedOrder.created_at).toLocaleDateString()}</span></div>
+                      </div>
+                      
+                      <button
+                         onClick={async () => {
+                           try {
+                             const newValue = !(selectedOrder.notifications_enabled !== false);
+                             const { error } = await supabase
+                               .from('orders')
+                               .update({ notifications_enabled: newValue })
+                               .eq('id', selectedOrder.id);
+                             
+                             if (error) throw error;
+                             setSelectedOrder(prev => prev ? { ...prev, notifications_enabled: newValue } : null);
+                             toast.success(newValue ? "Alertas de luxo ativados" : "Alertas silenciados");
+                           } catch (err: any) {
+                             toast.error("Erro na comunicação segura: " + err.message);
+                           }
+                         }}
+                         className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-[9px] uppercase tracking-[0.3em] font-black text-white/60 transition-all flex items-center justify-center gap-4"
+                      >
+                         <Mail size={12} className={selectedOrder.notifications_enabled !== false ? 'text-luxury-gold' : ''} />
+                         {selectedOrder.notifications_enabled !== false ? 'ALERTAS ATIVOS' : 'ALERTAS DESATIVADOS'}
+                      </button>
+                   </div>
+                </div>
+              </div>
+
+              {/* Modal Footer Controls */}
+              <div className="p-8 bg-white/5 border-t border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between">
+                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/30 font-bold italic">A qualidade da sua aquisição é garantida pela curadoria da S.ART.</p>
+                 <Button 
+                   onClick={() => setSelectedOrder(null)}
+                   className="w-full md:w-auto h-14 px-12 bg-white text-black rounded-none text-[10px] uppercase tracking-[0.4em] font-black hover:bg-luxury-gold transition-all duration-500"
+                 >
+                   REGRESSAR À GALERIA
+                 </Button>
+              </div>
             </motion.div>
-          );
-        })()}
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
