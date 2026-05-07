@@ -915,7 +915,7 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       const trackingNumber = data.tracking_number || (data.fulfillment?.tracking_number) || (data.tracking?.number) || (data.order?.tracking_number);
       const trackingUrl = data.tracking_url || (data.fulfillment?.tracking_url) || (data.tracking?.url) || (data.order?.tracking_url);
 
-      if (linkedOrder) {
+      if (linkedOrder && linkedOrder.status !== 'pending') {
         const updateData: any = { shipping_status: 'sent' };
         if (trackingNumber) {
           updateData.shipping_status_metadata = { 
@@ -1288,7 +1288,7 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       const dropeaStatus = String(dropeaData.status).toUpperCase();
       
       // Mapeamento Robusto de Status (Dropea -> SArt)
-      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus)) {
+      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
         updateData.shipping_status = 'sent';
       } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
         updateData.shipping_status = 'delivered';
@@ -2871,7 +2871,7 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
     const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
     
     // Mapeamento Refinado
-    if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus)) {
+    if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
       updateData.shipping_status = 'sent';
       if (order.status !== 'refunded') {
         updateData.status = (dropeaStatus === 'FULFILLED') ? 'completed' : 'paid';
