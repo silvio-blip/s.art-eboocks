@@ -2013,8 +2013,8 @@ export default function AdminDashboard({
 
             {editingProduct && (
               <div className="fixed inset-0 z-[60] bg-black flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-                <Card className="max-w-4xl w-full bg-[#050505] border border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto shadow-[0_0_100px_rgba(0,0,0,1)]">
-                  <div className="flex justify-between items-center">
+                <Card className="max-w-4xl w-full bg-[#050505] border border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto shadow-[0_0_100px_rgba(0,0,0,1)] max-h-[95vh] overflow-y-auto luxury-scrollbar">
+                  <div className="flex justify-between items-center sticky top-0 bg-[#050505] z-10 pb-4">
                     <h3 className="text-2xl md:text-3xl font-serif">
                       {editingProduct.id ? "Editar Produto" : "Novo Produto"}
                     </h3>
@@ -2530,7 +2530,8 @@ export default function AdminDashboard({
                             }`}>
                               {order.shipping_status === "delivered" ? "Entregue" : 
                                order.shipping_status === "sent" ? "Em Trânsito" : 
-                               "Pendente / Em Separação"}
+                               ["canceled", "cancelled"].includes(order.status?.toLowerCase() || "") ? "Cancelado" :
+                               "Em Processamento"}
                             </span>
                             {order.shipping_status_metadata?.trackingNumber && (
                               <span className="text-[8px] text-white/30 font-mono tracking-tighter">

@@ -526,9 +526,9 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     className="group relative bg-[#0a0a0a] border border-white/5 hover:border-luxury-gold/40 transition-all duration-700 cursor-pointer overflow-hidden p-4 md:p-0"
                     onClick={() => setSelectedOrder(order)}
                   >
-                    <div className="flex flex-col md:flex-row items-stretch">
+                    <div className="flex flex-col md:flex-row items-stretch min-h-[120px]">
                       {/* Product Visual */}
-                      <div className="w-full md:w-32 lg:w-40 aspect-square md:aspect-auto bg-white/5 overflow-hidden">
+                      <div className="w-full md:w-32 lg:w-40 h-48 md:h-auto bg-white/5 overflow-hidden shrink-0">
                         <img 
                           src={getImageUrl(order.product?.image_url || '')} 
                           alt="" 
@@ -540,8 +540,16 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="flex-1 p-6 md:p-8 flex flex-col md:flex-row items-center gap-8">
                         <div className="flex-1 min-w-0 space-y-3 text-center md:text-left">
                           <div className="flex flex-col md:flex-row items-center gap-3">
-                            <span className="text-[8px] uppercase tracking-[0.3em] font-black text-luxury-gold py-1 px-2 border border-luxury-gold/20 rounded-sm">
-                              {order.shipping_status === 'delivered' ? 'CONCLUÍDO' : 'EM PROCESSAMENTO'}
+                            <span className={`text-[8px] uppercase tracking-[0.3em] font-black py-1 px-2 border rounded-sm ${
+                              order.shipping_status === 'delivered' ? 'text-emerald-500 border-emerald-500/20' : 
+                              ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500 border-red-500/20' :
+                              ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'text-zinc-500 border-zinc-500/20' :
+                              'text-luxury-gold border-luxury-gold/20'
+                            }`}>
+                              {order.shipping_status === 'delivered' ? 'CONCLUÍDO' : 
+                               ['canceled', 'cancelled'].includes(order.status || '') ? 'CANCELADO' : 
+                               ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'REEMBOLSADO' :
+                               'EM PROCESSAMENTO'}
                             </span>
                             <p className="text-[7px] font-mono text-white/20 uppercase tracking-widest whitespace-nowrap">ID: SART-{order.id.split('-')[0].toUpperCase()}</p>
                           </div>
@@ -559,14 +567,22 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                            <div className="flex-1 md:w-32 p-3 bg-white/5 border border-white/10 text-center space-y-1">
                               <p className="text-[7px] uppercase tracking-widest text-white/30 font-black">LOGÍSTICA</p>
                               <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
-                                order.shipping_status === 'delivered' ? 'text-emerald-500' : 'text-luxury-gold'
+                                order.shipping_status === 'delivered' ? 'text-emerald-500' : 
+                                ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' :
+                                'text-luxury-gold'
                               }`}>
-                                {order.shipping_status === 'delivered' ? 'ENTREGUE' : order.shipping_status === 'sent' ? 'TRANSITO' : 'PRODUÇÃO'}
+                                {['canceled', 'cancelled'].includes(order.status || '') ? 'N/A' :
+                                 order.shipping_status === 'delivered' ? 'ENTREGUE' : 
+                                 order.shipping_status === 'sent' ? 'TRANSITO' : 'PRODUÇÃO'}
                               </p>
                            </div>
                            <div className="flex-1 md:w-32 p-3 bg-white/5 border border-white/10 text-center space-y-1">
                               <p className="text-[7px] uppercase tracking-widest text-white/30 font-black">FINANCEIRO</p>
-                              <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500 truncate">Satisfeito</p>
+                              <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
+                                ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' : 'text-emerald-500'
+                              }`}>
+                                {['canceled', 'cancelled'].includes(order.status || '') ? 'Cancelado' : 'Satisfeito'}
+                              </p>
                            </div>
                         </div>
 
@@ -594,15 +610,15 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
             onClick={() => setSelectedOrder(null)}
           >
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0, rotateY: 30 }}
-              animate={{ scale: 1, opacity: 1, rotateY: 0 }}
-              exit={{ scale: 0.9, opacity: 0, rotateY: 30 }}
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="bg-[#050505] w-full max-w-4xl border border-white/10 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative"
+              className="bg-[#050505] w-full max-w-4xl max-h-[90vh] border border-white/10 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Luxury Detail Header */}
-              <div className="relative h-64 md:h-80 overflow-hidden">
+              <div className="relative h-48 md:h-64 shrink-0 overflow-hidden">
                 <img 
                   src={getImageUrl(selectedOrder.product?.image_url || '')} 
                   alt="" 
@@ -611,20 +627,21 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
                 <button 
                   onClick={() => setSelectedOrder(null)} 
-                  className="absolute top-8 right-8 w-12 h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-white hover:bg-luxury-gold hover:text-black hover:border-luxury-gold transition-all duration-500 z-10"
+                  className="absolute top-4 right-4 md:top-8 md:right-8 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-white hover:bg-luxury-gold hover:text-black hover:border-luxury-gold transition-all duration-500 z-50"
                 >
                   <X size={20} />
                 </button>
                 
-                <div className="absolute bottom-10 left-10 space-y-2">
-                   <p className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-black">Manifesto Detalhado</p>
-                   <h3 className="text-4xl md:text-5xl font-serif italic text-white">{selectedOrder.product?.title || 'Manifestação Sem Nome'}</h3>
+                <div className="absolute bottom-6 left-6 md:bottom-10 md:left-10 space-y-1">
+                   <p className="text-luxury-gold text-[8px] md:text-[10px] uppercase tracking-[0.5em] font-black">Manifesto Detalhado</p>
+                   <h3 className="text-3xl md:text-5xl font-serif italic text-white leading-none">{selectedOrder.product?.title || 'Manifestação Sem Nome'}</h3>
                 </div>
               </div>
 
-              <div className="p-10 grid grid-cols-1 md:grid-cols-12 gap-12 max-h-[60vh] overflow-y-auto luxury-scrollbar">
-                {/* Secondary details */}
-                <div className="md:col-span-7 space-y-8">
+              <div className="flex-1 overflow-y-auto luxury-scrollbar">
+                <div className="p-6 md:p-10 grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12">
+                  {/* Secondary details */}
+                  <div className="md:col-span-7 space-y-8">
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 text-luxury-gold">
                       <Truck size={18} />
@@ -710,7 +727,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="pt-6 border-t border-black/10 flex flex-col gap-4">
                          <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
                             <span>Status</span>
-                            <span className="bg-white/20 px-2 py-0.5">COMPLETO</span>
+                            <span className="bg-white/20 px-2 py-0.5">
+                               {['canceled', 'cancelled'].includes(selectedOrder.status || '') ? 'CANCELADO' :
+                                ['refunded', 'reembolsado', 'refund_pending'].includes(selectedOrder.status || '') ? 'REEMBOLSADO' :
+                                'COMPLETO'}
+                            </span>
                          </div>
                          <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
                             <span>Tópico</span>
@@ -754,6 +775,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                    </div>
                 </div>
               </div>
+            </div>
 
               {/* Modal Footer Controls */}
               <div className="p-8 bg-white/5 border-t border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between">
