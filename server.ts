@@ -588,7 +588,8 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   // Build product list
   const productEntry: any = {
-    product_id: variantId || dropeaProductId, // If variant exists, we might need to use it as product_id if variant_id is not allowed
+    variant_id: variantId || undefined,
+    product_id: dropeaProductId,
     quantity: parseInt(String(product.quantity || 1), 10),
     total_value: parseFloat(String(product.total_value || product.pvp || 0)),
     unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
@@ -863,7 +864,7 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
 });
 
 app.post('/api/force-fulfillment', express.json(), async (req, res) => {
-  const { orderId } = req.body;
+  const { orderId, force } = req.body;
   if (!orderId) return res.status(400).json({ error: 'Order ID is required' });
 
   try {
@@ -872,8 +873,8 @@ app.post('/api/force-fulfillment', express.json(), async (req, res) => {
     
     if (error || !order) return res.status(404).json({ error: 'Order not found' });
     
-    if (order.dropea_order_id) {
-      return res.status(400).json({ error: 'Este pedido já foi enviado para a Dropea.' });
+    if (order.dropea_order_id && !force) {
+      return res.status(400).json({ error: 'Este pedido já foi enviado para a Dropea. Use force=true para re-enviar.' });
     }
     
     await processOrderFulfillment(order, true);
@@ -3305,6 +3306,8 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     if (!customerData.email && currentOrder.customer_email) {
       customerData.email = currentOrder.customer_email;
     }
+    
+    console.log(`[FULFILLMENT DEBUG] Customer Data para ordem ${currentOrder.id}:`, JSON.stringify(customerData, null, 2));
 
     if (!customerData.email) {
       console.warn(`[FULFILLMENT] Aviso: E-mail ausente para a ordem ${order.id}. Tentando buscar do perfil...`);
@@ -3359,10 +3362,10 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       
       await supabase.from('orders').update({ 
         dropea_order_id: sanitizedDropeaId,
-        shipping_status: 'sent' 
+        shipping_status: 'pending' 
       }).eq('id', currentOrder.id);
       
-      console.log(`[FULFILLMENT DATABASE UPDATED] Ordem ${currentOrder.id} marcada como 'sent' com ID: ${sanitizedDropeaId}`);
+      console.log(`[FULFILLMENT DATABASE UPDATED] Ordem ${currentOrder.id} marcada como 'pending' com ID: ${sanitizedDropeaId}`);
       
       // Disparar email de pagamento confirmado após sucesso na Dropea
       triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: sanitizedDropeaId }, true)

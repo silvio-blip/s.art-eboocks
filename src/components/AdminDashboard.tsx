@@ -508,7 +508,7 @@ export default function AdminDashboard({
       const resp = await fetch('/api/force-fulfillment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId }),
+        body: JSON.stringify({ orderId, force: true }),
       });
       const data = await resp.json();
       if (resp.ok) {
@@ -3188,7 +3188,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="p-4 bg-white/5 border border-white/10">
                   <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Envio</p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-2">
                      <span className={`text-[10px] uppercase font-black px-2 py-1 ${
                        viewingOrder.shipping_status === 'delivered' ? 'bg-emerald-500/10 text-emerald-500' :
                        viewingOrder.shipping_status === 'sent' ? 'bg-blue-500/10 text-blue-500' :
@@ -3199,6 +3199,13 @@ export default function AdminDashboard({
                         viewingOrder.shipping_status === 'pending' ? 'Pendente' :
                         viewingOrder.shipping_status || 'Aguardando'}
                      </span>
+                     <Button 
+                          size="sm"
+                          onClick={() => handleForceFulfillment(viewingOrder.id)}
+                          className="bg-red-500 text-white hover:bg-red-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 mt-1 w-full"
+                        >
+                          Forçar Envio Dropea
+                        </Button>
                   </div>
                 </div>
               </div>
