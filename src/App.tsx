@@ -382,6 +382,65 @@ interface Order {
 
 // --- Components ---
 
+const CustomCursor = ({ active }: { active: boolean }) => {
+  const mouseX = useMotionValue(typeof window !== 'undefined' ? window.innerWidth / 2 : 0);
+  const mouseY = useMotionValue(typeof window !== 'undefined' ? window.innerHeight - 60 : 0);
+  const [isPointer, setIsPointer] = useState(false);
+  const [hasStartedMoving, setHasStartedMoving] = useState(false);
+
+  useEffect(() => {
+    if (!active) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!hasStartedMoving) setHasStartedMoving(true);
+      mouseX.set(e.clientX);
+      mouseY.set(e.clientY);
+      
+      const target = e.target as HTMLElement;
+      setIsPointer(window.getComputedStyle(target).cursor === 'pointer');
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [active, mouseX, mouseY, hasStartedMoving]);
+
+  if (!active) return null;
+
+  return (
+    <>
+      <style>
+        {`
+          * {
+            cursor: none !important;
+          }
+        `}
+      </style>
+      <motion.div
+        style={{
+          x: mouseX,
+          y: mouseY,
+          translateX: "-50%",
+          translateY: "-50%",
+        }}
+        className="fixed top-0 left-0 w-4 h-4 bg-luxury-gold rounded-full z-[100000] pointer-events-none mix-blend-difference hidden md:block"
+        animate={{
+          scale: isPointer ? 2.5 : 1,
+          backgroundColor: isPointer ? "rgba(212, 175, 55, 0.4)" : "rgba(212, 175, 55, 1)",
+          boxShadow: isPointer 
+            ? "0 0 20px rgba(212, 175, 55, 0.4)" 
+            : "0 0 10px rgba(212, 175, 55, 0.2)",
+        }}
+        transition={{ 
+          type: "spring", 
+          stiffness: hasStartedMoving ? 350 : 120, // Softer spring for the initial jump
+          damping: 25,
+          mass: 0.8
+        }}
+      />
+    </>
+  );
+};
+
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -430,7 +489,7 @@ const Navbar = ({
   const iconClass = "text-white hover:text-luxury-gold transition-all duration-300 transform hover:scale-110 active:scale-95 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]";
 
   return (
-    <header className={`fixed w-full top-0 z-[50] transition-all duration-1000 ease-in-out ${
+    <header className={`fixed w-full top-0 z-[9999] transition-all duration-1000 ease-in-out ${
       isScrolled 
         ? "py-3 bg-black/80 backdrop-blur-3xl border-b border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.5)]" 
         : "py-6 bg-transparent"
@@ -461,6 +520,11 @@ const Navbar = ({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => onSearch(e.target.value)}
+                    onBlur={() => {
+                      if (searchQuery.trim() === "") {
+                        setIsSearchOpen(false);
+                      }
+                    }}
                     placeholder="ENCANTAR COM..."
                     autoFocus
                     className="bg-transparent border-none text-white w-full outline-none text-[9px] uppercase tracking-[0.3em] placeholder:text-white/40"
@@ -1584,6 +1648,22 @@ export default function App() {
   }, [view]);
 
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  const [isCursorTransformed, setIsCursorTransformed] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY;
+      const progress = Math.min(scrollY / 400, 1);
+      setScrollProgress(progress);
+      
+      if (progress >= 1 && !isCursorTransformed) {
+        setIsCursorTransformed(true);
+      }
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [isCursorTransformed]);
 
   const allCategories = useMemo(() => {
     return categories.map(c => c.name).filter(c => c !== "Todos").sort();
@@ -2054,6 +2134,17 @@ export default function App() {
     }
   }, [user, loading]);
 
+  useEffect(() => {
+    if (searchQuery.trim() !== "" && view === "home") {
+      const element = document.getElementById("product-grid");
+      if (element) {
+        const yOffset = -200; // Offset to center better or show some context
+        const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      }
+    }
+  }, [searchQuery, view]);
+
   const fetchProducts = async () => {
     try {
       // 1. FETCH PARALELO: Busca os produtos da Dropea e os do Supabase simultaneamente
@@ -2339,8 +2430,9 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700`}
+      className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700 ${isCursorTransformed ? 'md:cursor-none' : ''}`}
     >
+      <CustomCursor active={isCursorTransformed} />
       <ScrollToTop />
       {isReviewPage ? (
         <Routes>
@@ -2533,33 +2625,41 @@ export default function App() {
                 {/* Scroll Indicator - Bottom edge with Panicked Escape Animation */}
                 <motion.div 
                   initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
+                  animate={{ opacity: isCursorTransformed ? 0 : 1 }}
                   transition={{ delay: 4, duration: 1 }}
                   className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-50"
                 >
                   <motion.div 
-                    animate={{ 
-                      x: [0, -3, 3, -2, 2, 0],
-                      y: [0, 2, -2, 1, -1, 0],
-                      rotate: [0, -2, 2, -1, 1, 0],
-                      scale: [1, 1.05, 0.95, 1.02, 0.98, 1]
+                    animate={isCursorTransformed ? {
+                      y: -200,
+                      opacity: 0,
+                      scale: 0.2,
+                      transition: { duration: 0.5, ease: "backIn" }
+                    } : { 
+                      x: [0, -3, 3, -2, 2, 0].map(v => v * (1 + scrollProgress * 5)),
+                      y: [0, 2, -2, 1, -1, 0].map(v => v * (1 + scrollProgress * 5)),
+                      rotate: [0, -2, 2, -1, 1, 0].map(v => v * (1 + scrollProgress * 5)),
+                      scale: [1, 1.05, 0.95, 1.02, 0.98, 1].map(v => v * (1 + scrollProgress * 0.2))
                     }}
                     transition={{ 
-                      duration: 0.15, 
+                      duration: Math.max(0.05, 0.15 - scrollProgress * 0.1), 
                       repeat: Infinity,
-                      repeatDelay: 0.4
+                      repeatDelay: Math.max(0, 0.4 - scrollProgress * 0.4)
                     }}
                     className="w-[28px] h-[48px] border-2 border-white/40 rounded-[1.2rem] flex items-center justify-center relative overflow-hidden"
                   >
                     <motion.div 
-                      animate={{ 
+                      animate={isCursorTransformed ? {
+                        y: [-20, -50, -100],
+                        opacity: 0,
+                      } : { 
                         y: [-16, 16, -12, 14, -16],
-                        x: [0, 6, -6, 4, -4, 0],
+                        x: [0, 6, -6, 4, -4, 0].map(v => v * (1 + scrollProgress * 3)),
                         scale: [1, 1.4, 0.8, 1.3, 1],
                         opacity: [0.8, 1, 0.8, 1, 0.8]
                       }}
                       transition={{ 
-                        duration: 0.6, 
+                        duration: Math.max(0.2, 0.6 - scrollProgress * 0.4), 
                         repeat: Infinity, 
                         ease: "anticipate",
                         repeatType: "mirror"
@@ -2752,6 +2852,32 @@ export default function App() {
                                     </button>
                                   ))}
                                 </div>
+                                
+                                {/* Price Filters in Mobile Dropdown */}
+                                <div className="p-4 bg-white/5 border-t border-white/5 space-y-4">
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Mínimo (€)</label>
+                                      <input 
+                                        type="number"
+                                        value={minPrice}
+                                        onChange={(e) => setMinPrice(Number(e.target.value))}
+                                        className="w-full bg-black/40 border border-white/10 text-white p-2 text-[10px] outline-none focus:border-luxury-gold transition-all"
+                                        placeholder="0"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Máximo (€)</label>
+                                      <input 
+                                        type="number"
+                                        value={maxPrice}
+                                        onChange={(e) => setMaxPrice(Number(e.target.value))}
+                                        className="w-full bg-black/40 border border-white/10 text-white p-2 text-[10px] outline-none focus:border-luxury-gold transition-all"
+                                        placeholder="10000"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
                               </motion.div>
                             </>
                           )}
@@ -2777,29 +2903,29 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-6 pb-1">
-                    <div className="relative group">
-                      <input 
-                        type="text"
-                        placeholder="PESQUISAR..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-transparent border-b border-white/10 text-white py-2 px-0 text-[10px] w-32 md:w-48 outline-none focus:border-luxury-gold transition-all placeholder:text-white/20 uppercase tracking-widest"
-                      />
-                      <Search size={12} className="absolute right-0 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold transition-colors" />
-                    </div>
-                    
-                    <div className="hidden lg:flex items-center gap-3">
-                      <span className="text-[8px] uppercase tracking-widest text-white/20 font-bold whitespace-nowrap">Até €{maxPrice}</span>
-                      <input 
-                        type="range"
-                        min="0"
-                        max="10000"
-                        step="100"
-                        value={maxPrice}
-                        onChange={(e) => setMaxPrice(Number(e.target.value))}
-                        className="w-24 accent-luxury-gold bg-white/10 h-1 rounded-full appearance-none cursor-pointer"
-                      />
+                  <div className="flex flex-wrap items-center gap-4 pb-1">
+                    <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 md:p-3 relative group">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Min €</label>
+                        <input 
+                          type="number"
+                          value={minPrice}
+                          onChange={(e) => setMinPrice(Number(e.target.value))}
+                          className="bg-transparent text-white text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest"
+                          placeholder="MIN"
+                        />
+                      </div>
+                      <div className="w-[1px] h-6 bg-white/10" />
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Max €</label>
+                        <input 
+                          type="number"
+                          value={maxPrice}
+                          onChange={(e) => setMaxPrice(Number(e.target.value))}
+                          className="bg-transparent text-white text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest"
+                          placeholder="MAX"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2819,6 +2945,7 @@ export default function App() {
                       }
                     }}
                     className="bento-grid"
+                    id="product-grid"
                   >
                     {products
                       .filter((p) => {
