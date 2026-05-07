@@ -261,6 +261,7 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
           stripe_session_id: session.id,
           stripe_payment_intent: session.payment_intent as string,
           shipping_details: customerDataRaw,
+          selected_options: metadata.selected_options ? JSON.parse(metadata.selected_options) : {},
           customer_email: session.customer_details?.email || customerData?.email || metadata?.email
         });
       }
@@ -524,13 +525,67 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
       zip: customer.zip || customer.postalCode || "1000-001",
       country: countryCode
     },
-    products: [{
-      product_id: parseInt(String(product.product_id || product.dropea_id || 0), 10),
-      quantity: parseInt(String(product.quantity || 1), 10),
-      total_value: parseFloat(String(product.total_value || product.pvp || 0)),
-      unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
-    }]
+    products: [] as any[]
   };
+
+  // Find correct variant ID from Dropea if options are selected
+  let variantId: number | null = null;
+  const dropeaProductId = parseInt(String(product.product_id || product.dropea_id || 0), 10);
+  
+  if (product.selected_options && (product.selected_options.size || product.selected_options.color)) {
+    try {
+      console.log(`[DROPEA INTERNAL] Procurando variante para opções:`, JSON.stringify(product.selected_options));
+      // Fetch product detail again to get fresh variants
+      const detailQuery = `query GetProduct($id: [Int]) { 
+        products(id: $id) { 
+          data { 
+            variants { id name } 
+          } 
+        } 
+      }`;
+      const detailRes = await axios.post(DROPEA_API_URL, { 
+        query: detailQuery, 
+        variables: { id: [dropeaProductId] } 
+      }, { 
+        headers: { 'x-api-key': DROPEA_API_KEY, 'Content-Type': 'application/json' },
+        timeout: 10000 
+      });
+
+      const variants = detailRes.data?.data?.products?.data?.[0]?.variants || [];
+      if (Array.isArray(variants)) {
+        const selSize = String(product.selected_options.size || "").toLowerCase();
+        const selColor = String(product.selected_options.color || "").toLowerCase();
+
+        // Procura correspondência perfeita ou parcial no nome da variante
+        const matchedVariant = variants.find((v: any) => {
+          const vName = String(v.name || "").toLowerCase();
+          if (selSize && selColor) {
+            return vName.includes(selSize) && vName.includes(selColor);
+          }
+          if (selSize) return vName.includes(selSize);
+          if (selColor) return vName.includes(selColor);
+          return false;
+        });
+
+        if (matchedVariant) {
+          variantId = parseInt(String(matchedVariant.id), 10);
+          console.log(`[DROPEA INTERNAL] Variante encontrada: ${matchedVariant.name} (ID: ${variantId})`);
+        } else {
+          console.log(`[DROPEA INTERNAL] Nenhuma variante encontrada para as opções selecionadas. Usando produto base.`);
+        }
+      }
+    } catch (vErr) {
+      console.error(`[DROPEA INTERNAL] Erro ao buscar variantes:`, vErr);
+    }
+  }
+
+  variables.products = [{
+    product_id: dropeaProductId,
+    variant_id: variantId, // Pass the detected variant if found
+    quantity: parseInt(String(product.quantity || 1), 10),
+    total_value: parseFloat(String(product.total_value || product.pvp || 0)),
+    unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
+  }];
 
   console.log(`[DROPEA INTERNAL] Criando pedido para ${variables.customer.email}. Dados:`, JSON.stringify(variables.customer));
   
@@ -2418,6 +2473,46 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
       }
     }
 
+    // Melhora a deteção via descrição como fallback ou complemento
+    const desc = (productData.description || "").toLowerCase();
+    const commonSizes = ['S', 'M', 'L', 'XL', 'XXL', '3XL', 'P', 'G', 'GG'];
+    const commonColors = [
+      'Preto', 'Branco', 'Azul', 'Vermelho', 'Verde', 'Amarelo', 'Rosa', 'Cinzento', 'Dourado', 'Prateado',
+      'Black', 'White', 'Blue', 'Red', 'Green', 'Yellow', 'Pink', 'Grey', 'Gold', 'Silver',
+      'Bege', 'Beige', 'Marrom', 'Brown', 'Laranja', 'Orange', 'Roxo', 'Purple'
+    ];
+
+    const detectedSizes = commonSizes.filter(s => {
+      const regex = new RegExp(`\\b${s}\\b`, 'i');
+      return regex.test(desc);
+    });
+
+    const detectedColors = commonColors.filter(c => {
+       const lowerC = c.toLowerCase();
+       // Evitar detetar cores dentro de outras palavras (ex: 'Red' em 'Reduced')
+       const regex = new RegExp(`\\b${lowerC}\\b`, 'i');
+       return regex.test(desc);
+    });
+
+    if (detectedSizes.length > 0) {
+      const currentSizes = sizes ? sizes.split(',').map(s => s.trim()) : [];
+      detectedSizes.forEach(ds => {
+        if (!currentSizes.includes(ds)) currentSizes.push(ds);
+      });
+      sizes = currentSizes.join(',');
+      sizes_enabled = true;
+    }
+
+    if (detectedColors.length > 0) {
+      const currentColors = colors ? colors.split(',').map(c => c.trim()) : [];
+      detectedColors.forEach(dc => {
+         const capitalized = dc.charAt(0).toUpperCase() + dc.slice(1);
+         if (!currentColors.includes(capitalized)) currentColors.push(capitalized);
+      });
+      colors = currentColors.join(',');
+      colors_enabled = true;
+    }
+
     // Normalizar imagens
     let image_url = "";
     if (Array.isArray(productData.images) && productData.images.length > 0) {
@@ -3000,7 +3095,7 @@ apiRouter.use((err: any, req: express.Request, res: express.Response, next: expr
 
 apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
-    const { product, customer, baseUrl } = req.body;
+    const { product, customer, baseUrl, selectedOptions } = req.body;
     
     if (!stripe) {
       console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Simulando sucesso imediato.");
@@ -3039,7 +3134,8 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
       metadata: {
         dropea_id: String(product.dropea_id),
         customer_data: JSON.stringify(customer),
-        product_id: String(product.id)
+        product_id: String(product.id),
+        selected_options: JSON.stringify(selectedOptions || {})
       }
     });
 
@@ -3085,7 +3181,7 @@ async function processOrderFulfillment(order: any) {
     // Verificação de segurança: Buscar o estado mais recente no DB para evitar double-tap
     const { data: latestOrder, error: fetchErr } = await supabase
       .from('orders')
-      .select('dropea_order_id, status, shipping_details, product_id, total_amount')
+      .select('dropea_order_id, status, shipping_details, product_id, total_amount, selected_options')
       .eq('id', order.id)
       .single();
 
@@ -3114,7 +3210,8 @@ async function processOrderFulfillment(order: any) {
       product_id: product.dropea_id,
       quantity: 1,
       total_value: latestOrder.total_amount,
-      unit_price: latestOrder.total_amount
+      unit_price: latestOrder.total_amount,
+      selected_options: latestOrder.selected_options
     });
 
     if (dropeaOrderId) {

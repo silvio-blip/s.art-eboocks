@@ -1361,13 +1361,13 @@ const ProductDetailsPage = ({
 
   const sizes = product.sizes
     ? product.sizes
-        .split(",")
+        .split(/[,\/]/)
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
   const colors = product.colors
     ? product.colors
-        .split(",")
+        .split(/[,\/]/)
         .map((c) => c.trim())
         .filter(Boolean)
     : [];
@@ -2416,7 +2416,8 @@ export default function App() {
         body: JSON.stringify({
           product: selectedProduct,
           customer: { ...customerData, userId: user.id },
-          baseUrl: window.location.origin
+          baseUrl: window.location.origin,
+          selectedOptions: selectedOptions
         })
       });
 
