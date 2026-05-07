@@ -1288,7 +1288,7 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       const dropeaStatus = String(dropeaData.status).toUpperCase();
       
       // Mapeamento Robusto de Status (Dropea -> SArt)
-      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus)) {
+      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO'].includes(dropeaStatus)) {
         updateData.shipping_status = 'sent';
       } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
         updateData.shipping_status = 'delivered';
@@ -1302,7 +1302,7 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
         }
       } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
         updateData.status = 'refunded';
-      } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO', 'PROCESSING'].includes(dropeaStatus)) {
+      } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO'].includes(dropeaStatus)) {
         if (order.status !== 'completed' && order.status !== 'canceled') {
           updateData.status = 'paid';
           updateData.shipping_status = 'pending';
@@ -3326,10 +3326,7 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 
     if (dropeaOrderId) {
       console.log(`[FULFILLMENT SUCCESS] Dropea Order ID: ${dropeaOrderId}`);
-      await supabase.from('orders').update({ 
-        dropea_order_id: String(dropeaOrderId),
-        shipping_status: 'sent' 
-      }).eq('id', currentOrder.id);
+      await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', currentOrder.id);
       
       // Disparar email de pagamento confirmado após sucesso na Dropea
       triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, true)
