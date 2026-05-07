@@ -3120,7 +3120,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
           currency: 'eur',
           product_data: {
             name: product.title,
-            description: product.description?.substring(0, 120),
+            description: (product.description && product.description.trim() !== "") ? product.description.substring(0, 120) : undefined,
             images: product.image_url ? [product.image_url] : [],
           },
           unit_amount: Math.round((product.pvp || product.price) * 100),
