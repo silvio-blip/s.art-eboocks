@@ -662,6 +662,10 @@ export default function AdminDashboard({
             is_active: supaProduct.is_active,
             is_featured: supaProduct.is_featured || false,
             file_url: supaProduct.file_url,
+            sizes: supaProduct.sizes,
+            colors: supaProduct.colors,
+            sizes_enabled: supaProduct.sizes_enabled,
+            colors_enabled: supaProduct.colors_enabled,
           };
         }
 
