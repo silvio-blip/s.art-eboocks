@@ -597,6 +597,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
   variables.products = [productEntry];
 
   console.log(`[DROPEA INTERNAL] Executando orderCreate para e-mail: ${variables.customer.email}`);
+  console.log(`[DROPEA INTERNAL] Payload da requisição:`, JSON.stringify({query: graphqlMutation, variables}, null, 2));
   
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
@@ -609,6 +610,8 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     },
     timeout: 30000
   });
+
+  console.log(`[DROPEA INTERNAL] Resposta da API:`, JSON.stringify(response.data, null, 2));
 
   if (response?.data?.errors) {
     console.error('[DROPEA INTERNAL ERRORS]', JSON.stringify(response.data.errors, null, 2));
