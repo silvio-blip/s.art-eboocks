@@ -502,6 +502,27 @@ export default function AdminDashboard({
     }
   };
 
+  const handleForceFulfillment = async (orderId: string) => {
+    const forceToast = toast.loading('Forçando envio para Dropea...');
+    try {
+      const resp = await fetch('/api/force-fulfillment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        toast.success(data.message, { id: forceToast });
+        fetchDashboardData();
+      } else {
+        toast.error(data.error, { id: forceToast });
+      }
+    } catch (e) {
+      toast.error('Erro desconhecido ao forçar envio.', { id: forceToast });
+    }
+  };
+
+
   useEffect(() => {
     // Background sync every 5 minutes while admin is open
     const backgroundSync = setInterval(() => {
@@ -2566,6 +2587,13 @@ export default function AdminDashboard({
                                   className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
                                 >
                                   Enviar Manual
+                                </Button>
+                                <Button 
+                                  size="sm"
+                                  onClick={() => handleForceFulfillment(order.id)}
+                                  className="bg-red-500 text-white hover:bg-red-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 mt-1 w-full"
+                                >
+                                  Forçar Envio
                                 </Button>
                               </>
                             )}

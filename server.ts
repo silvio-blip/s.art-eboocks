@@ -859,6 +859,28 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
   }
 });
 
+app.post('/api/force-fulfillment', express.json(), async (req, res) => {
+  const { orderId } = req.body;
+  if (!orderId) return res.status(400).json({ error: 'Order ID is required' });
+
+  try {
+    const supabase = getSupabase();
+    const { data: order, error } = await supabase.from('orders').select('*').eq('id', orderId).single();
+    
+    if (error || !order) return res.status(404).json({ error: 'Order not found' });
+    
+    if (order.dropea_order_id) {
+      return res.status(400).json({ error: 'Este pedido já foi enviado para a Dropea.' });
+    }
+    
+    await processOrderFulfillment(order, true);
+    return res.json({ message: 'Pedido enviado para a Dropea com sucesso!' });
+  } catch (err: any) {
+    console.error('Force fulfillment error:', err);
+    res.status(500).json({ error: err.message || 'Erro ao forçar o envio.' });
+  }
+});
+
 app.post('/api/dropea/webhook', express.json(), async (req, res) => {
   const payload = req.body;
   const { event, data } = payload;
@@ -3326,13 +3348,21 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 
     if (dropeaOrderId) {
       console.log(`[FULFILLMENT SUCCESS] Dropea Order ID: ${dropeaOrderId}`);
+      // VERIFY: Still ensure it's a string, maybe it's returning something weird?
+      const sanitizedDropeaId = String(dropeaOrderId).trim();
+      if (!sanitizedDropeaId || sanitizedDropeaId === 'undefined' || sanitizedDropeaId === 'null') {
+          throw new Error('Dropea returned invalid ID: ' + dropeaOrderId);
+      }
+      
       await supabase.from('orders').update({ 
-        dropea_order_id: String(dropeaOrderId),
+        dropea_order_id: sanitizedDropeaId,
         shipping_status: 'sent' 
       }).eq('id', currentOrder.id);
       
+      console.log(`[FULFILLMENT DATABASE UPDATED] Ordem ${currentOrder.id} marcada como 'sent' com ID: ${sanitizedDropeaId}`);
+      
       // Disparar email de pagamento confirmado após sucesso na Dropea
-      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, true)
+      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: sanitizedDropeaId }, true)
         .catch(e => console.error('[FULFILLMENT EMAIL ERROR]', e));
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");

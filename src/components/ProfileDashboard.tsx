@@ -614,7 +614,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 30 }}
               transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="bg-[#050505] w-full max-w-4xl max-h-[90vh] border border-white/10 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative flex flex-col"
+              className="bg-[#050505] w-full max-w-4xl max-h-[80vh] border border-white/10 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Luxury Detail Header */}
