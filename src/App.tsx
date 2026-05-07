@@ -1377,6 +1377,8 @@ const ProductDetailsPage = ({
   const prevImage = () =>
     setActiveIndex((prev) => (prev - 1 + allImages.length) % allImages.length);
 
+  const [isExpanded, setIsExpanded] = useState(false);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -1481,7 +1483,7 @@ const ProductDetailsPage = ({
         </div>
 
         {/* Info */}
-        <div className="w-full lg:w-1/2 space-y-8">
+        <div className="w-full lg:w-1/2 space-y-8 lg:sticky lg:top-32">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold">
@@ -1503,10 +1505,23 @@ const ProductDetailsPage = ({
           <Separator className="bg-black/10 dark:bg-white/10" />
 
           <div className="space-y-6">
-            <div 
-              className="text-sm text-black/80 dark:text-zinc-300 leading-relaxed font-normal text-justify prose prose-sm dark:prose-invert max-w-none" 
-              dangerouslySetInnerHTML={{ __html: product.description }} 
-            />
+            <div className="relative">
+              <div 
+                className={`text-sm text-black/80 dark:text-zinc-300 leading-relaxed font-normal text-justify prose prose-sm dark:prose-invert max-w-none overflow-hidden transition-all duration-700 ${isExpanded ? "max-h-[2000px]" : "max-h-40"}`} 
+                dangerouslySetInnerHTML={{ __html: product.description }} 
+              />
+              {!isExpanded && product.description.length > 400 && (
+                <div className="absolute bottom-0 inset-x-0 h-12 bg-gradient-to-t from-white dark:from-[#050505] to-transparent" />
+              )}
+              {product.description.length > 400 && (
+                <button 
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className="mt-2 text-[10px] uppercase tracking-widest text-luxury-gold font-bold hover:text-black dark:hover:text-white transition-colors relative z-10"
+                >
+                  {isExpanded ? "Ler Menos -" : "Ler Mais +"}
+                </button>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
               {product.sizes_enabled && sizes.length > 0 && (
