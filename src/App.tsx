@@ -30,8 +30,6 @@ import {
   ExternalLink,
   Plus,
   Edit,
-  Sun,
-  Moon,
   Loader2,
   Eye,
   EyeOff,
@@ -196,6 +194,82 @@ const MagneticButton = ({ children, className = "" }: { children: React.ReactNod
   );
 };
 
+const GlassButton = ({ children, onClick, className = "", disabled = false, loading = false }: any) => {
+  return (
+    <MagneticButton className={className}>
+      <motion.button
+        whileHover="hover"
+        whileTap="tap"
+        onClick={onClick}
+        disabled={disabled || loading}
+        className="relative group overflow-hidden px-8 md:px-14 py-4 md:py-6 rounded-[2rem] transition-all duration-500 isolation-auto flex items-center justify-center min-w-[180px] md:min-w-[240px]"
+      >
+        {/* Crystal Clear Glass - Minimal blur to see background clearly, focusing on distortion/refraction */}
+        <div className="absolute inset-0 bg-white/[0.01] backdrop-blur-[2px] backdrop-saturate-[150%] border border-white/20 group-hover:bg-white/[0.04] transition-all duration-500 rounded-[2rem]" />
+        
+        {/* Border Glow Beam - Elegant orbit that appears and disappears smoothly */}
+        <div className="absolute inset-0 rounded-[2rem] pointer-events-none overflow-hidden opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+          <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+            <motion.rect
+              x="1"
+              y="1"
+              width="calc(100% - 2px)"
+              height="calc(100% - 2px)"
+              rx="30"
+              fill="none"
+              stroke="url(#gold-glow-gradient)"
+              strokeWidth="3"
+              strokeDasharray="160, 500"
+              initial={{ strokeDashoffset: 660 }}
+              variants={{
+                hover: { 
+                  strokeDashoffset: -660,
+                  transition: { duration: 3.5, ease: "linear", repeat: Infinity }
+                }
+              }}
+              style={{ filter: "drop-shadow(0 0 4px #D4AF37)" }}
+            />
+            <defs>
+              <linearGradient id="gold-glow-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#D4AF37" stopOpacity="0" />
+                <stop offset="50%" stopColor="#D4AF37" stopOpacity="1" />
+                <stop offset="100%" stopColor="#D4AF37" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        {/* Improved Light Sweep - Smooth, continuous flow across the entire button */}
+        <div className="absolute inset-0 z-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 overflow-hidden rounded-[2rem]">
+          <motion.div 
+            initial={{ x: "-250%", skewX: -45 }}
+            variants={{
+              hover: { 
+                x: "450%", 
+                transition: { 
+                  duration: 1.5, 
+                  ease: "easeInOut",
+                  repeat: Infinity,
+                  repeatDelay: 2
+                } 
+              }
+            }}
+            className="absolute top-0 left-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/15 to-transparent"
+          />
+        </div>
+
+        {/* Subtle reflection on top edge */}
+        <div className="absolute top-0 inset-x-8 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-full" />
+
+        {/* Button Content */}
+        <span className="relative z-10 flex items-center justify-center gap-2 md:gap-3 text-[9px] md:text-[11px] uppercase font-black tracking-[0.3em] md:tracking-[0.5em] text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+           {children}
+        </span>
+      </motion.button>
+    </MagneticButton>
+  );
+};
+
 const MovingParticles = () => {
   return (
     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-40">
@@ -319,8 +393,6 @@ function ScrollToTop() {
 const Navbar = ({
   user,
   profile,
-  theme,
-  onThemeToggle,
   onAuthClick,
   onLogoutClick,
   onDashboardClick,
@@ -331,8 +403,6 @@ const Navbar = ({
 }: {
   user: any;
   profile: any;
-  theme: "light" | "dark";
-  onThemeToggle: () => void;
   onAuthClick: () => void;
   onLogoutClick: () => void;
   onDashboardClick: (v: "dashboard" | "admin") => void;
@@ -415,13 +485,6 @@ const Navbar = ({
                 exit={{ opacity: 0, x: -10 }}
                 className="flex items-center gap-3 md:gap-6"
               >
-                <button
-                  onClick={onThemeToggle}
-                  className={iconClass}
-                >
-                  {theme === "light" ? <Moon size={22} /> : <Sun size={22} />}
-                </button>
-
                 {user ? (
                   <div className="flex items-center gap-3 md:gap-6">
                     {ADMIN_IDS.includes(user.id) && (
@@ -503,14 +566,39 @@ function ProductCard({
   isOwned,
   isProcessing,
   className = "",
-}: ProductCardProps) {
+  index = 0,
+}: ProductCardProps & { index?: number }) {
+  const isEven = index % 2 === 0;
+  const comesFromTop = Math.floor(index / 2) % 2 === 0;
+  
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-100px" }}
-      transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-      whileHover={{ y: -8 }}
+      initial={{ 
+        opacity: 0, 
+        x: isEven ? -60 : 60, 
+        y: comesFromTop ? -60 : 60,
+        scale: 0.9 
+      }}
+      whileInView={{ 
+        opacity: 1, 
+        x: 0, 
+        y: 0,
+        scale: 1,
+        transition: { 
+          duration: 0.8, 
+          ease: [0.22, 1, 0.36, 1], // expoOut style smooth ease
+          delay: (index % 3) * 0.05
+        } 
+      }}
+      viewport={{ once: false, amount: 0.1 }}
+      whileHover={{ y: -8, scale: 1.02, transition: { duration: 0.3 } }}
+      exit={{ 
+        opacity: 0, 
+        x: isEven ? -40 : 40,
+        y: comesFromTop ? -40 : 40,
+        scale: 0.95,
+        transition: { duration: 0.4 }
+      }}
       className={`luxury-card cursor-pointer group relative overflow-hidden ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
@@ -981,10 +1069,10 @@ const AuthDialog = ({
           )}
 
           {mode !== "check-email" && (
-            <Button
+            <GlassButton
               onClick={handleSubmit}
               disabled={loading}
-              className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 rounded-none h-14 uppercase tracking-widest text-[10px] cursor-pointer"
+              className="w-full"
             >
               {loading
                 ? "A processar..."
@@ -997,7 +1085,7 @@ const AuthDialog = ({
                       : mode === "otp"
                         ? "Validar Código"
                         : "Redefinir Password"}
-            </Button>
+            </GlassButton>
           )}
 
           <button
@@ -1071,21 +1159,23 @@ const CheckoutModal = ({
         </div>
 
         <div className="space-y-8 pt-6">
-          <Button
+          <GlassButton
             onClick={() => onConfirm(form)}
             disabled={isProcessing || !form.firstName || !form.address}
-            className="w-full bg-black dark:bg-white text-white dark:text-black hover:bg-luxury-gold hover:text-white rounded-none h-14 text-[11px] font-bold uppercase tracking-[0.3em] transition-all duration-500 shadow-xl disabled:opacity-50"
+            className="w-full"
           >
             {isProcessing ? (
-              <span className="flex items-center gap-3">
-                <Loader2 size={16} className="animate-spin" />A Processar...
-              </span>
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>A Processar...</span>
+              </>
             ) : (
-              <span className="flex items-center gap-2">
-                Confirmar Checkout <ArrowRight size={14} />
-              </span>
+              <>
+                <span>Confirmar Checkout</span>
+                <ArrowRight size={14} />
+              </>
             )}
-          </Button>
+          </GlassButton>
         </div>
       </DialogContent>
     </Dialog>
@@ -1560,64 +1650,46 @@ export default function App() {
     full_name: string;
     avatar_url: string;
   } | null>(null);
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("sart-theme");
-      return (saved as "light" | "dark") || "light";
-    }
-    return "light";
-  });
+  const theme = "dark";
 
-  const toggleTheme = async () => {
-    const newTheme = theme === "light" ? "dark" : "light";
-
-    // Atualiza o estado da UI imediatamente para resposta rápida
-    setTheme(newTheme);
-    localStorage.setItem("sart-theme", newTheme);
-
-    if (user) {
-      try {
-        // 1. Tenta salvar no banco de dados (profiles)
-        const { error: dbError } = await supabase.from("profiles").upsert(
-          {
-            id: user.id,
-            theme: newTheme,
-            email: user.email!,
-          },
-          { onConflict: "id" },
-        );
-
-        // 2. Sempre tenta salvar nos metadados do utilizador (backup garantido no banco de dados do Auth)
-        const { error: authError } = await supabase.auth.updateUser({
-          data: { theme: newTheme },
-        });
-
-        if (dbError) {
-          console.warn(
-            "Aviso: Coluna 'theme' pode estar em falta na tabela profiles. Use os metadados como fallback.",
-            dbError,
-          );
-        }
-
-        if (authError) {
-          console.error(
-            "Erro ao atualizar metadados do utilizador:",
-            authError,
-          );
-        }
-      } catch (err) {
-        console.error("Erro inesperado ao sincronizar tema:", err);
-      }
-    }
-  };
+  const [displayText, setDisplayText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [typingSpeed, setTypingSpeed] = useState(150);
 
   useEffect(() => {
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [theme]);
+    if (view !== "home") return;
+    
+    const fullText = siteHero.title || "Luxo & Exclusividade";
+    
+    const handleTyping = () => {
+      if (!isDeleting) {
+        const nextText = fullText.substring(0, displayText.length + 1);
+        setDisplayText(nextText);
+        setTypingSpeed(120);
+        
+        if (nextText === fullText) {
+          setTypingSpeed(4000); // Wait 4s before starting to delete
+          setIsDeleting(true);
+        }
+      } else {
+        const nextText = fullText.substring(0, displayText.length - 1);
+        setDisplayText(nextText);
+        setTypingSpeed(60);
+        
+        if (nextText === "") {
+          setIsDeleting(false);
+          setTypingSpeed(800);
+        }
+      }
+    };
+
+    const timer = setTimeout(handleTyping, typingSpeed);
+    return () => clearTimeout(timer);
+  }, [displayText, isDeleting, siteHero.title, typingSpeed, view]);
+
+  useEffect(() => {
+    document.documentElement.classList.add("dark");
+  }, []);
 
   useEffect(() => {
     if (window.location.pathname === "/admin") {
@@ -1794,11 +1866,6 @@ export default function App() {
     }
 
     if (!error && data) {
-      if (data.theme) {
-        setTheme(data.theme as "light" | "dark");
-        localStorage.setItem("sart-theme", data.theme);
-      }
-
       let finalAvatar = data.avatar_url;
 
       // Sincronizar Avatar do Google se o perfil estiver sem foto e o utilizador for Google
@@ -2284,8 +2351,6 @@ export default function App() {
           <Navbar
             user={user}
             profile={profile}
-            theme={theme}
-            onThemeToggle={toggleTheme}
             onAuthClick={() => setIsAuthOpen(true)}
             onLogoutClick={() => setIsLogoutOpen(true)}
             onDashboardClick={(v) => setView(v)}
@@ -2360,7 +2425,6 @@ export default function App() {
             >
               <AdminDashboard
                 user={user}
-                theme={theme}
                 onBack={() => {
                   setView("home");
                   fetchProducts();
@@ -2430,61 +2494,80 @@ export default function App() {
                     >
                       <motion.h1 
                         variants={{
-                          hidden: { y: 100, opacity: 0 },
-                          visible: { y: 0, opacity: 1, transition: { duration: 1.8, ease: [0.16, 1, 0.3, 1] } }
+                          hidden: { opacity: 0 },
+                          visible: { opacity: 1, transition: { duration: 1 } }
                         }}
-                        className="font-serif text-[clamp(2.5rem,7vw,9.5rem)] tracking-[-0.05em] text-white leading-[0.85] uppercase"
+                        className="font-serif text-[clamp(2.5rem,7vw,9.5rem)] tracking-[-0.05em] text-white leading-[0.85] uppercase h-[1.2em] flex items-center justify-center"
                       >
-                        {siteHero.title.split(' ').map((word, i) => (
+                        <span className="drop-shadow-[0_10px_40px_rgba(0,0,0,0.9)]">
+                          {displayText}
                           <motion.span 
-                            key={i}
-                            variants={{
-                              hidden: { opacity: 0, scale: 0.9, y: 20 },
-                              visible: { opacity: 1, scale: 1, y: 0 }
-                            }}
-                            className="inline-block mr-[0.2em] drop-shadow-[0_10px_40px_rgba(0,0,0,0.9)]"
-                          >
-                            {i === 1 ? (
-                              <span className="italic font-light text-luxury-gold drop-shadow-[0_0_30px_rgba(212,175,55,0.4)]">{word}</span>
-                            ) : (
-                              word
-                            )}
-                          </motion.span>
-                        ))}
+                            animate={{ opacity: [0, 1, 0] }}
+                            transition={{ duration: 0.8, repeat: Infinity }}
+                            className="inline-block w-[2px] h-[0.8em] bg-luxury-gold ml-2 align-middle"
+                          />
+                        </span>
                       </motion.h1>
                       
                       {siteHero.subtitle && (
                         <motion.p 
                           variants={{
-                            hidden: { opacity: 0, y: 20 },
-                            visible: { opacity: 1, y: 0, transition: { duration: 1.2, ease: "easeOut", delay: 0.8 } }
+                            hidden: { opacity: 0, scale: 0.95 },
+                            visible: { opacity: 1, scale: 1, transition: { duration: 1.5, ease: "easeOut", delay: 1.2 } }
                           }}
-                          className="text-luxury-gold tracking-[0.8em] md:tracking-[1.5em] uppercase mt-12 font-medium text-[10px] md:text-[12px] mb-24 md:mb-32 drop-shadow-[0_4px_20px_rgba(0,0,0,1)]"
+                          className="text-luxury-gold tracking-[0.4em] md:tracking-[0.8em] uppercase mt-4 md:mt-6 font-serif italic text-sm md:text-base mb-4 md:mb-6 drop-shadow-[0_2px_15px_rgba(212,175,55,0.3)] max-w-[90vw] text-center"
                         >
                           {siteHero.subtitle}
                         </motion.p>
                       )}
                       
-                      <motion.div
-                        variants={{
-                          hidden: { opacity: 0, y: 30 },
-                          visible: { opacity: 1, y: 0, transition: { duration: 1, ease: "easeOut", delay: 1.2 } }
-                        }}
-                        className="mt-8 md:mt-12"
+                      <GlassButton
+                        onClick={() => document.getElementById("featured-section")?.scrollIntoView({ behavior: "smooth" })}
+                        className="mt-6 md:mt-8"
                       >
-                        <MagneticButton className="inline-block">
-                          <motion.button
-                            whileHover={{ scale: 1.05, backgroundColor: "#c78b7d", color: "#fff" }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={() => document.getElementById("featured-section")?.scrollIntoView({ behavior: "smooth" })}
-                            className="bg-white text-black px-16 py-6 text-[10px] uppercase font-bold tracking-[0.5em] transition-all shadow-[0_30px_60px_rgba(0,0,0,0.4)] luxury-shine border border-white/20"
-                          >
-                            {siteHero.buttonText}
-                          </motion.button>
-                        </MagneticButton>
-                      </motion.div>
+                        {siteHero.buttonText}
+                      </GlassButton>
                     </motion.div>
                 </div>
+
+                {/* Scroll Indicator - Bottom edge with Panicked Escape Animation */}
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 4, duration: 1 }}
+                  className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-50"
+                >
+                  <motion.div 
+                    animate={{ 
+                      x: [0, -3, 3, -2, 2, 0],
+                      y: [0, 2, -2, 1, -1, 0],
+                      rotate: [0, -2, 2, -1, 1, 0],
+                      scale: [1, 1.05, 0.95, 1.02, 0.98, 1]
+                    }}
+                    transition={{ 
+                      duration: 0.15, 
+                      repeat: Infinity,
+                      repeatDelay: 0.4
+                    }}
+                    className="w-[28px] h-[48px] border-2 border-white/40 rounded-[1.2rem] flex items-center justify-center relative overflow-hidden"
+                  >
+                    <motion.div 
+                      animate={{ 
+                        y: [-16, 16, -12, 14, -16],
+                        x: [0, 6, -6, 4, -4, 0],
+                        scale: [1, 1.4, 0.8, 1.3, 1],
+                        opacity: [0.8, 1, 0.8, 1, 0.8]
+                      }}
+                      transition={{ 
+                        duration: 0.6, 
+                        repeat: Infinity, 
+                        ease: "anticipate",
+                        repeatType: "mirror"
+                      }}
+                      className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,1)]"
+                    />
+                  </motion.div>
+                </motion.div>
               </section>
 
               {/* Featured Section (Destaque) - Redesenhada com Grid de 2 Colunas (Desktop) */}
@@ -2508,12 +2591,25 @@ export default function App() {
                     className="px-[5%]"
                   >
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-24 max-w-[1700px] mx-auto">
-                      {products.filter(p => p.is_featured && p.is_active).map((featuredProduct) => (
+                      {products.filter(p => p.is_featured && p.is_active).map((featuredProduct, fIdx) => (
                         <motion.div 
                           key={featuredProduct.id} 
-                          variants={{
-                            hidden: { opacity: 0, y: 40 },
-                            visible: { opacity: 1, y: 0, transition: { duration: 1, ease: [0.16, 1, 0.3, 1] } }
+                          initial={{ 
+                            opacity: 0, 
+                            x: fIdx % 2 === 0 ? -100 : 100,
+                            y: fIdx % 2 === 0 ? -40 : 40 
+                          }}
+                          whileInView={{ 
+                            opacity: 1, 
+                            x: 0,
+                            y: 0,
+                            transition: { duration: 0.9, ease: [0.22, 1, 0.36, 1] } 
+                          }}
+                          viewport={{ once: false, amount: 0.1 }}
+                          exit={{ 
+                            opacity: 0, 
+                            x: fIdx % 2 === 0 ? -80 : 80,
+                            y: fIdx % 2 === 0 ? -30 : 30
                           }}
                           className="flex flex-col space-y-8"
                         >
@@ -2524,7 +2620,7 @@ export default function App() {
                               setDetailProduct(featuredProduct);
                               setView("product-detail");
                             }}
-                            className="relative aspect-[16/10] overflow-hidden border border-white/5 shadow-2xl group cursor-pointer"
+                            className="relative aspect-[16/10] overflow-hidden border border-white/5 shadow-2xl group cursor-pointer rounded-[0.85rem]"
                           >
                             <img 
                               src={getImageUrl(featuredProduct.image_url || "")} 
@@ -2551,40 +2647,37 @@ export default function App() {
                             </div>
 
                             {/* Footer Info: Price & Action */}
-                            <div className="flex items-center justify-between gap-6 pt-6 border-t border-luxury-border">
+                            <div className="flex flex-row items-center justify-between gap-3 pt-6 border-t border-luxury-border">
                               <div className="flex flex-col">
                                 <span className="text-luxury-foreground/20 text-[8px] uppercase tracking-widest mb-1 font-bold">Valor Premium</span>
                                 <div className="flex items-baseline gap-2">
-                                  <span className="text-luxury-gold text-3xl font-serif">€{featuredProduct.pvp}</span>
+                                  <span className="text-luxury-gold text-2xl md:text-3xl font-serif">€{featuredProduct.pvp}</span>
                                 </div>
                               </div>
                               
-                              <MagneticButton>
-                                <motion.button 
-                                  whileHover={{ scale: 1.05, backgroundColor: "#c78b7d", color: "#fff" }}
-                                  whileTap={{ scale: 0.95 }}
-                                  onClick={(e) => {
+                              <div className="flex-shrink-0">
+                                <GlassButton
+                                  onClick={(e: any) => {
                                     e.stopPropagation();
                                     handleBuy(featuredProduct);
                                   }}
+                                  className="!min-w-0 !px-4 !py-2.5 md:!px-10 md:!py-5"
                                   disabled={checkoutLoading === featuredProduct.id}
-                                  className="bg-luxury-foreground text-luxury-bg px-12 py-5 rounded-full text-[9px] min-w-[200px] uppercase font-black tracking-[0.4em] transition-all duration-500 relative group overflow-hidden luxury-shine"
+                                  loading={checkoutLoading === featuredProduct.id}
                                 >
-                                  <span className="relative z-10 flex items-center justify-center gap-3">
-                                    {checkoutLoading === featuredProduct.id ? (
-                                      <Loader2 size={14} className="animate-spin" />
-                                    ) : (
-                                      <>
-                                        <span className="group-hover:translate-x-1 transition-transform duration-300">COMPRAR AGORA</span>
-                                        <ArrowRight size={14} className="group-hover:translate-x-2 transition-transform duration-300" />
-                                      </>
-                                    )}
-                                  </span>
-                                </motion.button>
-                              </MagneticButton>
+                                {checkoutLoading === featuredProduct.id ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <>
+                                    <span className="text-[9px] md:text-[11px] font-black tracking-tighter">COMPRAR</span>
+                                    <ArrowRight size={12} className="hidden xs:block group-hover:translate-x-2 transition-transform duration-300" />
+                                  </>
+                                )}
+                              </GlassButton>
                             </div>
                           </div>
-                        </motion.div>
+                        </div>
+                      </motion.div>
                       ))}
                     </div>
                   </motion.div>
@@ -2594,70 +2687,124 @@ export default function App() {
               <InfiniteProductMarquee products={products} />
 
               <section className="py-24 w-full overflow-hidden" id="boutique">
-                <SectionHeading subtitle="Curadoria Exclusiva" title="Coleção Boutique" />
-                <div className="space-y-12 w-full px-[2%]">
-                  {/* Sticky Dropdown Filter Bar */}
-                  <div className="sticky-filter-bar flex flex-col md:flex-row items-center justify-between py-6 gap-6 transition-colors duration-500">
-                    <div className="flex items-center gap-4">
-                      <span className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold pt-1 font-bold">
-                        {products.filter(p => {
-                          const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
-                          const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
-                          const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
-                          return matchesCategory && matchesPrice && matchesSearch;
-                        }).length} itens
-                      </span>
+                <div className="px-[5%] mb-12 flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-white/5 pb-10">
+                  <div className="flex flex-col md:flex-row md:items-end gap-6 md:gap-12">
+                    <div className="flex flex-col">
+                      <motion.span 
+                        initial={{ opacity: 0, y: 10 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        className="text-luxury-gold text-[10px] uppercase tracking-[0.4em] font-bold mb-2"
+                      >
+                        Curadoria
+                      </motion.span>
+                      <motion.h2 
+                        initial={{ opacity: 0, x: -20 }}
+                        whileInView={{ opacity: 1, x: 0 }}
+                        viewport={{ once: true }}
+                        className="text-5xl md:text-6xl font-serif text-white tracking-tighter"
+                      >
+                        Boutique
+                      </motion.h2>
                     </div>
-                    
-                    <div className="flex flex-wrap items-center gap-4 w-full md:w-auto">
-                      {/* Custom Category Dropdown */}
-                      <div className="relative min-w-[200px]">
-                        <label className="text-[8px] uppercase tracking-[0.3em] text-luxury-gold font-bold block mb-1">Categoria</label>
-                        <div className="relative">
-                          <button 
-                            className="w-full bg-black/5 dark:bg-white/5 border border-luxury-border text-luxury-foreground p-3 text-[10px] uppercase tracking-widest outline-none hover:border-luxury-gold transition-all text-left flex justify-between items-center group/btn"
-                            onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
-                          >
-                            <span>{selectedCategory}</span>
-                            <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-300 ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
-                          </button>
+
+                    {/* Category Selector - Desktop: Buttons, Mobile: Custom Dropdown */}
+                    <div className="flex items-center gap-2 pb-1 relative">
+                      {/* Mobile Custom Dropdown */}
+                      <div className="relative md:hidden w-full min-w-[160px]">
+                        <button 
+                          onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
+                          className="w-full bg-black/40 border border-white/10 text-white p-3 text-[10px] uppercase tracking-widest outline-none flex justify-between items-center group transition-all hover:border-luxury-gold/50"
+                        >
+                          <span className="font-bold">{selectedCategory}</span>
+                          <ChevronDown size={14} className={`text-luxury-gold transition-transform duration-500 ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        
+                        <AnimatePresence>
                           {isCategoryMenuOpen && (
                             <>
-                              <div className="fixed inset-0 z-40" onClick={() => setIsCategoryMenuOpen(false)} />
-                              <div className="absolute top-full left-0 w-full bg-[#0a0a0a] border border-luxury-border z-50 shadow-2xl max-h-60 overflow-y-auto luxury-scrollbar mt-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                                {["Todos", ...allCategories].map(cat => (
-                                  <button 
-                                    key={cat}
-                                    className={`w-full text-left p-4 text-[9px] uppercase tracking-widest transition-colors hover:bg-luxury-gold hover:text-black border-b border-white/5 last:border-0 ${selectedCategory === cat ? 'bg-luxury-gold/10 text-luxury-gold font-bold' : 'text-white/60'}`}
-                                    onClick={() => {
-                                      setSelectedCategory(cat);
-                                      setIsCategoryMenuOpen(false);
-                                    }}
-                                  >
-                                    {cat}
-                                  </button>
-                                ))}
-                              </div>
+                              <div 
+                                onClick={() => setIsCategoryMenuOpen(false)}
+                                className="fixed inset-0 z-[100]"
+                              />
+                              <motion.div 
+                                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                                className="absolute top-full left-0 w-full mt-2 bg-[#0a0a0a] border border-white/10 z-[101] shadow-2xl overflow-hidden rounded-sm"
+                              >
+                                <div className="max-h-60 overflow-y-auto luxury-scrollbar">
+                                  {["Todos", ...allCategories.filter(c => c !== "Todos")].map(cat => (
+                                    <button 
+                                      key={cat}
+                                      onClick={() => {
+                                        setSelectedCategory(cat);
+                                        setIsCategoryMenuOpen(false);
+                                      }}
+                                      className={`w-full text-left p-4 text-[9px] uppercase tracking-widest transition-all border-b border-white/5 last:border-0 ${
+                                        selectedCategory === cat
+                                        ? 'bg-luxury-gold text-black font-black' 
+                                        : 'text-white/60 hover:bg-white/5 hover:text-white'
+                                      }`}
+                                    >
+                                      {cat}
+                                    </button>
+                                  ))}
+                                </div>
+                              </motion.div>
                             </>
                           )}
-                        </div>
+                        </AnimatePresence>
                       </div>
 
-                      {/* Price Range Controls */}
-                      <div className="flex items-center gap-2 flex-grow md:flex-grow-0">
-                        <div className="relative">
-                          <label className="text-[8px] uppercase tracking-[0.3em] text-luxury-gold font-bold block mb-1">Preço Máx (€)</label>
-                          <input 
-                             type="number"
-                             value={maxPrice}
-                             onChange={(e) => setMaxPrice(Number(e.target.value))}
-                             className="bg-white/5 border border-white/10 text-white p-3 text-[10px] w-24 outline-none focus:border-luxury-gold transition-all"
-                          />
-                        </div>
+                      {/* Desktop Buttons */}
+                      <div className="hidden md:flex flex-wrap items-center gap-2">
+                        {["Todos", ...allCategories].map(cat => (
+                          <button 
+                            key={cat}
+                            onClick={() => setSelectedCategory(cat)}
+                            className={`px-4 py-1.5 text-[9px] uppercase tracking-[0.1em] transition-all border ${
+                              selectedCategory === cat 
+                              ? 'bg-luxury-gold text-black border-luxury-gold font-bold' 
+                              : 'border-white/10 text-white/40 hover:border-luxury-gold/30 hover:text-white'
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
 
+                  <div className="flex items-center gap-6 pb-1">
+                    <div className="relative group">
+                      <input 
+                        type="text"
+                        placeholder="PESQUISAR..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="bg-transparent border-b border-white/10 text-white py-2 px-0 text-[10px] w-32 md:w-48 outline-none focus:border-luxury-gold transition-all placeholder:text-white/20 uppercase tracking-widest"
+                      />
+                      <Search size={12} className="absolute right-0 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold transition-colors" />
+                    </div>
+                    
+                    <div className="hidden lg:flex items-center gap-3">
+                      <span className="text-[8px] uppercase tracking-widest text-white/20 font-bold whitespace-nowrap">Até €{maxPrice}</span>
+                      <input 
+                        type="range"
+                        min="0"
+                        max="10000"
+                        step="100"
+                        value={maxPrice}
+                        onChange={(e) => setMaxPrice(Number(e.target.value))}
+                        className="w-24 accent-luxury-gold bg-white/10 h-1 rounded-full appearance-none cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full px-[5%]">
                   <motion.div 
                     initial="hidden"
                     whileInView="visible"
@@ -2692,6 +2839,7 @@ export default function App() {
                             key={product.id}
                             product={product}
                             onBuy={handleBuy}
+                            index={idx}
                             onRead={() => setView("dashboard")}
                             isOwned={purchasedProducts.some(
                               (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(p.status?.toLowerCase()),

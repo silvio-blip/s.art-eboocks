@@ -125,12 +125,11 @@ interface Profile {
 export default function AdminDashboard({
   user,
   onBack,
-  theme,
 }: {
   user: SupabaseUser;
   onBack: () => void;
-  theme: "light" | "dark";
 }) {
+  const theme = "dark";
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);

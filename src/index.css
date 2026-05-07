@@ -107,6 +107,48 @@
     background: #c78b7d;
   }
 
+  @keyframes border-beam {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes border-beam-reverse {
+    0% { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+  }
+
+  @keyframes border-beam-vertical {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+  }
+
+  @keyframes border-beam-vertical-reverse {
+    0% { transform: translateY(100%); }
+    100% { transform: translateY(-100%); }
+  }
+
+  .animate-border-beam {
+    animation: border-beam 2s linear infinite;
+  }
+
+  .animate-border-beam-reverse {
+    animation: border-beam-reverse 2s linear infinite;
+  }
+
+  .animate-border-beam-vertical {
+    animation: border-beam-vertical 2s linear infinite;
+  }
+
+  .animate-border-beam-vertical-reverse {
+    animation: border-beam-vertical-reverse 2s linear infinite;
+  }
+
+  .glass-distortion {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
   * {
     @apply border-border;
   }
@@ -229,6 +271,7 @@ aside {
     position: relative;
     overflow: hidden;
     border: 1px solid var(--borda);
+    border-radius: 0.85rem;
     transition: 0.5s ease;
     display: flex;
     flex-direction: column;
