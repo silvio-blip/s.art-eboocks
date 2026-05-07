@@ -769,7 +769,7 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
         let dropeaId = order.dropea_order_id;
         
         // 1. Tentar encontrar ID se não tiver
-        if (!dropeaId) {
+        if (!dropeaId && order.status !== 'pending') {
            const email = order.customer_email;
            if (email) {
              const found = await findDropeaOrderByEmail(email, order.total_amount);
@@ -789,7 +789,7 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
             let statusChanged = false;
 
             if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(ds)) {
-              if (order.shipping_status !== 'sent') {
+              if (order.shipping_status !== 'sent' && order.status !== 'pending') {
                 updateData.shipping_status = 'sent';
                 statusChanged = true;
               }
@@ -3171,17 +3171,6 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: [
-        'card',
-        'klarna',
-        'multibanco',
-        'mb_way',
-        'bancontact',
-        'eps',
-        'ideal',
-        'p24',
-        'giropay'
-      ],
       line_items: [{
         price_data: {
           currency: 'eur',
