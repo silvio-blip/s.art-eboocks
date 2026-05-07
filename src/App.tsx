@@ -391,6 +391,10 @@ const CustomCursor = ({ active }: { active: boolean }) => {
   useEffect(() => {
     if (!active) return;
 
+    // Initial position: where the dot was (approx bottom center)
+    mouseX.set(window.innerWidth / 2);
+    mouseY.set(window.innerHeight - 60);
+
     const handleMouseMove = (e: MouseEvent) => {
       if (!hasStartedMoving) setHasStartedMoving(true);
       mouseX.set(e.clientX);
@@ -402,7 +406,7 @@ const CustomCursor = ({ active }: { active: boolean }) => {
 
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [active, mouseX, mouseY, hasStartedMoving]);
+  }, [active, mouseX, mouseY]);
 
   if (!active) return null;
 
@@ -1654,10 +1658,11 @@ export default function App() {
   useEffect(() => {
     const handleScroll = () => {
       const scrollY = window.scrollY;
-      const progress = Math.min(scrollY / 400, 1);
+      const progress = Math.min(scrollY / 300, 1); // Shorter distance for faster irritation
       setScrollProgress(progress);
       
-      if (progress >= 1 && !isCursorTransformed) {
+      // Trigger transformation earlier (at 75% progress) so it happens while still visible
+      if (progress >= 0.75 && !isCursorTransformed) {
         setIsCursorTransformed(true);
       }
     };
@@ -2631,36 +2636,38 @@ export default function App() {
                 >
                   <motion.div 
                     animate={isCursorTransformed ? {
-                      y: -200,
-                      opacity: 0,
-                      scale: 0.2,
-                      transition: { duration: 0.5, ease: "backIn" }
+                      y: -400, // Launch upwards
+                      x: [0, 50, -50, 0],
+                      opacity: [1, 1, 0.5, 0],
+                      scale: [1, 1.5, 0.5, 0],
+                      transition: { duration: 0.6, ease: "anticipate" }
                     } : { 
-                      x: [0, -3, 3, -2, 2, 0].map(v => v * (1 + scrollProgress * 5)),
-                      y: [0, 2, -2, 1, -1, 0].map(v => v * (1 + scrollProgress * 5)),
-                      rotate: [0, -2, 2, -1, 1, 0].map(v => v * (1 + scrollProgress * 5)),
-                      scale: [1, 1.05, 0.95, 1.02, 0.98, 1].map(v => v * (1 + scrollProgress * 0.2))
+                      x: [0, -3, 3, -2, 2, 0].map(v => v * (1 + scrollProgress * 8)),
+                      y: [0, 2, -2, 1, -1, 0].map(v => v * (1 + scrollProgress * 8)),
+                      rotate: [0, -2, 2, -1, 1, 0].map(v => v * (1 + scrollProgress * 8)),
+                      scale: [1, 1.05, 0.95, 1.02, 0.98, 1].map(v => v * (1 + scrollProgress * 0.4))
                     }}
                     transition={{ 
-                      duration: Math.max(0.05, 0.15 - scrollProgress * 0.1), 
-                      repeat: Infinity,
+                      duration: Math.max(0.04, 0.15 - scrollProgress * 0.12), 
+                      repeat: isCursorTransformed ? 0 : Infinity,
                       repeatDelay: Math.max(0, 0.4 - scrollProgress * 0.4)
                     }}
                     className="w-[28px] h-[48px] border-2 border-white/40 rounded-[1.2rem] flex items-center justify-center relative overflow-hidden"
                   >
                     <motion.div 
                       animate={isCursorTransformed ? {
-                        y: [-20, -50, -100],
-                        opacity: 0,
+                        y: [-20, -100, -300],
+                        scale: [1, 2, 0.2],
+                        opacity: [1, 1, 0],
                       } : { 
                         y: [-16, 16, -12, 14, -16],
-                        x: [0, 6, -6, 4, -4, 0].map(v => v * (1 + scrollProgress * 3)),
+                        x: [0, 6, -6, 4, -4, 0].map(v => v * (1 + scrollProgress * 4)),
                         scale: [1, 1.4, 0.8, 1.3, 1],
                         opacity: [0.8, 1, 0.8, 1, 0.8]
                       }}
                       transition={{ 
-                        duration: Math.max(0.2, 0.6 - scrollProgress * 0.4), 
-                        repeat: Infinity, 
+                        duration: Math.max(0.15, 0.6 - scrollProgress * 0.45), 
+                        repeat: isCursorTransformed ? 0 : Infinity, 
                         ease: "anticipate",
                         repeatType: "mirror"
                       }}
