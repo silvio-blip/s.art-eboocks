@@ -588,8 +588,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   // Build product list
   const productEntry: any = {
-    variant_id: variantId || undefined,
-    product_id: dropeaProductId,
+    product_id: variantId || dropeaProductId, // If variant exists, we might need to use it as product_id if variant_id is not allowed
     quantity: parseInt(String(product.quantity || 1), 10),
     total_value: parseFloat(String(product.total_value || product.pvp || 0)),
     unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
@@ -598,7 +597,6 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
   variables.products = [productEntry];
 
   console.log(`[DROPEA INTERNAL] Executando orderCreate para e-mail: ${variables.customer.email}`);
-  console.log(`[DROPEA INTERNAL] Payload da requisição:`, JSON.stringify({query: graphqlMutation, variables}, null, 2));
   
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
@@ -611,8 +609,6 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     },
     timeout: 30000
   });
-
-  console.log(`[DROPEA INTERNAL] Resposta da API:`, JSON.stringify(response.data, null, 2));
 
   if (response?.data?.errors) {
     console.error('[DROPEA INTERNAL ERRORS]', JSON.stringify(response.data.errors, null, 2));
@@ -860,28 +856,6 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
   } catch (error: any) {
     console.error('[SYNC STATUSES ERROR]', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/force-fulfillment', express.json(), async (req, res) => {
-  const { orderId, force } = req.body;
-  if (!orderId) return res.status(400).json({ error: 'Order ID is required' });
-
-  try {
-    const supabase = getSupabase();
-    const { data: order, error } = await supabase.from('orders').select('*').eq('id', orderId).single();
-    
-    if (error || !order) return res.status(404).json({ error: 'Order not found' });
-    
-    if (order.dropea_order_id && !force) {
-      return res.status(400).json({ error: 'Este pedido já foi enviado para a Dropea. Use force=true para re-enviar.' });
-    }
-    
-    await processOrderFulfillment(order, true);
-    return res.json({ message: 'Pedido enviado para a Dropea com sucesso!' });
-  } catch (err: any) {
-    console.error('Force fulfillment error:', err);
-    res.status(500).json({ error: err.message || 'Erro ao forçar o envio.' });
   }
 });
 
@@ -1314,7 +1288,7 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       const dropeaStatus = String(dropeaData.status).toUpperCase();
       
       // Mapeamento Robusto de Status (Dropea -> SArt)
-      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus)) {
+      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO'].includes(dropeaStatus)) {
         updateData.shipping_status = 'sent';
       } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
         updateData.shipping_status = 'delivered';
@@ -1328,7 +1302,7 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
         }
       } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
         updateData.status = 'refunded';
-      } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO', 'PROCESSING'].includes(dropeaStatus)) {
+      } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO'].includes(dropeaStatus)) {
         if (order.status !== 'completed' && order.status !== 'canceled') {
           updateData.status = 'paid';
           updateData.shipping_status = 'pending';
@@ -3306,8 +3280,6 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     if (!customerData.email && currentOrder.customer_email) {
       customerData.email = currentOrder.customer_email;
     }
-    
-    console.log(`[FULFILLMENT DEBUG] Customer Data para ordem ${currentOrder.id}:`, JSON.stringify(customerData, null, 2));
 
     if (!customerData.email) {
       console.warn(`[FULFILLMENT] Aviso: E-mail ausente para a ordem ${order.id}. Tentando buscar do perfil...`);
@@ -3354,21 +3326,10 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 
     if (dropeaOrderId) {
       console.log(`[FULFILLMENT SUCCESS] Dropea Order ID: ${dropeaOrderId}`);
-      // VERIFY: Still ensure it's a string, maybe it's returning something weird?
-      const sanitizedDropeaId = String(dropeaOrderId).trim();
-      if (!sanitizedDropeaId || sanitizedDropeaId === 'undefined' || sanitizedDropeaId === 'null') {
-          throw new Error('Dropea returned invalid ID: ' + dropeaOrderId);
-      }
-      
-      await supabase.from('orders').update({ 
-        dropea_order_id: sanitizedDropeaId,
-        shipping_status: 'pending' 
-      }).eq('id', currentOrder.id);
-      
-      console.log(`[FULFILLMENT DATABASE UPDATED] Ordem ${currentOrder.id} marcada como 'pending' com ID: ${sanitizedDropeaId}`);
+      await supabase.from('orders').update({ dropea_order_id: String(dropeaOrderId) }).eq('id', currentOrder.id);
       
       // Disparar email de pagamento confirmado após sucesso na Dropea
-      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: sanitizedDropeaId }, true)
+      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, true)
         .catch(e => console.error('[FULFILLMENT EMAIL ERROR]', e));
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");

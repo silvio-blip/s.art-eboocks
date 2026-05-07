@@ -502,27 +502,6 @@ export default function AdminDashboard({
     }
   };
 
-  const handleForceFulfillment = async (orderId: string) => {
-    const forceToast = toast.loading('Forçando envio para Dropea...');
-    try {
-      const resp = await fetch('/api/force-fulfillment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, force: true }),
-      });
-      const data = await resp.json();
-      if (resp.ok) {
-        toast.success(data.message, { id: forceToast });
-        fetchDashboardData();
-      } else {
-        toast.error(data.error, { id: forceToast });
-      }
-    } catch (e) {
-      toast.error('Erro desconhecido ao forçar envio.', { id: forceToast });
-    }
-  };
-
-
   useEffect(() => {
     // Background sync every 5 minutes while admin is open
     const backgroundSync = setInterval(() => {
@@ -2034,8 +2013,8 @@ export default function AdminDashboard({
 
             {editingProduct && (
               <div className="fixed inset-0 z-[60] bg-black flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-                <Card className="max-w-4xl w-full bg-[#050505] border border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto shadow-[0_0_100px_rgba(0,0,0,1)] max-h-[95vh] overflow-y-auto luxury-scrollbar">
-                  <div className="flex justify-between items-center sticky top-0 bg-[#050505] z-10 pb-4">
+                <Card className="max-w-4xl w-full bg-[#050505] border border-white/10 rounded-none p-6 md:p-12 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-500 my-auto shadow-[0_0_100px_rgba(0,0,0,1)]">
+                  <div className="flex justify-between items-center">
                     <h3 className="text-2xl md:text-3xl font-serif">
                       {editingProduct.id ? "Editar Produto" : "Novo Produto"}
                     </h3>
@@ -2551,8 +2530,7 @@ export default function AdminDashboard({
                             }`}>
                               {order.shipping_status === "delivered" ? "Entregue" : 
                                order.shipping_status === "sent" ? "Em Trânsito" : 
-                               ["canceled", "cancelled"].includes(order.status?.toLowerCase() || "") ? "Cancelado" :
-                               "Em Processamento"}
+                               "Pendente / Em Separação"}
                             </span>
                             {order.shipping_status_metadata?.trackingNumber && (
                               <span className="text-[8px] text-white/30 font-mono tracking-tighter">
@@ -2587,13 +2565,6 @@ export default function AdminDashboard({
                                   className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
                                 >
                                   Enviar Manual
-                                </Button>
-                                <Button 
-                                  size="sm"
-                                  onClick={() => handleForceFulfillment(order.id)}
-                                  className="bg-red-500 text-white hover:bg-red-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 mt-1 w-full"
-                                >
-                                  Forçar Envio
                                 </Button>
                               </>
                             )}
@@ -3188,7 +3159,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="p-4 bg-white/5 border border-white/10">
                   <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Envio</p>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
                      <span className={`text-[10px] uppercase font-black px-2 py-1 ${
                        viewingOrder.shipping_status === 'delivered' ? 'bg-emerald-500/10 text-emerald-500' :
                        viewingOrder.shipping_status === 'sent' ? 'bg-blue-500/10 text-blue-500' :
@@ -3199,13 +3170,6 @@ export default function AdminDashboard({
                         viewingOrder.shipping_status === 'pending' ? 'Pendente' :
                         viewingOrder.shipping_status || 'Aguardando'}
                      </span>
-                     <Button 
-                          size="sm"
-                          onClick={() => handleForceFulfillment(viewingOrder.id)}
-                          className="bg-red-500 text-white hover:bg-red-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 mt-1 w-full"
-                        >
-                          Forçar Envio Dropea
-                        </Button>
                   </div>
                 </div>
               </div>
