@@ -14,9 +14,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DROPEA_API_URL = process.env.DROPEA_API_URL || 'https://api.dropea.com/graphql/dropshippers';
-const DROPEA_API_KEY = process.env.DROPEA_API_KEY || 'AIzaioJLOztZH3TKWlXAZSZaI1-4DWrAZfSnz3Hsvc4nCt8=';
-const DROPEA_USER_ID = process.env.DROPEA_USER_ID || '38827';
-const DROPEA_SHOP_ID = process.env.DROPEA_SHOP_ID || '16172';
+const DROPEA_API_KEY = process.env.DROPEA_API_KEY;
+const DROPEA_USER_ID = process.env.DROPEA_USER_ID;
+const DROPEA_SHOP_ID = process.env.DROPEA_SHOP_ID;
 
 // Caching for Dropea catalog
 let dropeaCatalogCache: { data: any, timestamp: number } | null = null;
@@ -200,8 +200,9 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
     const rawBody = req.body;
     if (endpointSecret && sig && stripe) {
       event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
+      console.log(`[STRIPE WEBHOOK] Evento verificado com sucesso: ${event.type}`);
     } else {
-      // Fallback if no secret or no stripe client (dev mode)
+      console.warn(`[STRIPE WEBHOOK WARNING] Processando evento SEM VERIFICAÇÃO de assinatura. Configure STRIPE_WEBHOOK_SECRET para produção.`);
       const bodyString = Buffer.isBuffer(rawBody) ? rawBody.toString() : (typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody));
       event = JSON.parse(bodyString);
     }
@@ -516,13 +517,13 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     shopId: shopId || Number(DROPEA_SHOP_ID),
     paymentMethod: "MANUAL",
     customer: {
-      first_name: customer.firstName || customer.first_name || (customer.fullName ? customer.fullName.split(' ')[0] : "Nome"),
-      last_name: customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || '.' : "Teste"),
-      email: customer.email || "cliente@teste.com",
-      phone: customer.phone || "912345678",
-      address: customer.address || "Rua Exemplo",
-      city: customer.city || "Lisboa",
-      zip: customer.zip || customer.postalCode || "1000-001",
+      first_name: customer.firstName || customer.first_name || (customer.fullName ? customer.fullName.split(' ')[0] : ""),
+      last_name: customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || '' : ""),
+      email: customer.email || "",
+      phone: customer.phone || "",
+      address: customer.address || "",
+      city: customer.city || "",
+      zip: customer.zip || customer.postalCode || "",
       country: countryCode
     },
     products: [] as any[]
@@ -3098,22 +3099,21 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     const { product, customer, baseUrl, selectedOptions } = req.body;
     
     if (!stripe) {
-      console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Simulando sucesso imediato.");
-      // Simulamos um delay para parecer real
-      return res.json({ id: 'simulated_session_id', url: `${baseUrl}?payment_status=success` });
+      console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Por favor, configure a chave live nas definições.");
+      return res.status(400).json({ error: "O sistema de pagamentos não está configurado." });
     }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: [
         'card',
-        'paypal',
         'klarna',
-        'eps',
         'multibanco',
+        'mb_way',
         'bancontact',
-        'blik',
-        'link',
-        'mb_way'
+        'eps',
+        'ideal',
+        'p24',
+        'giropay'
       ],
       line_items: [{
         price_data: {
