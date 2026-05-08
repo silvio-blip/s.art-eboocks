@@ -916,7 +916,7 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       const trackingUrl = data.tracking_url || (data.fulfillment?.tracking_url) || (data.tracking?.url) || (data.order?.tracking_url);
 
       if (linkedOrder && linkedOrder.status !== 'pending') {
-        const updateData: any = { shipping_status: 'sent' };
+        const updateData: any = { };
         if (trackingNumber) {
           updateData.shipping_status_metadata = { 
             trackingNumber, 
@@ -1288,11 +1288,17 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       const dropeaStatus = String(dropeaData.status).toUpperCase();
       
       // Mapeamento Robusto de Status (Dropea -> SArt)
+      // DESATIVADO: A sincronização automática do status de envio foi removida para garantir que o usuário tenha controle total sobre a confirmação de envio.
+      /*
       if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
         updateData.shipping_status = 'sent';
       } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
         updateData.shipping_status = 'delivered';
-      } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
+      } 
+      */
+      
+      // Manter apenas o cancelamento, que é crítico.
+      if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
         updateData.status = 'canceled';
         
         // AUTOMAÇÃO SOLICITADA: Se cancelado na Dropea, iniciar reembolso no Stripe automaticamente

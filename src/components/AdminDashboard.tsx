@@ -2525,10 +2525,12 @@ export default function AdminDashboard({
                           <div className="flex flex-col gap-1">
                             <span className={`text-[10px] uppercase font-black ${
                               order.shipping_status === "delivered" ? "text-emerald-500" :
+                              order.status === "pending" ? "text-gray-500" :
                               order.shipping_status === "sent" ? "text-blue-500" :
                               "text-amber-500"
                             }`}>
                               {order.shipping_status === "delivered" ? "Entregue" : 
+                               order.status === "pending" ? "Pendente" :
                                order.shipping_status === "sent" ? "Em Trânsito" : 
                                ["canceled", "cancelled"].includes(order.status?.toLowerCase() || "") ? "Cancelado" :
                                "Em Processamento"}
