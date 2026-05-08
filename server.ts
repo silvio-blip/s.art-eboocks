@@ -1206,226 +1206,14 @@ apiRouter.get('/test-api', (req, res) => {
 apiRouter.post('/orders/:id/sync', async (req, res) => {
   try {
     const { id } = req.params;
-    const supabase = getSupabase();
-
-    const { data: order, error: fetchError } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (fetchError || !order) {
-      console.error(`[SYNC ERROR] Order ${id} not found in DB:`, fetchError);
-      return res.status(404).json({ error: 'Ordem não encontrada no sistema local' });
+    const result = await syncOrderWithExternalSources(id);
+    if (!result.success) {
+      return res.status(result.error === 'Ordem não encontrada no sistema local' ? 404 : 500).json(result);
     }
-
-    let dropeaId = order.dropea_order_id;
-
-    if (!dropeaId) {
-      // Remover tentativa de fulfillment automático no sync para evitar confusão.
-      // O sync deve apenas procurar pedidos existentes.
-      
-      // Tentar encontrar por email (customer_email ou via profiles se existir)
-      let email = order.customer_email;
-      
-      if (!email && order.user_id) {
-        const { data: profile } = await supabase.from('profiles').select('email').eq('id', order.user_id).single();
-        if (profile) email = profile.email;
-      }
-
-      if (email) {
-        console.log(`[SYNC] Tentando encontrar vínculo por email: ${email}`);
-        const foundId = await findDropeaOrderByEmail(email, order.total_amount);
-        if (foundId) {
-          dropeaId = String(foundId);
-          console.log(`[SYNC] Vínculo encontrado! Dropea ID: ${dropeaId}`);
-          
-          // Verificar se outro pedido já tem este ID Dropea para evitar erro de UNIQUE constraint
-          const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
-          if (!duplicate) {
-            await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
-          } else {
-            console.warn(`[SYNC] Aviso: O pedido Dropea ${dropeaId} já está vinculado ao registro local ${duplicate.id}.`);
-            // Se for duplicado, não vinculamos a este para não causar confusão de status
-            dropeaId = null;
-          }
-        }
-      }
-    }
-
-    if (!dropeaId) {
-      return res.status(404).json({ 
-        error: 'PEDIDO_NAO_ENCONTRADO',
-        message: 'Pedido não vinculado e não encontrado na Dropea via e-mail.' 
-      });
-    }
-
-    const dropeaData = await getDropeaOrderStatus(dropeaId);
-
-    if (dropeaData) {
-      console.log(`[SYNC SUCCESS] Dados obtidos da Dropea para ID ${dropeaId}`, JSON.stringify(dropeaData));
-      const updateData: any = {
-        updated_at: new Date().toISOString()
-      };
-      
-      // VERIFICAÇÃO STRIPE
-      if (stripe && order.stripe_session_id) {
-        try {
-          const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-            expand: ['payment_intent', 'payment_intent.latest_charge']
-          });
-          
-          if (session.payment_intent && !order.stripe_payment_intent) {
-            updateData.stripe_payment_intent = typeof session.payment_intent === 'string' 
-              ? session.payment_intent 
-              : (session.payment_intent as any).id;
-          }
-
-          if (session.payment_status === 'paid') {
-             updateData.payment_status = 'paid';
-          }
-
-          const pi = session.payment_intent as Stripe.PaymentIntent;
-          if (pi && pi.latest_charge) {
-             const charge = pi.latest_charge as Stripe.Charge;
-             if (charge.refunded) {
-               updateData.payment_status = 'refunded';
-               updateData.status = 'refunded';
-             }
-          } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
-             updateData.payment_status = 'paid';
-          }
-        } catch (stripeErr: any) {
-          if (stripeErr.message?.includes('No such checkout.session')) {
-            console.warn(`[USER SYNC STRIPE WARN] Session ${order.stripe_session_id} not found for order ${id}. Skipping Stripe sync.`);
-          } else {
-            console.error(`[USER SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
-          }
-        }
-      }
-
-      const dropeaStatus = String(dropeaData.status).toUpperCase();
-      const mapped = mapDropeaStatusToInternal(dropeaStatus);
-      
-      if (mapped) {
-        if (mapped.status) updateData.status = mapped.status;
-        if (mapped.shipping) updateData.shipping_status = mapped.shipping;
-        
-        // Auto-refund logic if canceled
-        if (mapped.status === 'canceled' && (order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
-           console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
-           processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
-        }
-      } else {
-        // Mapeamento Robusto de Status Legado (Fallback)
-        if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED', 'IN_TRANSIT', 'EM_TRANSITO'].includes(dropeaStatus) && order.status !== 'pending') {
-          updateData.shipping_status = 'sent';
-        } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO', 'ENTREGUE'].includes(dropeaStatus)) {
-          updateData.shipping_status = 'delivered';
-        } else if (['OUT_FOR_DELIVERY', 'SAIU_PARA_ENTREGA', 'PRESTES_A_CHEGAR', 'IN_DELIVERY'].includes(dropeaStatus)) {
-          updateData.shipping_status = 'out_for_delivery';
-        }
-        
-        // Manter apenas o cancelamento, que é crítico.
-        if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
-          updateData.status = 'canceled';
-          
-          // AUTOMAÇÃO SOLICITADA: Se cancelado na Dropea, iniciar reembolso no Stripe automaticamente
-          if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
-            console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
-            processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
-          }
-        } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
-          updateData.status = 'refunded';
-        } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO', 'PROCESSING'].includes(dropeaStatus)) {
-          if (order.status !== 'completed' && order.status !== 'canceled') {
-            updateData.status = 'paid';
-            updateData.shipping_status = 'pending';
-          }
-        } else if (dropeaStatus === 'FULFILLED') {
-          updateData.status = 'completed';
-          updateData.shipping_status = 'sent';
-        }
-      }
-
-      // Sincronização de Rastreio
-      if (dropeaData.tracking_number && dropeaData.tracking_number !== order.shipping_status_metadata?.trackingNumber) {
-        updateData.shipping_status_metadata = {
-          ...(order.shipping_status_metadata || {}),
-          trackingNumber: dropeaData.tracking_number,
-          trackingUrl: dropeaData.tracking_url || order.shipping_status_metadata?.trackingUrl,
-          syncedAt: new Date().toISOString(),
-          source: 'Dropea Verification'
-        };
-        // Se tem tracking number, garantimos que o status de envio é 'sent' pelo menos.
-        // Não retrocedemos de status 'delivered' ou 'out_for_delivery'.
-        if (!['delivered', 'out_for_delivery'].includes(updateData.shipping_status || order.shipping_status)) {
-          updateData.shipping_status = 'sent';
-        }
-      }
-
-      // Detetar mudanças para gravar e notificar
-      const hasStatusChange = updateData.status && updateData.status !== order.status;
-      const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
-      const hasPaymentStatusChange = updateData.payment_status && updateData.payment_status !== order.payment_status;
-      const hasMetadataChange = !!updateData.shipping_status_metadata;
-
-      const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasMetadataChange;
-
-      if (hasChanges) {
-        const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
-        if (updateError) {
-          console.error('[SYNC DB UPDATE ERROR]', {
-            error: updateError,
-            orderId: id,
-            updateData: updateData,
-            order: order
-          });
-          return res.status(500).json({ error: 'Falha ao atualizar dados locais', details: updateError });
-        }
-        
-        // Disparar e-mail se mudou algo visível para o cliente
-        if (hasStatusChange || hasPaymentStatusChange) {
-          const notifyStatus = updateData.status || order.status;
-          triggerOrderNotification(order.id, notifyStatus, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC NOTIF ERR]', e));
-        } else if (hasShippingChange) {
-          triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error('[SYNC SHIP NOTIF ERR]', e));
-        }
-      }
-
-      return res.json({ 
-        success: true, 
-        message: 'Verificação profunda concluída com sucesso.',
-        dropea_id: dropeaId,
-        dropea_status: dropeaStatus,
-        local_status: updateData.status || order.status,
-        shipping: updateData.shipping_status || order.shipping_status,
-        synced: hasChanges,
-        details: {
-          items: dropeaData.items,
-          customer: dropeaData.customer,
-          tracking: {
-            number: dropeaData.tracking_number,
-            url: dropeaData.tracking_url
-          }
-        },
-        _debug: {
-          updateData
-        }
-      });
-    }
-
-    console.warn(`[SYNC WARNING] Dropea ID ${dropeaId} não retornou dados.`);
-    res.status(502).json({ error: 'A Dropea não retornou informações para este pedido. Verifique se o ID está correto no painel da Dropea.' });
-  } catch (err: any) {
-    console.error('[ORDER SYNC ERROR]', err);
-    if (!res.headersSent) {
-      res.status(500).json({ 
-        error: 'Erro de Sincronização', 
-        message: err.message,
-        path: req.path
-      });
-    }
+    res.json(result);
+  } catch (error: any) {
+    console.error(`[SYNC FATAL ERROR] Order ${req.params.id}:`, error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -2832,189 +2620,166 @@ adminRouter.post('/orders/:id/fulfill', async (req, res) => {
   }
 });
 
-adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const supabase = getSupabase();
+async function syncOrderWithExternalSources(id: string) {
+  const supabase = getSupabase();
 
-    const { data: order, error: fetchError } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
+  const { data: order, error: fetchError } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
 
-    if (fetchError || !order) {
-      console.error(`[ADMIN SYNC ERROR] Order ${id} not found:`, fetchError);
-      return res.status(404).json({ error: 'Ordem não encontrada no sistema local' });
+  if (fetchError || !order) {
+    console.error(`[SYNC ERROR] Order ${id} not found:`, fetchError);
+    return { success: false, error: 'Ordem não encontrada no sistema local' };
+  }
+
+  let dropeaId = order.dropea_order_id;
+  if (!dropeaId) {
+    let email = order.customer_email;
+    if (!email && order.user_id) {
+      const { data: profile } = await supabase.from('profiles').select('email').eq('id', order.user_id).single();
+      if (profile) email = profile.email;
     }
-
-    let dropeaId = order.dropea_order_id;
-    if (!dropeaId) {
-      let email = order.customer_email;
-      if (!email && order.user_id) {
-        const { data: profile } = await supabase.from('profiles').select('email').eq('id', order.user_id).single();
-        if (profile) email = profile.email;
-      }
-      if (email) {
-        const foundId = await findDropeaOrderByEmail(email, order.total_amount);
-        if (foundId) {
-          dropeaId = String(foundId);
-          // Evitar erro de UNIQUE constraint no dropea_order_id
-          const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
-          if (!duplicate) {
-            await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
-            order.dropea_order_id = dropeaId;
-          } else {
-            console.warn(`[ADMIN SYNC] O ID Dropea ${dropeaId} já está vinculado ao pedido ${duplicate.id}`);
-          }
-        }
-      }
-    }
-
-    if (!dropeaId) {
-      return res.status(404).json({ error: 'PEDIDO_NAO_ENCONTRADO', message: 'Pedido não vinculado e não encontrado na Dropea.' });
-    }
-
-    const dropeaData = await getDropeaOrderStatus(dropeaId);
-    if (!dropeaData) return res.status(502).json({ error: 'Dropea não retornou dados.' });
-
-    const updateData: any = { updated_at: new Date().toISOString() };
-    
-    // VERIFICAÇÃO STRIPE (Sincronização com a fonte da verdade financeira)
-    if (stripe && order.stripe_session_id) {
-      try {
-        const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
-          expand: ['payment_intent', 'payment_intent.latest_charge']
-        });
-        
-        // Atualizar stripe_payment_intent se estiver faltando (ajuda reconciliação futura)
-        if (session.payment_intent && !order.stripe_payment_intent) {
-          updateData.stripe_payment_intent = typeof session.payment_intent === 'string' 
-            ? session.payment_intent 
-            : (session.payment_intent as any).id;
-        }
-
-        // Se a Stripe diz que foi pago, garantimos isso no nosso lado
-        if (session.payment_status === 'paid') {
-           updateData.payment_status = 'paid';
-        }
-
-        // VERIFICAR REEMBOLSOS (Crucial para o que o usuário está pedindo)
-        const pi = session.payment_intent as Stripe.PaymentIntent;
-        if (pi && pi.latest_charge) {
-           const charge = pi.latest_charge as Stripe.Charge;
-           if (charge.refunded) {
-             console.log(`[SYNC STRIPE] Detetado reembolso na Stripe para ordem ${id}`);
-             updateData.payment_status = 'refunded';
-             updateData.status = 'refunded';
-           }
-        } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
-           // Se não tem charge expandida mas o PI foi um sucesso, pelo menos sabemos que foi pago
-           updateData.payment_status = 'paid';
-        }
-      } catch (stripeErr: any) {
-        if (stripeErr.message?.includes('No such checkout.session')) {
-          console.warn(`[SYNC STRIPE WARN] Session ${order.stripe_session_id} not found for order ${id}. Skipping Stripe sync.`);
+    if (email) {
+      const foundId = await findDropeaOrderByEmail(email, order.total_amount);
+      if (foundId) {
+        dropeaId = String(foundId);
+        // Evitar erro de UNIQUE constraint no dropea_order_id
+        const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
+        if (!duplicate) {
+          await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
+          order.dropea_order_id = dropeaId;
         } else {
-          console.error(`[SYNC STRIPE ERROR] Order ${id}:`, stripeErr);
+          console.warn(`[SYNC] O ID Dropea ${dropeaId} já está vinculado ao pedido ${duplicate.id}`);
         }
       }
     }
+  }
 
-    const dropeaStatus = String(dropeaData.status).toUpperCase();
-    const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
-    const mapped = mapDropeaStatusToInternal(dropeaStatus);
-    
-    if (mapped) {
-      if (mapped.status) {
-        if (mapped.status === 'canceled') {
-          if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status) && orderAgeMinutes > 10) {
-            updateData.status = 'canceled';
-          }
-        } else if (order.status !== 'refunded' && order.status !== 'completed') {
-           updateData.status = mapped.status;
+  if (!dropeaId) {
+    return { success: false, error: 'PEDIDO_NAO_ENCONTRADO', message: 'Pedido não vinculado e não encontrado na Dropea.' };
+  }
+
+  const dropeaData = await getDropeaOrderStatus(dropeaId);
+  if (!dropeaData) return { success: false, error: 'Dropea não retornou dados.' };
+
+  const updateData: any = { updated_at: new Date().toISOString() };
+  
+  // VERIFICAÇÃO STRIPE
+  if (stripe && order.stripe_session_id) {
+    try {
+      const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
+        expand: ['payment_intent', 'payment_intent.latest_charge']
+      });
+      
+      if (session.payment_intent && !order.stripe_payment_intent) {
+        updateData.stripe_payment_intent = typeof session.payment_intent === 'string' 
+          ? session.payment_intent 
+          : (session.payment_intent as any).id;
+      }
+
+      if (session.payment_status === 'paid') {
+         updateData.payment_status = 'paid';
+      }
+
+      const pi = session.payment_intent as Stripe.PaymentIntent;
+      if (pi && pi.latest_charge) {
+         const charge = pi.latest_charge as Stripe.Charge;
+         if (charge.refunded) {
+           updateData.payment_status = 'refunded';
+           updateData.status = 'refunded';
+         }
+      } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
+         updateData.payment_status = 'paid';
+      }
+    } catch (stripeErr: any) {
+      console.warn(`[SYNC STRIPE WARN] Order ${id}:`, stripeErr.message);
+    }
+  }
+
+  const dropeaStatus = String(dropeaData.status).toUpperCase();
+  const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
+  const mapped = mapDropeaStatusToInternal(dropeaStatus);
+  
+  if (mapped) {
+    if (mapped.status) {
+      if (mapped.status === 'canceled') {
+        if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status) && orderAgeMinutes > 10) {
+          updateData.status = 'canceled';
         }
+      } else if (order.status !== 'refunded' && order.status !== 'completed') {
+         updateData.status = mapped.status;
       }
-      if (mapped.shipping) {
-        updateData.shipping_status = mapped.shipping;
-      }
-    } else if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
-      updateData.shipping_status = 'sent';
-      if (order.status !== 'refunded') {
-        updateData.status = (dropeaStatus === 'FULFILLED') ? 'completed' : 'paid';
-      }
-    } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
+    }
+    if (mapped.shipping) {
+      updateData.shipping_status = mapped.shipping;
+    }
+  } else {
+    // Fallback logic
+    if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
       updateData.shipping_status = 'delivered';
       updateData.status = 'completed';
     } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
-      // Somente mudamos para cancelado se NÃO estiver já em processo de reembolso
-      // E SE o pedido não for extremamente recente (menos de 10 minutos), para evitar race conditions na Dropea
-      if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
-        if (orderAgeMinutes > 10) {
-          updateData.status = 'canceled';
-        } else {
-          console.log(`[SYNC SKIP CANCELED] Pedido ${id} marcado como cancelado na Dropea, mas é muito recente (${Math.round(orderAgeMinutes)}min). Ignorando...`);
-        }
+      if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status) && orderAgeMinutes > 10) {
+        updateData.status = 'canceled';
       }
-    } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
-      updateData.status = 'refunded';
-      updateData.payment_status = 'refunded';
-    } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP'].includes(dropeaStatus)) {
-       // Permitir recuperação de 'canceled' se a Dropea disser que está PAID/PROCESSING
-       if (order.status !== 'refunded' && order.status !== 'completed') {
-         updateData.status = 'paid';
-         updateData.payment_status = 'paid';
-       }
     }
+  }
+  
+  if ((updateData.status === 'paid' || order.status === 'paid' || order.status === 'completed') && !order.payment_status) {
+    updateData.payment_status = 'paid';
+  }
+
+  if (dropeaData.tracking_number) {
+      updateData.shipping_status_metadata = {
+        ...(order.shipping_status_metadata || {}),
+        trackingNumber: dropeaData.tracking_number,
+        trackingUrl: dropeaData.tracking_url,
+        syncedAt: new Date().toISOString()
+      };
+      if (updateData.shipping_status !== 'delivered') updateData.shipping_status = 'sent';
+  }
+
+  const hasStatusChange = updateData.status && updateData.status !== order.status;
+  const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
+  const hasPaymentStatusChange = updateData.payment_status && updateData.payment_status !== order.payment_status;
+  const hasTrackingChange = !!updateData.shipping_status_metadata;
+  const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasTrackingChange;
+
+  if (hasChanges) {
+    const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
+    if (updateError) return { success: false, error: 'Falha ao atualizar no banco' };
     
-    // Fallback de payment_status se a ordem estiver paga mas sem o campo preenchido
-    if ((updateData.status === 'paid' || order.status === 'paid' || order.status === 'completed') && !order.payment_status) {
-      updateData.payment_status = 'paid';
+    // AUTO-REFUND IF CANCELED
+    const nowCanceled = updateData.status === 'canceled' && order.status !== 'canceled';
+    const isPaid = ['paid', 'completed'].includes(order.status);
+    if (nowCanceled && isPaid && order.stripe_session_id) {
+       console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
+       processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
     }
 
-    if (dropeaData.tracking_number) {
-        updateData.shipping_status_metadata = {
-          ...(order.shipping_status_metadata || {}),
-          trackingNumber: dropeaData.tracking_number,
-          trackingUrl: dropeaData.tracking_url,
-          syncedAt: new Date().toISOString()
-        };
-        if (updateData.shipping_status !== 'delivered') updateData.shipping_status = 'sent';
+    if (hasStatusChange || hasPaymentStatusChange) {
+      triggerOrderNotification(order.id, updateData.status || order.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
+    } else if (hasShippingChange) {
+      triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
     }
+  }
 
-    const hasStatusChange = updateData.status && updateData.status !== order.status;
-    const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
-    const hasPaymentStatusChange = updateData.payment_status && updateData.payment_status !== order.payment_status;
-    const hasTrackingChange = !!updateData.shipping_status_metadata;
-    const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasTrackingChange;
+  return { success: true, synced: hasChanges, dropea_status: dropeaStatus };
+}
 
-    if (hasChanges) {
-      const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
-      if (updateError) {
-        console.error('[ADMIN SYNC DB UPDATE ERROR]', {
-          error: updateError,
-          orderId: id,
-          updateData,
-          suggestion: 'Certifique-se de que todas as colunas existem no banco de dados (payment_status, updated_at, shipping_status_metadata, etc.)'
-        });
-        return res.status(500).json({ error: 'Falha ao atualizar dados locais', details: updateError });
-      }
-      
-      // Prioridade para notificação de status de pagamento/ordem geral
-      if (hasStatusChange || hasPaymentStatusChange) {
-        const notifyStatus = updateData.status || order.status;
-        triggerOrderNotification(order.id, notifyStatus, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
-      } else if (hasShippingChange) {
-        triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
-      }
-    }
-
-    res.json({ success: true, dropea_status: dropeaStatus, synced: hasChanges });
+adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await syncOrderWithExternalSources(id);
+    if (!result.success) return res.status(result.error === 'Ordem não encontrada no sistema local' ? 404 : 500).json(result);
+    res.json(result);
   } catch (error: any) {
-    console.error('[ADMIN SYNC FATAL]', error);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // Download Route
 apiRouter.get('/orders/:orderId/download', async (req, res) => {
@@ -3466,6 +3231,30 @@ if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`S.Art Server running on http://localhost:${PORT}`);
+    
+    // --- BACKGROUND SYNC CYCLE ---
+    console.log(`[SYSTEM] Iniciando Ciclo Constante de Sincronização (2 min)...`);
+    setInterval(async () => {
+      try {
+        console.log(`[BACKGROUND SYNC] Iniciando verificação automática de ordens ativas...`);
+        const supabase = getSupabase();
+        
+        // Buscar ordens que não foram finalizadas
+        const { data: activeOrders } = await supabase
+          .from('orders')
+          .select('id')
+          .not('status', 'in', '("refunded","delivered","canceled")');
+
+        if (activeOrders && activeOrders.length > 0) {
+           console.log(`[BACKGROUND SYNC] Sincronizando ${activeOrders.length} ordens...`);
+           for (const ord of activeOrders) {
+             await syncOrderWithExternalSources(ord.id).catch(e => console.error(`[BG SYNC ERR] Order ${ord.id}:`, e));
+           }
+        }
+      } catch (err) {
+        console.error(`[BACKGROUND SYNC FATAL]:`, err);
+      }
+    }, 2 * 60 * 1000); // 2 minutos
   });
 }
 

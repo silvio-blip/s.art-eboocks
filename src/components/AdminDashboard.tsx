@@ -503,13 +503,13 @@ export default function AdminDashboard({
   };
 
   useEffect(() => {
-    // Background sync every 5 minutes while admin is open
+    // Background sync every 1 minute while admin is open
     const backgroundSync = setInterval(() => {
       if (tab === "orders" || tab === "overview") {
         console.log("[BACKGROUND SYNC] Checking for order updates...");
         syncAllPayments();
       }
-    }, 300000);
+    }, 60000); // 1 minute
 
     return () => clearInterval(backgroundSync);
   }, [tab, orders.length]);
