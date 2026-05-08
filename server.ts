@@ -2738,7 +2738,10 @@ async function syncOrderWithExternalSources(id: string) {
         trackingUrl: dropeaData.tracking_url,
         syncedAt: new Date().toISOString()
       };
-      if (updateData.shipping_status !== 'delivered') updateData.shipping_status = 'sent';
+      // Somente assumimos 'sent' se não houver um status mais específico mapeado da Dropea
+      if (!updateData.shipping_status && !['delivered', 'sent', 'out_for_delivery'].includes(order.shipping_status)) {
+        updateData.shipping_status = 'sent';
+      }
   }
 
   const hasStatusChange = updateData.status && updateData.status !== order.status;
@@ -3210,14 +3213,12 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     if (dropeaOrderId) {
       console.log(`[FULFILLMENT SUCCESS] Dropea Order ID: ${dropeaOrderId}`);
       await supabase.from('orders').update({ 
-        dropea_order_id: String(dropeaOrderId),
-        shipping_status: 'sent' 
+        dropea_order_id: String(dropeaOrderId)
       }).eq('id', currentOrder.id);
       
-      // Disparar email de pagamento confirmado após sucesso na Dropea
-      // force: false para respeitar o bloqueio de duplicidade (não mandar se já foi mandado no Stripe Webhook)
-      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, false)
-        .catch(e => console.error('[FULFILLMENT EMAIL ERROR]', e));
+      // Sincronizar IMEDIATAMENTE para pegar o status real da Dropea ao invés de assumir status
+      console.log(`[FULFILLMENT] Sincronização imediata pós-criação para ordem ${currentOrder.id}`);
+      await syncOrderWithExternalSources(currentOrder.id).catch(e => console.error('[FULFILLMENT SYNC ERROR]', e));
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");
     }
