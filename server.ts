@@ -526,22 +526,18 @@ function sanitizeAddressInput(addr: string): string {
   if (!addr) return "";
   let s = addr;
   
-  // 1. Remove ordinal symbols (º, ª, °) that cause issues with Dropea encoding
-  // These often get converted to '0' according to the user.
-  s = s.replace(/[ºª°]/g, '');
+  // 1. Remove ordinal symbols and superscript indicators (º, ª, °, etc.)
+  // These cause encoding issues and are often misinterpreted as "0".
+  s = s.replace(/[ºª°\u00B0\u00BA\u00AA]/g, '');
   
-  // 2. Map word numbers to digits
+  // 2. Map word numbers to digits (prohibiting word-based patterns as requested)
   const wordMap: Record<string, string> = {
     'primeiro': '1', 'primeira': '1', 'first': '1',
     'segundo': '2', 'segunda': '2', 'second': '2',
     'terceiro': '3', 'terceira': '3', 'third': '3',
     'quarto': '4', 'quarta': '4', 'fourth': '4',
     'quinto': '5', 'quinta': '5', 'fifth': '5',
-    'sexto': '6', 'sexta': '6', 'sixth': '6',
-    'setimo': '7', 'setima': '7', 'seventh': '7',
-    'oitavo': '8', 'oitava': '8', 'eighth': '8',
-    'nono': '9', 'nona': '9', 'ninth': '9',
-    'decimo': '10', 'decima': '10', 'tenth': '10',
+    'sexto': '6', 'sexta': '6', 'setimo': '7', 'oitavo': '8', 'nono': '9', 'decimo': '10',
     'um': '1', 'uma': '1', 'one': '1',
     'dois': '2', 'duas': '2', 'two': '2',
     'tres': '3', 'three': '3',
@@ -555,13 +551,16 @@ function sanitizeAddressInput(addr: string): string {
   });
   
   // 3. Reorder if pattern is "[Street Name] [Number]" to "[Number] [Street Name]"
-  // The user says: "enter 'Street One' ... should only enter '1 Street'"
-  // We look for a number at the end and move it to the front if it's separated by space
   const trailingNumberRegex = /^(.+?)\s+(\d+)$/;
   const match = s.match(trailingNumberRegex);
   if (match) {
     s = `${match[2]} ${match[1]}`;
   }
+
+  // 4. FINAL STRICTURE: Only allow Alphanumeric, Spaces, Underscores, Hyphens, and Slashes.
+  // This removes any other "small symbols", "superscript zeros", or strange symbols.
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Remove accents/diacritics for safety
+  s = s.replace(/[^a-zA-Z0-9\s_\-\/]/g, '');
 
   return s.trim();
 }

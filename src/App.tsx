@@ -1192,10 +1192,10 @@ const AuthDialog = ({
 };
 
 const sanitizeAddress = (val: string) => {
-  // Remove ordinal symbols specifically mentioned by user (1º -> 1)
-  let s = val.replace(/[ºª°]/g, "");
+  // 1. Remove ordinal symbols and superscript indicators (º, ª, °, etc.)
+  let s = val.replace(/[ºª°\u00B0\u00BA\u00AA]/g, "");
   
-  // Prohibit word patterns by replacing them with numbers
+  // 2. Prohibit word patterns by replacing them with numbers
   const wordMap: any = {
     "primeiro": "1", "primeira": "1", "first": "1",
     "segundo": "2", "segunda": "2", "second": "2",
@@ -1211,6 +1211,11 @@ const sanitizeAddress = (val: string) => {
     const regex = new RegExp(`\\b${word}\\b`, "gi");
     s = s.replace(regex, wordMap[word]);
   });
+
+  // 3. Keep only allowed characters (Alphanumeric, Space, _, -, /)
+  // This prevents any "miniature zeros" or other hidden symbols.
+  s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  s = s.replace(/[^a-zA-Z0-9\s_\-\/]/g, "");
   
   return s;
 };
