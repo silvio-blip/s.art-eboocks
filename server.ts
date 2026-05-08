@@ -521,6 +521,51 @@ const adminRouter = express.Router();
 app.use('/api', apiRouter);
 app.use('/api/admin', adminRouter);
 
+// Utility to sanitize address input according to user's strict requirements (anti-ordinals, anti-word-numbers)
+function sanitizeAddressInput(addr: string): string {
+  if (!addr) return "";
+  let s = addr;
+  
+  // 1. Remove ordinal symbols (º, ª, °) that cause issues with Dropea encoding
+  // These often get converted to '0' according to the user.
+  s = s.replace(/[ºª°]/g, '');
+  
+  // 2. Map word numbers to digits
+  const wordMap: Record<string, string> = {
+    'primeiro': '1', 'primeira': '1', 'first': '1',
+    'segundo': '2', 'segunda': '2', 'second': '2',
+    'terceiro': '3', 'terceira': '3', 'third': '3',
+    'quarto': '4', 'quarta': '4', 'fourth': '4',
+    'quinto': '5', 'quinta': '5', 'fifth': '5',
+    'sexto': '6', 'sexta': '6', 'sixth': '6',
+    'setimo': '7', 'setima': '7', 'seventh': '7',
+    'oitavo': '8', 'oitava': '8', 'eighth': '8',
+    'nono': '9', 'nona': '9', 'ninth': '9',
+    'decimo': '10', 'decima': '10', 'tenth': '10',
+    'um': '1', 'uma': '1', 'one': '1',
+    'dois': '2', 'duas': '2', 'two': '2',
+    'tres': '3', 'three': '3',
+    'quatro': '4', 'four': '4',
+    'cinco': '5', 'five': '5'
+  };
+
+  Object.keys(wordMap).forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'gi');
+    s = s.replace(regex, wordMap[word]);
+  });
+  
+  // 3. Reorder if pattern is "[Street Name] [Number]" to "[Number] [Street Name]"
+  // The user says: "enter 'Street One' ... should only enter '1 Street'"
+  // We look for a number at the end and move it to the front if it's separated by space
+  const trailingNumberRegex = /^(.+?)\s+(\d+)$/;
+  const match = s.match(trailingNumberRegex);
+  if (match) {
+    s = `${match[2]} ${match[1]}`;
+  }
+
+  return s.trim();
+}
+
 // Helper function to create Dropea Order
 async function createDropeaOrderInternal(shopId: number, customer: any, product: any) {
   console.log(`[DROPEA] Iniciando criação de pedido interno para shop ${shopId}`);
@@ -551,8 +596,8 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
       last_name: (customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || 'S.Art' : "S.Art")).trim(),
       email: (customer.email || "").trim(),
       phone: (customer.phone || "").trim(),
-      address: String(customer.address || ""), // USER REQUIREMENT: EXACT DATA PRESERVATION (NO TRIM OR NORMALIZATION)
-      city: (customer.city || "").trim(),
+      address: sanitizeAddressInput(String(customer.address || "")),
+      city: sanitizeAddressInput((customer.city || "").trim()),
       zip: (customer.zip || customer.postalCode || "").trim(),
       country: countryCode
     },

@@ -1191,6 +1191,30 @@ const AuthDialog = ({
   );
 };
 
+const sanitizeAddress = (val: string) => {
+  // Remove ordinal symbols specifically mentioned by user (1º -> 1)
+  let s = val.replace(/[ºª°]/g, "");
+  
+  // Prohibit word patterns by replacing them with numbers
+  const wordMap: any = {
+    "primeiro": "1", "primeira": "1", "first": "1",
+    "segundo": "2", "segunda": "2", "second": "2",
+    "terceiro": "3", "terceira": "3", "third": "3",
+    "quarto": "4", "quarta": "4", "fourth": "4",
+    "quinto": "5", "quinta": "5", "fifth": "5",
+    "um": "1", "uma": "1", "one": "1",
+    "dois": "2", "duas": "2", "two": "2",
+    "tres": "3", "three": "3",
+  };
+  
+  Object.keys(wordMap).forEach(word => {
+    const regex = new RegExp(`\\b${word}\\b`, "gi");
+    s = s.replace(regex, wordMap[word]);
+  });
+  
+  return s;
+};
+
 const CheckoutModal = ({
   isOpen,
   onClose,
@@ -1234,7 +1258,12 @@ const CheckoutModal = ({
           </div>
           <input placeholder="Email" className="w-full border-b py-2 text-sm" value={form.email} onChange={e => setForm({...form, email: e.target.value})} />
           <input placeholder="Telefone" className="w-full border-b py-2 text-sm" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} />
-          <input placeholder="Morada" className="w-full border-b py-2 text-sm" value={form.address} onChange={e => setForm({...form, address: e.target.value})} />
+          <input 
+            placeholder="Morada" 
+            className="w-full border-b py-2 text-sm" 
+            value={form.address} 
+            onChange={e => setForm({...form, address: sanitizeAddress(e.target.value)})} 
+          />
           <div className="grid grid-cols-3 gap-4">
             <input placeholder="Cidade" className="col-span-1 border-b py-2 text-sm" value={form.city} onChange={e => setForm({...form, city: e.target.value})} />
             <input placeholder="Código Postal" className="col-span-1 border-b py-2 text-sm" value={form.zip} onChange={e => setForm({...form, zip: e.target.value})} />
@@ -3108,7 +3137,7 @@ export default function App() {
                         onChange={(e) =>
                           setShippingInfo({
                             ...shippingInfo,
-                            address: e.target.value,
+                            address: sanitizeAddress(e.target.value),
                           })
                         }
                         className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
