@@ -916,7 +916,11 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
       const trackingUrl = data.tracking_url || (data.fulfillment?.tracking_url) || (data.tracking?.url) || (data.order?.tracking_url);
 
       if (linkedOrder && linkedOrder.status !== 'pending') {
-        const updateData: any = { };
+        const updateData: any = { 
+          shipping_status: 'sent',
+          updated_at: new Date().toISOString()
+        };
+        
         if (trackingNumber) {
           updateData.shipping_status_metadata = { 
             trackingNumber, 
@@ -933,7 +937,9 @@ app.post('/api/dropea/webhook', express.json(), async (req, res) => {
           .single();
 
         if (order) {
-          triggerOrderNotification(order.id, order.status, 'sent', order).catch(e => console.error('[WEBHOOK SHIP EMAIL ERROR]', e));
+          console.log(`[DROPEA WEBHOOK] Disparando e-mail de rastreio para ordem ${order.id}. Tracking: ${trackingNumber}`);
+          // Force: true para garantir que o e-mail de rastreio vá mesmo se algum outro e-mail de envio já tenha ido erroneamente
+          triggerOrderNotification(order.id, order.status, 'sent', order, true).catch(e => console.error('[WEBHOOK SHIP EMAIL ERROR]', e));
         }
       }
     } 
@@ -3079,6 +3085,68 @@ apiRouter.post('/request-refund', async (req, res) => {
     return res.json({ success: true, message: 'Pedido de reembolso enviado para análise administrativa.' });
   } catch (err: any) {
     console.error('[REQUEST REFUND ERROR]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Update Order Address Route (User initiated while pending)
+apiRouter.put('/orders/:id/address', async (req, res) => {
+  const { id } = req.params;
+  const { userId, address, city, zip, phone, email } = req.body;
+  
+  if (!id || !userId) return res.status(400).json({ error: 'Faltam parâmetros obrigatórios.' });
+
+  const supabase = getSupabase();
+
+  try {
+    // 1. Verificar propriedade e status
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ error: 'Pedido não encontrado.' });
+    }
+
+    // 2. Só permitir alteração se ainda não foi enviado ou está pendente na Dropea
+    // Se shipping_status for 'sent' ou 'delivered', já foi processado demais para mudar a morada
+    if (order.shipping_status === 'sent' || order.shipping_status === 'delivered') {
+      return res.status(400).json({ error: 'O pedido já foi enviado e a morada não pode mais ser alterada.' });
+    }
+
+    // 3. Atualizar shipping_details preservando outros dados se existirem
+    const currentDetails = typeof order.shipping_details === 'string' 
+      ? JSON.parse(order.shipping_details) 
+      : (order.shipping_details || {});
+
+    const updatedDetails = {
+      ...currentDetails,
+      address: address || currentDetails.address,
+      city: city || currentDetails.city,
+      zip: zip || currentDetails.zip,
+      phone: phone || currentDetails.phone,
+      email: email || currentDetails.email || order.customer_email
+    };
+
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ 
+        shipping_details: updatedDetails,
+        customer_email: updatedDetails.email,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (updateError) throw updateError;
+
+    console.log(`[ADDRESS UPDATE] Pedido ${id} atualizado pelo usuário ${userId}`);
+    return res.json({ success: true, message: 'Morada de envio atualizada com sucesso.' });
+
+  } catch (err: any) {
+    console.error('[ADDRESS UPDATE ERROR]', err);
     return res.status(500).json({ error: err.message });
   }
 });

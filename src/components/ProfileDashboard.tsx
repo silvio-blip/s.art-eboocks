@@ -103,6 +103,15 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [addressForm, setAddressForm] = useState({
+    address: '',
+    city: '',
+    zip: '',
+    phone: '',
+    email: ''
+  });
+  const [isUpdatingAddress, setIsUpdatingAddress] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -192,6 +201,67 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleUpdateAddress = async () => {
+    if (!selectedOrder || !user) return;
+    
+    setIsUpdatingAddress(true);
+    const tid = toast.loading('A atualizar morada de envio...');
+    
+    try {
+      const res = await fetch(`/api/orders/${selectedOrder.id}/address`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          ...addressForm
+        })
+      });
+
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'Erro ao atualizar morada');
+
+      toast.success('Morada atualizada com sucesso!', { id: tid });
+      setIsEditingAddress(false);
+      
+      // Atualizar o estado local da ordem
+      const updatedOrder = {
+        ...selectedOrder,
+        shipping_details: {
+          ...selectedOrder.shipping_details,
+          address: addressForm.address,
+          city: addressForm.city,
+          zip: addressForm.zip,
+          phone: addressForm.phone,
+          email: addressForm.email
+        },
+        customer_email: addressForm.email
+      };
+      
+      setSelectedOrder(updatedOrder);
+      
+      // Também seria ideal atualizar a lista de produtos comprados no componente pai
+      // mas como o estado local já foi atualizado, o modal refletirá a mudança.
+      
+    } catch (err: any) {
+      toast.error(err.message, { id: tid });
+    } finally {
+      setIsUpdatingAddress(false);
+    }
+  };
+
+  const startEditingAddress = (order: Order) => {
+    const details = order.shipping_details || {};
+    setAddressForm({
+      address: details.address || '',
+      city: details.city || '',
+      zip: details.zip || details.postalCode || '',
+      phone: details.phone || '',
+      email: order.customer_email || details.email || ''
+    });
+    setIsEditingAddress(true);
   };
 
   const handleSaveProfile = async () => {
@@ -642,38 +712,118 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 <div className="p-6 md:p-10 grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12">
                   {/* Secondary details */}
                   <div className="md:col-span-7 space-y-8">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 text-luxury-gold">
-                      <Truck size={18} />
-                      <span className="text-[10px] uppercase tracking-[0.4em] font-black">LOGÍSTICA DE LUXO</span>
-                    </div>
-                    {selectedOrder.shipping_details ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-8 bg-white/5 border border-white/10 border-l-luxury-gold border-l-2">
-                        <div className="space-y-4">
-                          <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Destinatário</p>
-                          <p className="text-sm text-white font-serif italic leading-relaxed">
-                            {selectedOrder.shipping_details.fullName || 
-                             `${selectedOrder.shipping_details.firstName || ''} ${selectedOrder.shipping_details.lastName || ''}`.trim() || 
-                             'Nome Preservado'}
-                          </p>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 text-luxury-gold">
+                          <Truck size={18} />
+                          <span className="text-[10px] uppercase tracking-[0.4em] font-black">LOGÍSTICA DE LUXO</span>
                         </div>
-                        <div className="space-y-4">
-                          <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Residência de Entrega</p>
-                          <p className="text-sm text-white/70 font-mono leading-relaxed">
-                            {selectedOrder.shipping_details.address}<br />
-                            {selectedOrder.shipping_details.postalCode} {selectedOrder.shipping_details.city}<br />
-                            <span className="text-luxury-gold">{selectedOrder.shipping_details.country || 'PT'}</span>
-                          </p>
-                        </div>
-                        <div className="md:col-span-2 space-y-4 border-t border-white/5 pt-4">
-                           <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Contacto Seguro</p>
-                           <p className="text-sm text-white font-mono">{selectedOrder.shipping_details.phone || 'Privado'}</p>
-                        </div>
+                        {selectedOrder.shipping_status === 'pending' && !isEditingAddress && (
+                          <button 
+                            onClick={() => startEditingAddress(selectedOrder)}
+                            className="text-[9px] uppercase tracking-widest text-luxury-gold hover:text-white transition-colors flex items-center gap-2 border border-luxury-gold/20 px-3 py-1 rounded-sm"
+                          >
+                            <Edit size={12} /> ALTERAR MORADA
+                          </button>
+                        )}
                       </div>
-                    ) : (
-                      <p className="text-sm text-white/20 font-serif italic bg-white/5 p-6 border border-white/10">Os detalhes logísticos estão em fase de digitalização.</p>
-                    )}
-                  </div>
+                      {selectedOrder.shipping_details ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-8 bg-white/5 border border-white/10 border-l-luxury-gold border-l-2 relative">
+                          {isEditingAddress ? (
+                            <div className="col-span-2 space-y-6 animate-in fade-in zoom-in-95 duration-500">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                  <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Morada</label>
+                                  <input 
+                                    type="text" 
+                                    value={addressForm.address} 
+                                    onChange={e => setAddressForm({...addressForm, address: e.target.value})}
+                                    className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Cidade</label>
+                                  <input 
+                                    type="text" 
+                                    value={addressForm.city} 
+                                    onChange={e => setAddressForm({...addressForm, city: e.target.value})}
+                                    className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Cód. Postal</label>
+                                  <input 
+                                    type="text" 
+                                    value={addressForm.zip} 
+                                    onChange={e => setAddressForm({...addressForm, zip: e.target.value})}
+                                    className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Telefone</label>
+                                  <input 
+                                    type="text" 
+                                    value={addressForm.phone} 
+                                    onChange={e => setAddressForm({...addressForm, phone: e.target.value})}
+                                    className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                                  />
+                                </div>
+                                <div className="space-y-2 md:col-span-2">
+                                  <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Email de Contacto</label>
+                                  <input 
+                                    type="email" 
+                                    value={addressForm.email} 
+                                    onChange={e => setAddressForm({...addressForm, email: e.target.value})}
+                                    className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-4 pt-4">
+                                <Button 
+                                  onClick={handleUpdateAddress}
+                                  disabled={isUpdatingAddress}
+                                  className="flex-1 bg-luxury-gold text-black rounded-none h-10 text-[9px] font-black uppercase tracking-widest"
+                                >
+                                  {isUpdatingAddress ? 'A SALVAR...' : 'GUARDAR ALTERAÇÕES'}
+                                </Button>
+                                <Button 
+                                  onClick={() => setIsEditingAddress(false)}
+                                  variant="outline"
+                                  className="flex-1 bg-transparent border-white/10 text-white rounded-none h-10 text-[9px] font-black uppercase tracking-widest"
+                                >
+                                  CANCELAR
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="space-y-4">
+                                <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Destinatário</p>
+                                <p className="text-sm text-white font-serif italic leading-relaxed">
+                                  {selectedOrder.shipping_details.fullName || 
+                                   `${selectedOrder.shipping_details.firstName || ''} ${selectedOrder.shipping_details.lastName || ''}`.trim() || 
+                                   'Nome Preservado'}
+                                </p>
+                              </div>
+                              <div className="space-y-4">
+                                <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Residência de Entrega</p>
+                                <p className="text-sm text-white/70 font-mono leading-relaxed">
+                                  {selectedOrder.shipping_details.address}<br />
+                                  {selectedOrder.shipping_details.zip || selectedOrder.shipping_details.postalCode} {selectedOrder.shipping_details.city}<br />
+                                  <span className="text-luxury-gold">{selectedOrder.shipping_details.country || 'PT'}</span>
+                                </p>
+                              </div>
+                              <div className="md:col-span-2 space-y-4 border-t border-white/5 pt-4">
+                                 <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Contacto Seguro</p>
+                                 <p className="text-sm text-white font-mono">{selectedOrder.shipping_details.phone || 'Privado'}</p>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-white/20 font-serif italic bg-white/5 p-6 border border-white/10">Os detalhes logísticos estão em fase de digitalização.</p>
+                      )}
+                    </div>
 
                   <div className="space-y-4">
                      <div className="flex items-center gap-3 text-luxury-gold">
@@ -739,7 +889,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                          </div>
                       </div>
                    </div>
-
+                 </div>
                    <div className="p-8 bg-white/5 border border-white/10 space-y-6">
                       <div className="flex items-center gap-3 text-luxury-gold">
                          <Hash size={18} />
@@ -775,7 +925,6 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                    </div>
                 </div>
               </div>
-            </div>
 
               {/* Modal Footer Controls */}
               <div className="p-8 bg-white/5 border-t border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between">
