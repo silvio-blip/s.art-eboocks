@@ -525,7 +525,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
       last_name: (customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || 'S.Art' : "S.Art")).trim(),
       email: (customer.email || "").trim(),
       phone: (customer.phone || "").trim(),
-      address: (customer.address || "").trim(),
+      address: String(customer.address || ""), // USER REQUIREMENT: EXACT DATA PRESERVATION (NO TRIM OR NORMALIZATION)
       city: (customer.city || "").trim(),
       zip: (customer.zip || customer.postalCode || "").trim(),
       country: countryCode
@@ -1294,14 +1294,13 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       const dropeaStatus = String(dropeaData.status).toUpperCase();
       
       // Mapeamento Robusto de Status (Dropea -> SArt)
-      // DESATIVADO: A sincronização automática do status de envio foi removida para garantir que o usuário tenha controle total sobre a confirmação de envio.
-      /*
-      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
+      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED', 'IN_TRANSIT', 'EM_TRANSITO'].includes(dropeaStatus) && order.status !== 'pending') {
         updateData.shipping_status = 'sent';
-      } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
+      } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO', 'ENTREGUE'].includes(dropeaStatus)) {
         updateData.shipping_status = 'delivered';
-      } 
-      */
+      } else if (['OUT_FOR_DELIVERY', 'SAIU_PARA_ENTREGA', 'PRESTES_A_CHEGAR', 'IN_DELIVERY'].includes(dropeaStatus)) {
+        updateData.shipping_status = 'out_for_delivery';
+      }
       
       // Manter apenas o cancelamento, que é crítico.
       if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
@@ -1333,8 +1332,9 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
           syncedAt: new Date().toISOString(),
           source: 'Dropea Verification'
         };
-        // Se tem tracking number, garantimos que o status de envio é 'sent' pelo menos
-        if (updateData.shipping_status !== 'delivered') {
+        // Se tem tracking number, garantimos que o status de envio é 'sent' pelo menos.
+        // Não retrocedemos de status 'delivered' ou 'out_for_delivery'.
+        if (!['delivered', 'out_for_delivery'].includes(updateData.shipping_status || order.shipping_status)) {
           updateData.shipping_status = 'sent';
         }
       }
@@ -1464,23 +1464,70 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     const productName = product?.name || product?.title || 'Obra de Arte';
     const formattedId = `SART-${order.id.split('-')[0].toUpperCase()}`;
 
-    if (['paid', 'pago', 'completed', 'succeeded'].includes(lowerS)) {
-      subject = `Pagamento Confirmado! Pedido ${formattedId}`;
-      flagField = 'email_paid_sent';
+    // Priority: Refunded > Canceled > Delivered > Out for Delivery > Shipped > Paid
+    if (['refunded', 'reembolsado'].includes(lowerS) || order.payment_status === 'refunded') {
+      subject = `Reembolso Executado com Sucesso - Pedido ${formattedId}`;
+      flagField = 'email_refunded_sent';
       emailBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
-          <h2 style="color: #10b981;">Olá, ${customerName}!</h2>
-          <p>Temos ótimas notícias: o seu pagamento para o pedido <strong>${formattedId}</strong> foi processado com sucesso.</p>
-          <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
-            <p style="margin: 5px 0 0 0;"><strong>Valor:</strong> €${order.total_amount}</p>
-          </div>
-          <p>O seu produto já está a ser preparado para envio. Assim que for despachado, enviaremos um novo e-mail com os detalhes do rastreio.</p>
+          <h2 style="color: #6366f1;">Reembolso Concluído</h2>
+          <p>Olá, ${customerName}. É com prazer que informamos que o reembolso relativo ao pedido <strong>${formattedId}</strong> foi executado com sucesso.</p>
+          <p>O valor total de <strong>€${order.total_amount}</strong> já saiu do nosso sistema e está a ser processado pelo seu banco/operadora.</p>
+          <p>O crédito deverá aparecer no seu extrato nos próximos dias úteis.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
           <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
         </div>
       `;
-    } else if (['sent', 'enviado', 'shipped'].includes(lowerShip)) {
+    } else if (['canceled', 'cancelado', 'void', 'failed'].includes(lowerS)) {
+      subject = `Atualização sobre o seu Pedido ${formattedId}`;
+      flagField = 'email_canceled_sent';
+      const isRefund = ['refunded', 'reembolsado', 'refund_pending', 'waiting_refund'].includes(lowerS) || (order.payment_status === 'refunded' || order.payment_status === 'refund_pending');
+      
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #ef4444;">Atualização do Pedido</h2>
+          <p>Olá, ${customerName}. Informamos uma atualização no seu pedido <strong>${formattedId}</strong>.</p>
+          <p>O status atual é: <strong>Cancelado</strong>.</p>
+          ${isRefund ? `
+          <p><strong>Reembolso:</strong> O processo de reembolso já foi iniciado automaticamente no sistema da Stripe. O valor será creditado no seu método de pagamento original nos próximos dias úteis.</p>
+          ` : `
+          <p>Se o pagamento ainda não tinha sido processado, nenhuma cobrança será efetuada.</p>
+          `}
+          <p>Se tiver alguma dúvida, por favor contacte o nosso suporte respondendo a este e-mail.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['delivered', 'entregue'].includes(lowerShip)) {
+      subject = `O seu pedido ${formattedId} foi entregue!`;
+      flagField = 'email_review_sent';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #10b981;">Pedido Entregue!</h2>
+          <p>Olá, ${customerName}. O seu pedido <strong>${formattedId}</strong> foi entregue com sucesso.</p>
+          <p>Esperamos que tenha gostado da sua nova obra de arte: <strong>${productName}</strong>.</p>
+          <p>Se puder, adoraríamos ouvir a sua opinião. Sinta-se à vontade para responder a este e-mail ou deixar um comentário no nosso site.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['out_for_delivery', 'saiu_para_entrega', 'prestes_a_chegar'].includes(lowerShip)) {
+      subject = `A sua encomenda está quase a chegar! 📦`;
+      flagField = 'email_out_for_delivery_sent';
+      emailBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #f59e0b;">Está quase!</h2>
+          <p>Olá, ${customerName}. O seu pedido <strong>${formattedId}</strong> saiu para entrega e deverá chegar à sua morada muito em breve.</p>
+          <div style="background: #fffbeb; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #fef3c7;">
+            <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
+            <p style="margin: 5px 0 0 0;">Prepare-se para receber a sua peça exclusiva!</p>
+          </div>
+          <p>Obrigado por escolher a S.Art Boutique.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+        </div>
+      `;
+    } else if (['sent', 'enviado', 'shipped', 'em trânsito'].includes(lowerShip)) {
       subject = `O seu pedido ${formattedId} está a caminho!`;
       flagField = 'email_shipped_sent';
       const trackingInfo = order.shipping_status_metadata?.trackingNumber 
@@ -1499,48 +1546,18 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
         </div>
       `;
-    } else if (['delivered', 'entregue'].includes(lowerShip)) {
-      subject = `O seu pedido ${formattedId} foi entregue!`;
-      flagField = 'email_review_sent';
+    } else if (['paid', 'pago', 'completed', 'succeeded', 'pago com sucesso'].includes(lowerS)) {
+      subject = `Pagamento Confirmado! Pedido ${formattedId}`;
+      flagField = 'email_paid_sent';
       emailBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
-          <h2 style="color: #10b981;">Pedido Entregue!</h2>
-          <p>Olá, ${customerName}. O seu pedido <strong>${formattedId}</strong> foi entregue com sucesso.</p>
-          <p>Esperamos que tenha gostado da sua nova obra de arte: <strong>${productName}</strong>.</p>
-          <p>Se puder, adoraríamos ouvir a sua opinião. Sinta-se à vontade para responder a este e-mail ou deixar um comentário no nosso site.</p>
-          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
-        </div>
-      `;
-    } else if (['canceled', 'cancelado'].includes(lowerS)) {
-      subject = `Atualização sobre o seu Pedido ${formattedId}`;
-      flagField = 'email_canceled_sent';
-      const isRefund = ['refunded', 'reembolsado', 'refund_pending'].includes(lowerS) || (order.payment_status === 'refunded' || order.payment_status === 'refund_pending');
-      
-      emailBody = `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
-          <h2 style="color: #ef4444;">Atualização do Pedido</h2>
-          <p>Olá, ${customerName}. Informamos uma atualização no seu pedido <strong>${formattedId}</strong>.</p>
-          <p>O status atual é: <strong>Cancelado</strong>.</p>
-          ${isRefund ? `
-          <p><strong>Reembolso:</strong> O processo de reembolso já foi iniciado automaticamente no sistema da Stripe. O valor será creditado no seu método de pagamento original nos próximos dias úteis.</p>
-          ` : `
-          <p>Se o pagamento ainda não tinha sido processado, nenhuma cobrança será efetuada.</p>
-          `}
-          <p>Se tiver alguma dúvida, por favor contacte o nosso suporte respondendo a este e-mail.</p>
-          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
-        </div>
-      `;
-    } else if (['refunded', 'reembolsado'].includes(lowerS)) {
-      subject = `Reembolso Executado com Sucesso - Pedido ${formattedId}`;
-      flagField = 'email_refunded_sent';
-      emailBody = `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
-          <h2 style="color: #6366f1;">Reembolso Concluído</h2>
-          <p>Olá, ${customerName}. É com prazer que informamos que o reembolso relativo ao pedido <strong>${formattedId}</strong> foi executado com sucesso.</p>
-          <p>O valor total de <strong>€${order.total_amount}</strong> já saiu do nosso sistema e está a ser processado pelo seu banco/operadora.</p>
-          <p>O crédito deverá aparecer no seu extrato nos próximos dias úteis.</p>
+          <h2 style="color: #10b981;">Olá, ${customerName}!</h2>
+          <p>Temos ótimas notícias: o seu pagamento para o pedido <strong>${formattedId}</strong> foi processado com sucesso.</p>
+          <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
+            <p style="margin: 5px 0 0 0;"><strong>Valor:</strong> €${order.total_amount}</p>
+          </div>
+          <p>O seu produto já está a ser preparado para envio. Assim que for despachado, enviaremos um novo e-mail com os detalhes do rastreio.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
           <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
         </div>
@@ -3395,7 +3412,8 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       }).eq('id', currentOrder.id);
       
       // Disparar email de pagamento confirmado após sucesso na Dropea
-      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, true)
+      // force: false para respeitar o bloqueio de duplicidade (não mandar se já foi mandado no Stripe Webhook)
+      triggerOrderNotification(currentOrder.id, 'paid', 'pending', { ...currentOrder, dropea_order_id: String(dropeaOrderId) }, false)
         .catch(e => console.error('[FULFILLMENT EMAIL ERROR]', e));
     } else {
       throw new Error("Dropea API não retornou um ID de pedido válido.");
