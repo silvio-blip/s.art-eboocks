@@ -176,6 +176,32 @@ if (process.env.STRIPE_SECRET_KEY) {
   stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 }
 
+function mapDropeaStatusToInternal(ds: string) {
+  const s = ds.toUpperCase();
+  
+  // Critical statuses (Payment/Global Order Status)
+  if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(s)) return { status: 'canceled', shipping: 'canceled' };
+  if (['REFUNDED', 'RETURNED', 'DEVUELTO', 'REEMBOLSADO'].includes(s)) return { status: 'refunded', shipping: 'refunded' };
+  if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO', 'ENTREGUE'].includes(s)) return { status: 'completed', shipping: 'delivered' };
+  
+  // Shipping specific statuses
+  if (['OUT_FOR_DELIVERY', 'SAIU_PARA_ENTREGA', 'PRESTES_A_CHEGAR', 'IN_DELIVERY'].includes(s)) return { status: 'paid', shipping: 'out_for_delivery' };
+  if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED', 'IN_TRANSIT', 'EM_TRANSITO'].includes(s)) return { status: 'paid', shipping: 'sent' };
+  if (['CONFIRMED', 'CONFIRMADO'].includes(s)) return { status: 'paid', shipping: 'confirmed' };
+  if (['PREPARING', 'IN_PREPARATION', 'PREPARACAO', 'EM_PREPARACAO'].includes(s)) return { status: 'paid', shipping: 'preparing' };
+  if (['READY', 'READY_TO_SHIP', 'PREPARADO', 'PREPARADOS'].includes(s)) return { status: 'paid', shipping: 'ready' };
+  if (['INCIDENT', 'PROBLEM', 'CON_INCIDENTE', 'INCIDENTE'].includes(s)) return { status: 'paid', shipping: 'incident' };
+  if (['REJECTED', 'REJEITADO'].includes(s)) return { status: 'paid', shipping: 'rejected' };
+  if (['REVIEW', 'ERROR_REVIEW', 'CON_ERROR_Y_REVISION', 'REVISAO'].includes(s)) return { status: 'paid', shipping: 'review' };
+  if (['LOST', 'EXTRAVIADO'].includes(s)) return { status: 'paid', shipping: 'lost' };
+  if (['PENDING_CONFIRMATION', 'WAITING_CONFIRMATION', 'PEND_DE_CONFIRMACAO', 'PENDIENTE_CONFIRMACION'].includes(s)) return { status: 'paid', shipping: 'pending_confirmation' };
+  
+  // Defaults for processing
+  if (['PAID', 'PROCESSING', 'EN_PROCESO'].includes(s)) return { status: 'paid', shipping: 'pending' };
+
+  return null;
+}
+
 // Global Error Handler
 process.on('uncaughtException', (err) => {
   console.error('[FATAL] Uncaught Exception:', err);
@@ -785,44 +811,31 @@ app.post('/api/orders/sync-statuses', express.json(), async (req, res) => {
           if (dropeaData) {
             const updateData: any = { updated_at: new Date().toISOString() };
             const ds = String(dropeaData.status).toUpperCase();
+            const mapped = mapDropeaStatusToInternal(ds);
             
             let statusChanged = false;
 
-            if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(ds)) {
-              if (order.shipping_status !== 'sent' && order.status !== 'pending') {
-                updateData.shipping_status = 'sent';
+            if (mapped) {
+              if (mapped.status && order.status !== mapped.status) {
+                // Se for transição para cancelado e for pago, tratar logicamente se necessário
+                // Mas aqui apenas sincronizamos os estados base
+                updateData.status = mapped.status;
                 statusChanged = true;
               }
-              if (ds === 'FULFILLED' && order.status !== 'completed') {
-                updateData.status = 'completed';
+              if (mapped.shipping && order.shipping_status !== mapped.shipping) {
+                updateData.shipping_status = mapped.shipping;
                 statusChanged = true;
               }
-            } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(ds)) {
-              if (order.shipping_status !== 'delivered' || order.status !== 'completed') {
-                updateData.shipping_status = 'delivered';
-                updateData.status = 'completed';
-                statusChanged = true;
+            } else {
+              // Lógica Legada Fallback
+              if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(ds)) {
+                if (order.shipping_status !== 'sent' && order.status !== 'pending') {
+                  updateData.shipping_status = 'sent';
+                  statusChanged = true;
+                }
               }
-            } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(ds)) {
-              if (!['canceled', 'cancelled', 'refunded', 'refund_pending', 'refund_requested'].includes(order.status)) {
-                updateData.status = 'canceled';
-                statusChanged = true;
-                // REMOVED AUTO-REFUND during sync - User wants manual control
-              }
-            } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(ds)) {
-              if (order.status !== 'refunded') {
-                updateData.status = 'refunded';
-                updateData.payment_status = 'refunded';
-                statusChanged = true;
-              }
-            } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP'].includes(ds)) {
-               if (!['completed', 'canceled', 'refunded', 'refund_pending'].includes(order.status) && order.status !== 'paid') {
-                 updateData.status = 'paid';
-                 updateData.payment_status = 'paid';
-                 statusChanged = true;
-               }
             }
-
+            
             if ((updateData.status === 'paid' || order.status === 'paid' || order.status === 'completed') && !order.payment_status) {
               updateData.payment_status = 'paid';
               statusChanged = true;
@@ -1292,35 +1305,47 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
       }
 
       const dropeaStatus = String(dropeaData.status).toUpperCase();
+      const mapped = mapDropeaStatusToInternal(dropeaStatus);
       
-      // Mapeamento Robusto de Status (Dropea -> SArt)
-      if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED', 'IN_TRANSIT', 'EM_TRANSITO'].includes(dropeaStatus) && order.status !== 'pending') {
-        updateData.shipping_status = 'sent';
-      } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO', 'ENTREGUE'].includes(dropeaStatus)) {
-        updateData.shipping_status = 'delivered';
-      } else if (['OUT_FOR_DELIVERY', 'SAIU_PARA_ENTREGA', 'PRESTES_A_CHEGAR', 'IN_DELIVERY'].includes(dropeaStatus)) {
-        updateData.shipping_status = 'out_for_delivery';
-      }
-      
-      // Manter apenas o cancelamento, que é crítico.
-      if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
-        updateData.status = 'canceled';
+      if (mapped) {
+        if (mapped.status) updateData.status = mapped.status;
+        if (mapped.shipping) updateData.shipping_status = mapped.shipping;
         
-        // AUTOMAÇÃO SOLICITADA: Se cancelado na Dropea, iniciar reembolso no Stripe automaticamente
-        if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
-          console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
-          processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
+        // Auto-refund logic if canceled
+        if (mapped.status === 'canceled' && (order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
+           console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
+           processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
         }
-      } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
-        updateData.status = 'refunded';
-      } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO', 'PROCESSING'].includes(dropeaStatus)) {
-        if (order.status !== 'completed' && order.status !== 'canceled') {
-          updateData.status = 'paid';
-          updateData.shipping_status = 'pending';
+      } else {
+        // Mapeamento Robusto de Status Legado (Fallback)
+        if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED', 'IN_TRANSIT', 'EM_TRANSITO'].includes(dropeaStatus) && order.status !== 'pending') {
+          updateData.shipping_status = 'sent';
+        } else if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO', 'ENTREGUE'].includes(dropeaStatus)) {
+          updateData.shipping_status = 'delivered';
+        } else if (['OUT_FOR_DELIVERY', 'SAIU_PARA_ENTREGA', 'PRESTES_A_CHEGAR', 'IN_DELIVERY'].includes(dropeaStatus)) {
+          updateData.shipping_status = 'out_for_delivery';
         }
-      } else if (dropeaStatus === 'FULFILLED') {
-        updateData.status = 'completed';
-        updateData.shipping_status = 'sent';
+        
+        // Manter apenas o cancelamento, que é crítico.
+        if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
+          updateData.status = 'canceled';
+          
+          // AUTOMAÇÃO SOLICITADA: Se cancelado na Dropea, iniciar reembolso no Stripe automaticamente
+          if ((order.status === 'paid' || order.status === 'completed') && order.stripe_session_id) {
+            console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
+            processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
+          }
+        } else if (['REFUNDED', 'RETURNED', 'DEVUELTO'].includes(dropeaStatus)) {
+          updateData.status = 'refunded';
+        } else if (['PAID', 'PROCESSING', 'READY_TO_SHIP', 'PAGADO', 'EN_PROCESO', 'PROCESSING'].includes(dropeaStatus)) {
+          if (order.status !== 'completed' && order.status !== 'canceled') {
+            updateData.status = 'paid';
+            updateData.shipping_status = 'pending';
+          }
+        } else if (dropeaStatus === 'FULFILLED') {
+          updateData.status = 'completed';
+          updateData.shipping_status = 'sent';
+        }
       }
 
       // Sincronização de Rastreio
@@ -2898,9 +2923,22 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
 
     const dropeaStatus = String(dropeaData.status).toUpperCase();
     const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
+    const mapped = mapDropeaStatusToInternal(dropeaStatus);
     
-    // Mapeamento Refinado
-    if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
+    if (mapped) {
+      if (mapped.status) {
+        if (mapped.status === 'canceled') {
+          if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status) && orderAgeMinutes > 10) {
+            updateData.status = 'canceled';
+          }
+        } else if (order.status !== 'refunded' && order.status !== 'completed') {
+           updateData.status = mapped.status;
+        }
+      }
+      if (mapped.shipping) {
+        updateData.shipping_status = mapped.shipping;
+      }
+    } else if (['SHIPPED', 'ON_THE_WAY', 'SENT', 'EN_CAMINO', 'FULFILLED'].includes(dropeaStatus) && order.status !== 'pending') {
       updateData.shipping_status = 'sent';
       if (order.status !== 'refunded') {
         updateData.status = (dropeaStatus === 'FULFILLED') ? 'completed' : 'paid';

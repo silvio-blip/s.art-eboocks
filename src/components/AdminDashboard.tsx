@@ -2527,13 +2527,23 @@ export default function AdminDashboard({
                               order.shipping_status === "delivered" ? "text-emerald-500" :
                               order.status === "pending" ? "text-gray-500" :
                               order.shipping_status === "sent" ? "text-blue-500" :
+                              order.shipping_status === "incident" ? "text-orange-500" :
+                              order.shipping_status === "lost" ? "text-red-700" :
                               "text-amber-500"
                             }`}>
-                              {order.shipping_status === "delivered" ? "Entregue" : 
-                               order.status === "pending" ? "Pendente" :
-                               order.shipping_status === "sent" ? "Em Trânsito" : 
-                               ["canceled", "cancelled"].includes(order.status?.toLowerCase() || "") ? "Cancelado" :
-                               "Em Processamento"}
+                              {order.shipping_status === 'delivered' ? 'Entregados' : 
+                               order.shipping_status === 'sent' ? 'Em Trânsito' :
+                               order.shipping_status === 'out_for_delivery' ? 'Em Entrega' :
+                               order.shipping_status === 'preparing' ? 'Em Preparação' :
+                               order.shipping_status === 'ready' ? 'Preparados' :
+                               order.shipping_status === 'confirmed' ? 'Confirmados' :
+                               order.shipping_status === 'pending_confirmation' ? 'Pend. de Confirmação' :
+                               order.shipping_status === 'incident' ? 'Com Incidente' :
+                               order.shipping_status === 'rejected' ? 'Rejeitado' :
+                               order.shipping_status === 'review' ? 'Com Erro e Revisão' :
+                               order.shipping_status === 'lost' ? 'Extraviado' :
+                               ['canceled', 'cancelled'].includes(order.status?.toLowerCase() || '') ? 'Cancelado' : 
+                               'Em Processamento'}
                             </span>
                             {order.shipping_status_metadata?.trackingNumber && (
                               <span className="text-[8px] text-white/30 font-mono tracking-tighter">

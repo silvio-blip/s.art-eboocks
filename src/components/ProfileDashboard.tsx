@@ -621,25 +621,35 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="flex-1 p-6 md:p-8 flex flex-col md:flex-row items-center gap-8">
                         <div className="flex-1 min-w-0 space-y-3 text-center md:text-left">
                           <div className="flex flex-col md:flex-row items-center gap-3">
-                            <span className={`text-[8px] uppercase tracking-[0.3em] font-black py-1 px-2 border rounded-sm ${
+                            <span className={`text-[7px] md:text-[8px] uppercase tracking-[0.3em] font-black py-1 px-2 border rounded-sm ${
+                              ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500 border-red-500/20' :
+                              ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'text-zinc-500 border-zinc-500/20' :
                               order.shipping_status === 'delivered' ? 'text-emerald-500 border-emerald-500/20' : 
                               order.shipping_status === 'out_for_delivery' ? 'text-amber-500 border-amber-500/20' :
                               order.shipping_status === 'sent' ? 'text-blue-500 border-blue-500/20' :
-                              ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500 border-red-500/20' :
-                              ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'text-zinc-500 border-zinc-500/20' :
+                              order.shipping_status === 'incident' ? 'text-orange-500 border-orange-500/20' :
+                              order.shipping_status === 'lost' ? 'text-red-700 border-red-700/20' :
                               'text-luxury-gold border-luxury-gold/20'
                             }`}>
-                              {order.shipping_status === 'delivered' ? 'CONCLUÍDO' : 
+                              {order.shipping_status === 'delivered' ? 'ENTREGADOS' : 
                                order.shipping_status === 'out_for_delivery' ? 'EM ENTREGA' :
+                               ['canceled', 'cancelled'].includes(order.status || '') ? 'CANCELADOS' : 
                                order.shipping_status === 'sent' ? 'EM TRÂNSITO' :
-                               ['canceled', 'cancelled'].includes(order.status || '') ? 'CANCELADO' : 
+                               order.shipping_status === 'confirmed' ? 'CONFIRMADOS' :
+                               order.shipping_status === 'preparing' ? 'EM PREPARAÇÃO' :
+                               order.shipping_status === 'ready' ? 'PREPARADOS' :
+                               order.shipping_status === 'incident' ? 'COM INCIDENTE' :
+                               order.shipping_status === 'rejected' ? 'REJEITADOS' :
+                               order.shipping_status === 'review' ? 'COM ERRO E REVISÃO' :
+                               order.shipping_status === 'lost' ? 'EXTRAVIADO' :
+                               order.shipping_status === 'pending_confirmation' ? 'PEND. DE CONFIRMAÇÃO' :
                                ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'REEMBOLSADO' :
                                'EM PROCESSAMENTO'}
                             </span>
                             <p className="text-[7px] font-mono text-white/20 uppercase tracking-widest whitespace-nowrap">ID: SART-{order.id.split('-')[0].toUpperCase()}</p>
                           </div>
-                          <h4 className="text-xl md:text-2xl font-serif text-white truncate max-w-full group-hover:text-luxury-gold transition-colors duration-500">
-                            {order.product?.title?.length > 70 ? `${order.product.title.slice(0, 67)}...` : (order.product?.title || 'Manifestação Sem Nome')}
+                          <h4 className="text-lg md:text-xl font-serif text-white truncate max-w-[200px] lg:max-w-xs group-hover:text-luxury-gold transition-colors duration-500">
+                            {order.product?.title?.length > 50 ? `${order.product.title.slice(0, 47)}...` : (order.product?.title || 'Manifestação Sem Nome')}
                           </h4>
                           <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold mb-4 md:mb-0">
                             <div className="flex items-center gap-2"><Calendar size={12} className="text-luxury-gold" /> {new Date(order.created_at).toLocaleDateString()}</div>
@@ -656,9 +666,16 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                 ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' :
                                 'text-luxury-gold'
                               }`}>
-                                {['canceled', 'cancelled'].includes(order.status || '') ? 'N/A' :
-                                 order.shipping_status === 'delivered' ? 'ENTREGUE' : 
-                                 order.shipping_status === 'sent' ? 'TRANSITO' : 'PRODUÇÃO'}
+                                {['canceled', 'cancelled'].includes(order.status || '') ? 'CANCELADOS' :
+                                 order.shipping_status === 'delivered' ? 'ENTREGADOS' : 
+                                 order.shipping_status === 'sent' ? 'EM TRÂNSITO' :
+                                 order.shipping_status === 'preparing' ? 'EM PREPARAÇÃO' :
+                                 order.shipping_status === 'ready' ? 'PREPARADOS' :
+                                 order.shipping_status === 'incident' ? 'COM INCIDENTE' :
+                                 order.shipping_status === 'lost' ? 'EXTRAVIADO' :
+                                 order.shipping_status === 'rejected' ? 'REJEITADOS' :
+                                 order.shipping_status === 'review' ? 'ERRO E REVISÃO' :
+                                 'PRODUÇÃO'}
                               </p>
                            </div>
                            <div className="flex-1 md:w-32 shrink-0 p-3 bg-white/5 border border-white/10 text-center space-y-1">
@@ -719,7 +736,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 
                 <div className="absolute bottom-6 left-6 md:bottom-10 md:left-10 space-y-1">
                    <p className="text-luxury-gold text-[8px] md:text-[10px] uppercase tracking-[0.5em] font-black">Manifesto Detalhado</p>
-                   <h3 className="text-3xl md:text-5xl font-serif italic text-white leading-none line-clamp-2 md:line-clamp-3 overflow-hidden">
+                   <h3 className="text-2xl md:text-4xl font-serif italic text-white leading-none line-clamp-2 md:line-clamp-3 overflow-hidden">
                       {selectedOrder.product?.title || 'Manifestação Sem Nome'}
                    </h3>
                 </div>
