@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import Stripe from 'stripe';
+import CryptoJS from 'crypto-js';
 
 dotenv.config();
 
@@ -143,6 +144,28 @@ const initDB = async () => {
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'colors_enabled') THEN
               ALTER TABLE products ADD COLUMN colors_enabled BOOLEAN DEFAULT FALSE;
             END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'provider') THEN
+              ALTER TABLE products ADD COLUMN provider TEXT DEFAULT 'aliexpress';
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'metadata') THEN
+              ALTER TABLE products ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'aliexpress_id') THEN
+              ALTER TABLE products ADD COLUMN aliexpress_id TEXT;
+              CREATE UNIQUE INDEX IF NOT EXISTS products_aliexpress_id_idx ON products (aliexpress_id) WHERE aliexpress_id IS NOT NULL;
+            END IF;
+
+            -- Ensure policies exist
+            DROP POLICY IF EXISTS "Anyone can view products" ON products;
+            CREATE POLICY "Anyone can view products" ON products FOR SELECT USING (true);
+            
+            DROP POLICY IF EXISTS "Admins can manage products" ON products;
+            CREATE POLICY "Admins can manage products" ON products FOR ALL USING (
+              (SELECT is_admin FROM profiles WHERE id = auth.uid()) = true
+            );
           END $$;
         ` });
 
@@ -520,6 +543,89 @@ const adminRouter = express.Router();
 // MOUNT ROUTERS
 app.use('/api', apiRouter);
 app.use('/api/admin', adminRouter);
+
+// AliExpress Proxy Route
+apiRouter.post('/aliexpress/proxy', async (req, res) => {
+  const { method, params } = req.body;
+  try {
+    const appKey = process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY;
+    const appSecret = process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET;
+    const accessToken = process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN;
+    console.log("🔍 Token lido do ENV:", accessToken ? `${accessToken.substring(0, 10)}... (protegido)` : "NÃO DEFINIDO");
+
+    if (!appKey || !appSecret) {
+      return res.status(500).json({ error: 'AliExpress API credentials are missing on server (VITE_ALIEXPRESS_APP_KEY/SECRET).' });
+    }
+
+    const generateSignature = (p: Record<string, any>, secret: string): string => {
+      const sortedKeys = Object.keys(p).sort();
+      let message = '';
+      for (const key of sortedKeys) {
+        const val = p[key];
+        if (val !== undefined && val !== null && val !== '') {
+          message += `${key}${val}`;
+        }
+      }
+      
+      const stringBaseDaAssinatura = message;
+      // Logging strictly for debugging
+      console.log("✍️ [ALIEXPRESS] Signature Base String:", stringBaseDaAssinatura);
+      
+      return CryptoJS.HmacSHA256(stringBaseDaAssinatura, secret).toString(CryptoJS.enc.Hex).toUpperCase();
+    };
+
+    const getTimestamp = (): string => {
+      const now = new Date();
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    };
+
+    const systemParams: Record<string, any> = {
+      app_key: appKey,
+      timestamp: getTimestamp(),
+      sign_method: 'hmac',
+      method: method,
+      format: 'json',
+      v: '2.0',
+    };
+
+    // Include access_token if available (AliExpress Open Platform standard parameter)
+    if (accessToken) {
+      systemParams.access_token = accessToken;
+    }
+
+    const allParams = { ...systemParams, ...params };
+    
+    // Debug as requested
+    console.log("📦 [ALIEXPRESS] Combined Params (Keys):", Object.keys(allParams).sort().join(', '));
+    console.log("📦 [ALIEXPRESS] Access Token prefix:", accessToken ? accessToken.substring(0, 5) : "NONE");
+
+    const sign = generateSignature(allParams, appSecret);
+    const finalParams = { ...allParams, sign };
+
+    console.log(`[ALIEXPRESS] Calling ${method} with paramsKeys: ${Object.keys(params).join(',')}`);
+
+    const formData = new URLSearchParams();
+    for (const [key, value] of Object.entries(finalParams)) {
+      formData.append(key, String(value));
+    }
+
+    const response = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
+    });
+
+    if (response.data.error_response) {
+      console.error('⚠️ [ALIEXPRESS API RETURNED ERROR]', response.data.error_response);
+    } else {
+      console.log('✅ [ALIEXPRESS API SUCCESS]');
+    }
+
+    res.json(response.data);
+  } catch (error: any) {
+    console.error('[ALIEXPRESS PROXY ERROR]', error.response?.data || error.message);
+    res.status(500).json({ error: error.message, details: error.response?.data });
+  }
+});
 
 // Utility to sanitize address input according to user's strict requirements (anti-ordinals, anti-word-numbers)
 function sanitizeAddressInput(addr: string): string {
@@ -1991,7 +2097,7 @@ adminRouter.post('/products', async (req, res) => {
   try {
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, is_featured
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
@@ -2017,6 +2123,9 @@ adminRouter.post('/products', async (req, res) => {
     if (dropea_id) {
       upsertData.dropea_id = String(dropea_id);
       query = supabase.from('products').upsert(upsertData, { onConflict: 'dropea_id' });
+    } else if (aliexpress_id) {
+      upsertData.aliexpress_id = String(aliexpress_id);
+      query = supabase.from('products').upsert(upsertData, { onConflict: 'aliexpress_id' });
     } else {
       query = supabase.from('products').insert(upsertData);
     }
@@ -2106,7 +2215,7 @@ adminRouter.put('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, is_featured
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
@@ -2225,7 +2334,7 @@ adminRouter.patch('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, is_featured
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price

@@ -35,8 +35,13 @@ CREATE TABLE IF NOT EXISTS products (
   colors_enabled BOOLEAN DEFAULT false,
   admin_link TEXT, -- private management link
   extra_images TEXT, -- comma separated image URLs
+  provider TEXT DEFAULT 'aliexpress',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  aliexpress_id TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS products_aliexpress_id_idx ON products (aliexpress_id) WHERE aliexpress_id IS NOT NULL;
 
 -- 3. Orders (Digital Sales)
 CREATE TABLE IF NOT EXISTS orders (

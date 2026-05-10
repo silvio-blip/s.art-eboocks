@@ -49,7 +49,9 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
 import { DropeaService } from "../services/DropeaService";
+import { AliExpressService } from "../services/AliExpressService";
 import { User as SupabaseUser } from "@supabase/supabase-js";
+import { ImportAliExpressProduct } from "./ImportAliExpressProduct";
 
 const getImageUrl = (url: string) => {
   if (!url) return "https://picsum.photos/seed/ebook/600/800";
@@ -153,6 +155,7 @@ export default function AdminDashboard({
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [userSearch, setUserSearch] = useState("");
   const [importDropeaId, setImportDropeaId] = useState("");
+  const [importAliExpressId, setImportAliExpressId] = useState("");
   const [importing, setImporting] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
@@ -562,6 +565,46 @@ export default function AdminDashboard({
       fetchDashboardData();
     } else {
       toast.success(`${successCount} ordens verificadas. Tudo está atualizado.`, { id: syncToast });
+    }
+  };
+
+  const handleImportAliExpress = async () => {
+    if (!importAliExpressId) {
+      toast.error("Insira um Link ou ID do AliExpress.");
+      return;
+    }
+
+    // Try to extract ID if it's a URL
+    let productId = importAliExpressId;
+    if (productId.includes('item/') && productId.includes('.html')) {
+      const match = productId.match(/item\/(\d+)\.html/);
+      if (match) productId = match[1];
+    } else if (productId.includes('?id=')) {
+      const match = productId.match(/\?id=(\d+)/);
+      if (match) productId = match[1];
+    }
+    
+    setImporting(true);
+    const impToast = toast.loading(`Contactando AliExpress API para o produto ${productId}...`);
+    
+    try {
+      const data = await AliExpressService.importProduct(productId);
+      
+      toast.success(`DADOS DO ALIEXPRESS RECUPERADOS!\n"${data.title?.substring(0, 40)}..."\nPreço Base: €${data.price}`, { 
+        id: impToast, 
+        duration: 8000 
+      });
+      setImportAliExpressId("");
+      
+      // Open editor with fetched data
+      setEditingProduct({
+        ...data,
+        pvp: data.price || 0
+      });
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao conectar com AliExpress API", { id: impToast });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -1900,29 +1943,55 @@ export default function AdminDashboard({
               </div>
             )}
 
-            {/* Import by Dropea ID Section */}
-            <div className="bg-luxury-dark border border-black/5 dark:border-white/5 p-4 md:p-6 flex flex-col md:flex-row items-center gap-4">
-              <div className="flex-1 space-y-1">
-                <h3 className="text-sm font-serif text-luxury-gold">Importar por ID Dropea</h3>
-                <p className="text-[9px] uppercase tracking-widest opacity-30">Insira o ID direto do catálogo Dropea para extrair todos os dados</p>
+              {/* Advanced Import Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Full Import Component (New) */}
+                <div className="lg:col-span-2">
+                  <ImportAliExpressProduct 
+                    userId={user.id} 
+                    onSuccess={(data) => {
+                      if (data.metadata?.source === 'MockImport') {
+                        fetchProducts();
+                      } else {
+                        // Official import: data is mapped, open editor
+                        setEditingProduct({
+                          ...data,
+                          pvp: data.price || 0
+                        });
+                      }
+                    }} 
+                  />
+                </div>
+
+                {/* Import by Dropea ID Section */}
+                <div className="bg-luxury-dark border border-black/5 dark:border-white/5 p-8 flex flex-col items-start gap-6 rounded-3xl shadow-xl">
+                  <div className="w-full space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-emerald-500/10 rounded-lg">
+                        <Truck className="w-5 h-5 text-emerald-500" />
+                      </div>
+                      <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-500">Dropea Cloud</h3>
+                    </div>
+                    <p className="text-[10px] uppercase tracking-widest opacity-40 leading-relaxed">Sincronize com o catálogo oficial da rede Dropea localmente</p>
+                  </div>
+                  <div className="flex w-full gap-3 mt-auto">
+                    <input
+                      type="text"
+                      placeholder="ID DROPEA..."
+                      value={importDropeaId}
+                      onChange={(e) => setImportDropeaId(e.target.value)}
+                      className={`flex-1 border-none px-5 py-4 text-sm focus:ring-1 focus:ring-emerald-500 outline-none transition-all rounded-xl ${theme === 'dark' ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`}
+                    />
+                    <Button
+                      onClick={handleImportDropea}
+                      disabled={importing || !importDropeaId}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white transition-all h-14 px-6 rounded-xl"
+                    >
+                      {importing ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <div className="flex w-full md:w-auto gap-2">
-                <input
-                  type="text"
-                  placeholder="Ex: 89, 1205..."
-                  value={importDropeaId}
-                  onChange={(e) => setImportDropeaId(e.target.value)}
-                  className={`flex-1 md:w-48 border px-4 py-2 text-sm focus:border-luxury-gold outline-none transition-colors ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}
-                />
-                <Button
-                  onClick={handleImportDropea}
-                  disabled={importing || !importDropeaId}
-                  className="bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:bg-luxury-gold hover:text-black transition-all h-10 px-6 text-[10px] uppercase font-bold tracking-widest"
-                >
-                  {importing ? <Loader2 size={14} className="animate-spin" /> : "Importar"}
-                </Button>
-              </div>
-            </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {filteredProducts.length === 0 ? (
