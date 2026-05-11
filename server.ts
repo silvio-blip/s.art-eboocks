@@ -783,7 +783,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   variables.products = [productEntry];
 
-  console.log(`[DROPEA INTERNAL] Executando orderCreate para e-mail: ${variables.customer.email}`);
+  console.log("[DROPEA DEBUG] Payload a ser enviado:", JSON.stringify(variables));
   
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
