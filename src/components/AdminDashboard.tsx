@@ -582,11 +582,14 @@ export default function AdminDashboard({
       return;
     }
 
-    // Try to extract ID if it's a URL
+    // Try to extract ID if it's a URL or has prefixes
     let productId = importAliExpressId.trim();
-    if (productId.startsWith('http')) {
-      const idMatch = productId.match(/(\d{10,18})/);
-      if (idMatch) productId = idMatch[1];
+    const idMatch = productId.match(/(\d{10,18})/);
+    if (idMatch) {
+      productId = idMatch[1];
+    } else {
+      // Fallback: just remove non-digits
+      productId = productId.replace(/[^0-9]/g, '');
     }
     
     setImporting(true);

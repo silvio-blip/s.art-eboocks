@@ -90,11 +90,11 @@ export class AliExpressService {
 
   /**
    * Places an order on AliExpress for dropshipping
-   * Endpoint: aliexpress.ds.trade.order.add
+   * Endpoint: aliexpress.trade.buy.placeorder
    */
   public static async placeOrder(order: any, customerAddress: any): Promise<any> {
     const businessParams = {
-      param_place_order_request: JSON.stringify({
+      param_place_order_request4_open_api_d_t_o: JSON.stringify({
         logistics_address: {
           address: customerAddress.address,
           city: customerAddress.city,
@@ -106,14 +106,14 @@ export class AliExpressService {
         },
         product_items: [
           {
-            product_cnt: order.quantity || 1,
-            product_id: parseInt(order.product?.aliexpress_id || order.aliexpress_id, 10),
+            product_count: order.quantity || 1,
+            product_id: parseInt(String(order.product?.aliexpress_id || order.aliexpress_id).replace(/[^0-9]/g, ''), 10),
             // sku_attr: "" // Can be added if we store SKU info
           }
         ]
       })
     };
 
-    return await this.makeRequest('aliexpress.ds.trade.order.add', businessParams);
+    return await this.makeRequest('aliexpress.trade.buy.placeorder', businessParams);
   }
 }

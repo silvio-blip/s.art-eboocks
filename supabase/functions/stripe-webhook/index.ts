@@ -13,19 +13,31 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
 };
 
-// Helper to sign AliExpress requests
+// Helper to sign AliExpress requests via HMAC-SHA256
 async function signAliExpressRequest(params: Record<string, string>, appSecret: string) {
   const sortedKeys = Object.keys(params).sort();
-  let baseString = appSecret;
+  let baseString = "";
   for (const key of sortedKeys) {
-    baseString += key + params[key];
+    const value = params[key];
+    if (value !== undefined && value !== null && value !== "") {
+      baseString += key + value;
+    }
   }
-  baseString += appSecret;
 
   const encoder = new TextEncoder();
-  const data = encoder.encode(baseString);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const secretData = encoder.encode(appSecret);
+  const messageData = encoder.encode(baseString);
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    secretData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = await crypto.subtle.sign("HMAC", key, messageData);
+  const hashArray = Array.from(new Uint8Array(signature));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
   
   return hashHex;
@@ -105,11 +117,11 @@ serve(async (req) => {
             throw new Error("AliExpress API credentials missing");
           }
 
-          const method = "aliexpress.ds.trade.order.add";
+          const method = "aliexpress.trade.buy.placeorder";
           const timestamp = new Date().toISOString().replace(/T/, " ").replace(/\..+/, "");
           
           const businessParams = {
-            param_place_order_request: JSON.stringify({
+            param_place_order_request4_open_api_d_t_o: JSON.stringify({
               logistics_address: {
                 address: address.address,
                 city: address.city,
@@ -121,8 +133,8 @@ serve(async (req) => {
               },
               product_items: [
                 {
-                  product_cnt: order.quantity || 1,
-                  product_id: parseInt(order.product.aliexpress_id, 10),
+                  product_count: order.quantity || 1,
+                  product_id: parseInt(String(order.product.aliexpress_id).replace(/[^0-9]/g, ""), 10),
                   sku_attr: order.sku || ""
                 }
               ]
@@ -136,13 +148,20 @@ serve(async (req) => {
             timestamp,
             format: "json",
             v: "2.0",
-            sign_method: "sha256",
+            sign_method: "hmac",
           };
 
           const allParams = { ...commonParams, ...businessParams };
-          const sign = await signAliExpressRequest(allParams, appSecret);
+          const filteredParams: Record<string, string> = {};
+          for (const [k, v] of Object.entries(allParams)) {
+            if (v !== null && v !== undefined && v !== "") {
+              filteredParams[k] = typeof v === "object" ? JSON.stringify(v) : String(v);
+            }
+          }
+
+          const sign = await signAliExpressRequest(filteredParams, appSecret);
           
-          const urlParams = new URLSearchParams({ ...allParams, sign });
+          const urlParams = new URLSearchParams({ ...filteredParams, sign });
           const response = await fetch(`https://eco.aliexpress.com/router/rest?${urlParams.toString()}`, {
             method: "POST"
           });
