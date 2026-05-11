@@ -12,6 +12,8 @@ import CryptoJS from 'crypto-js';
 
 dotenv.config();
 
+axios.defaults.timeout = 60000; // Global timeout for all axios requests
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -67,7 +69,12 @@ const initDB = async () => {
         { name: 'payment_status', type: 'TEXT DEFAULT \'pending\'' },
         { name: 'quantity', type: 'INTEGER DEFAULT 1' },
         { name: 'shipping_status_metadata', type: 'JSONB DEFAULT \'{}\'::jsonb' },
-        { name: 'updated_at', type: 'TIMESTAMP WITH TIME ZONE DEFAULT timezone(\'utc\'::text, now())' }
+        { name: 'updated_at', type: 'TIMESTAMP WITH TIME ZONE DEFAULT timezone(\'utc\'::text, now())' },
+        { name: 'provider', type: 'TEXT' },
+        { name: 'provider_order_id', type: 'TEXT' },
+        { name: 'dropea_order_id', type: 'TEXT' },
+        { name: 'aliexpress_id', type: 'TEXT' },
+        { name: 'fulfillment_error', type: 'TEXT' }
       ];
 
       // Ensure categories table exists and seed defaults
@@ -442,7 +449,7 @@ app.all(['/dropea-api*', '/api/dropea-api*'], async (req: any, res: any) => {
         'Accept': 'application/json',
         'User-Agent': 'SArt-Boutique-Boutique/1.0'
       },
-      timeout: 30000,
+      timeout: 60000,
       validateStatus: () => true
     };
 
@@ -499,7 +506,7 @@ app.get('/api/dropea-products', async (req, res) => {
         'Content-Type': 'application/json',
         'User-Agent': 'SArt-Boutique-Boutique/1.0'
       }, 
-      timeout: 10000 
+      timeout: 30000 
     }).catch(err => {
       console.warn('[DROPEA] API unreachable or timed out:', err.message);
       return { data: { data: { products: { data: [] } } } };
@@ -686,7 +693,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
 
     const response = await axios.post('https://api-sg.aliexpress.com/sync', body, {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
-      timeout: 15000
+      timeout: 60000
     });
 
     if (response.data.error_response) {
@@ -758,13 +765,16 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     }
   `;
 
-  // Mapeamento de país para Dropea
+  // Mapeamento de país para Dropea / AliExpress
   const countryMap: Record<string, string> = {
     'Portugal': 'PT',
     'Espanha': 'ES',
     'Spain': 'ES',
+    'Brasil': 'BR',
+    'Brazil': 'BR',
     'PT': 'PT',
-    'ES': 'ES'
+    'ES': 'ES',
+    'BR': 'BR'
   };
   const countryCode = countryMap[customer?.country] || customer?.country || 'PT';
 
@@ -814,7 +824,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
         variables: { id: [dropeaProductId] } 
       }, { 
         headers: { 'x-api-key': DROPEA_API_KEY, 'Content-Type': 'application/json' },
-        timeout: 15000 
+        timeout: 60000 
       });
 
       const variants = detailRes.data?.data?.products?.data?.[0]?.variants || [];
@@ -863,7 +873,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
       'Content-Type': 'application/json',
       'User-Agent': 'SArt-Boutique-Boutique/1.0'
     },
-    timeout: 30000
+    timeout: 90000
   });
 
   if (response?.data?.errors) {
@@ -891,7 +901,7 @@ async function executeDropeaQuery(query: string, variables: any, rootField: stri
         'Content-Type': 'application/json',
         'User-Agent': 'SArt-Boutique-Boutique/1.0'
       },
-      timeout: 15000
+      timeout: 60000
     });
 
     if (response.data?.errors) {
@@ -2531,7 +2541,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
             'Content-Type': 'application/json',
             'User-Agent': 'SArt-Boutique-Boutique/1.0'
           }, 
-          timeout: 15000 
+          timeout: 60000 
         });
         if (res.data?.errors) {
           console.log(`[DROPEA] Erros na query:`, JSON.stringify(res.data.errors));
@@ -2841,7 +2851,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const systemParams: Record<string, any> = {
       app_key: appKey,
       timestamp: getAliExpressTimestamp(),
-      sign_method: 'hmac',
+      sign_method: 'md5',
       method: 'aliexpress.ds.product.get',
       format: 'json',
       v: '2.0',
@@ -3816,6 +3826,11 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       customerData.email = currentOrder.customer_email;
     }
 
+    // Normalizar selected_options
+    const selectedOptions = typeof currentOrder.selected_options === 'string'
+      ? JSON.parse(currentOrder.selected_options)
+      : (currentOrder.selected_options || {});
+
     const priceToSubmit = Math.max(
       parseFloat(String(currentOrder.total_amount || 0)),
       parseFloat(String(productInDb?.pvp || 0))
@@ -3830,11 +3845,13 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
             quantity: currentOrder.quantity || 1,
             total_value: priceToSubmit,
             unit_price: priceToSubmit,
-            selected_options: (typeof currentOrder.selected_options === 'string') ? JSON.parse(currentOrder.selected_options) : currentOrder.selected_options
+            selected_options: selectedOptions
         });
     } else {
         console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para AliExpress...`);
-        providerOrderId = await fulfillAliExpressOrder(currentOrder, productInDb, customerData);
+        // Pass normalized options to AliExpress too
+        const orderWithCorrectOptions = { ...currentOrder, selected_options: selectedOptions };
+        providerOrderId = await fulfillAliExpressOrder(orderWithCorrectOptions, productInDb, customerData);
     }
 
     if (providerOrderId) {
@@ -3853,7 +3870,8 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       
       console.log(`[FULFILLMENT FINALIZED] Ordem ${currentOrder.id} atualizada com sucesso.`);
     } else {
-      throw new Error("Fornecedor API não retornou um ID de pedido válido.");
+      console.error(`[FULFILLMENT CRITICAL] O provedor ${provider} não retornou um ID válido. Status atual permaneceu inalterado.`);
+      throw new Error(`O Fornecedor API (${providerLabel}) processou a chamada mas não retornou um ID de pedido válido.`);
     }
   } catch (err: any) {
     console.error(`[FULFILLMENT SYSTEM ERROR] Falha Crítica na Ordem ${order.id}:`, err.message);
@@ -3863,15 +3881,26 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 }
 
 async function fulfillAliExpressOrder(order: any, product: any, customerData: any) {
+    const countryMap: Record<string, string> = {
+        'Portugal': 'PT', 'Espanha': 'ES', 'Spain': 'ES', 'Brasil': 'BR', 'Brazil': 'BR',
+        'PT': 'PT', 'ES': 'ES', 'BR': 'BR'
+    };
+    const resolvedCountry = countryMap[customerData.countryCode] || countryMap[customerData.country] || customerData.countryCode || customerData.country || 'PT';
+
     const address = {
         address: sanitizeAddressInput(customerData.address || ""),
         city: sanitizeAddressInput(customerData.city || ""),
         contact_person: (customerData.fullName || `${customerData.firstName || ""} ${customerData.lastName || ""}`).trim() || "Cliente",
-        country: customerData.countryCode || customerData.country || 'PT',
+        country: String(resolvedCountry).toUpperCase().substring(0, 2),
         phone: customerData.phone || "000000000",
         province: sanitizeAddressInput(customerData.province || customerData.city || ""),
         zip: (customerData.zip || customerData.postalCode || "").trim()
     };
+
+    const aliId = cleanAliExpressId(product.aliexpress_id);
+    if (!aliId) {
+        throw new Error("Este produto não possui um AliExpress ID válido vinculado. Sincronização impossível.");
+    }
 
     const businessParams = {
       param_place_order_request4_open_api_d_t_o: JSON.stringify({
@@ -3879,7 +3908,7 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
         product_items: [
           {
             product_count: order.quantity || 1,
-            product_id: parseInt(cleanAliExpressId(product.aliexpress_id), 10),
+            product_id: parseInt(aliId, 10),
             sku_attr: order.selected_options?.sku || ""
           }
         ]
@@ -3890,14 +3919,26 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
     
     const responseKey = 'aliexpress_trade_buy_placeorder_response';
     if (result && result[responseKey] && result[responseKey].result) {
-        return result[responseKey].result.order_id;
+        const platformResult = result[responseKey].result;
+        
+        // Handle single order_id
+        if (platformResult.order_id) {
+            return String(platformResult.order_id);
+        }
+        
+        // Handle list of IDs (common in AliExpress DS API)
+        if (platformResult.order_id_list && Array.isArray(platformResult.order_id_list) && platformResult.order_id_list.length > 0) {
+            return String(platformResult.order_id_list[0]);
+        }
     }
     
     if (result && result.error_response) {
         throw new Error(`AliExpress API Error: ${result.error_response.msg} (Code: ${result.error_response.code})`);
     }
 
-    throw new Error("AliExpress não retornou order_id. Resposta: " + JSON.stringify(result));
+    // Se chegou aqui, logar o objeto para depuração mas lançar erro claro
+    console.error(`[ALIEXPRESS FULFILL FAIL] Resposta sem ID:`, JSON.stringify(result));
+    throw new Error("AliExpress não retornou order_id nem order_id_list. Verifique se o produto está em stock ou se há restrições de envio.");
 }
 
 async function getAliExpressOrderDetail(aliOrderId: string) {
@@ -4036,7 +4077,7 @@ async function callAliExpressAPIInternal(method: string, params: any) {
           headers: { 
               'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' 
           },
-          timeout: 15000
+          timeout: 60000
         });
 
         const result = response.data;

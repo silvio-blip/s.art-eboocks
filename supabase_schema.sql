@@ -55,8 +55,20 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_email TEXT, -- For guest checkouts or verification
   selected_options JSONB DEFAULT '{}'::jsonb, -- Store size, color, etc.
   shipping_details JSONB DEFAULT '{}'::jsonb, -- Store address, name, phone
+  provider TEXT, -- 'aliexpress' or 'dropea'
+  provider_order_id TEXT, -- ID from the external provider
+  fulfillment_error TEXT, -- Last error message from provider
+  shipping_status_metadata JSONB DEFAULT '{}'::jsonb, -- Tracking info, etc.
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
+
+-- Ensure columns exist for older databases
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS provider TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS provider_order_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fulfillment_error TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_status_metadata JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());
 
 -- 4. User Reading Progress & Annotations
 CREATE TABLE IF NOT EXISTS user_reading_progress (
