@@ -50,6 +50,7 @@ export class AliExpressService {
       product_id: productId,
       target_currency: currency,
       target_language: language,
+      ship_to_country: 'PT',
     };
 
     const result = await this.makeRequest('aliexpress.ds.product.get', businessParams);
@@ -65,51 +66,54 @@ export class AliExpressService {
 
   /**
    * Fetches product details from AliExpress and maps to internal Product interface
+   * Updated to use the integrated server-side endpoint for 100% automation consistency.
    */
-  public static async importProduct(productId: string, currency: string = 'EUR', language: string = 'PT'): Promise<any> {
-    const result = await this.getProductDetails(productId, currency, language);
+  public static async importProduct(productId: string): Promise<any> {
+    const userId = JSON.parse(localStorage.getItem('sb-ofdxkoy6wmjezzmm67xzxa-auth-token') || '{}')?.user?.id;
     
-    if (!result) {
-      throw new Error('Não foi possível obter dados do produto do AliExpress.');
+    const response = await fetch('/api/admin/products/import-aliexpress', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': userId || ''
+      },
+      body: JSON.stringify({ productId })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Erro ao importar do AliExpress');
     }
 
-    const baseInfo = result.ae_item_base_info_dto;
-    const skuInfo = result.ae_item_sku_info_dtos;
-    const multimedia = result.ae_multimedia_info_dto;
+    return await response.json();
+  }
 
-    if (!baseInfo) {
-      throw new Error('Dados básicos do produto não encontrados no AliExpress.');
-    }
-
-    // Get the first price found in SKUs
-    const price = skuInfo && skuInfo.length > 0 
-      ? parseFloat(skuInfo[0].offer_sale_price || skuInfo[0].sku_price || "0")
-      : 0;
-
-    // Extract images
-    const mainImage = baseInfo.main_image_urls?.length > 0 
-      ? baseInfo.main_image_urls[0] 
-      : (multimedia?.image_urls?.length > 0 ? multimedia.image_urls[0] : "");
-    
-    const extraImages = (multimedia?.image_urls || [])
-      .filter((img: string) => img !== mainImage)
-      .join(',');
-
-    return {
-      title: baseInfo.subject,
-      description: baseInfo.detail || "",
-      price: price,
-      pvp: price, // Initial PVP same as price
-      image_url: mainImage,
-      extra_images: extraImages,
-      category: 'AliExpress',
-      product_type: 'physical',
-      is_active: true,
-      aliexpress_id: String(baseInfo.product_id),
-      metadata: {
-        source: 'AliExpress',
-        import_date: new Date().toISOString()
-      }
+  /**
+   * Places an order on AliExpress for dropshipping
+   * Endpoint: aliexpress.ds.trade.order.add
+   */
+  public static async placeOrder(order: any, customerAddress: any): Promise<any> {
+    const businessParams = {
+      param_place_order_request: JSON.stringify({
+        logistics_address: {
+          address: customerAddress.address,
+          city: customerAddress.city,
+          contact_person: customerAddress.fullName || `${customerAddress.firstName} ${customerAddress.lastName}`,
+          country: customerAddress.countryCode || customerAddress.country || 'PT',
+          phone: customerAddress.phone,
+          province: customerAddress.province || customerAddress.city,
+          zip: customerAddress.zip || customerAddress.postalCode
+        },
+        product_items: [
+          {
+            product_cnt: order.quantity || 1,
+            product_id: parseInt(order.product?.aliexpress_id || order.aliexpress_id, 10),
+            // sku_attr: "" // Can be added if we store SKU info
+          }
+        ]
+      })
     };
+
+    return await this.makeRequest('aliexpress.ds.trade.order.add', businessParams);
   }
 }

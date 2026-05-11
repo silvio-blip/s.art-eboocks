@@ -39,6 +39,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Settings,
+  Zap,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -51,11 +52,12 @@ import { supabase } from "../lib/supabase";
 import { DropeaService } from "../services/DropeaService";
 import { AliExpressService } from "../services/AliExpressService";
 import { User as SupabaseUser } from "@supabase/supabase-js";
-import { ImportAliExpressProduct } from "./ImportAliExpressProduct";
+import { CreateManualProduct } from "./CreateManualProduct";
 
 const getImageUrl = (url: string) => {
   if (!url) return "https://picsum.photos/seed/ebook/600/800";
   if (url.startsWith("http")) return url;
+  if (url.startsWith("//")) return "https:" + url;
   try {
     const { data } = supabase.storage.from("assets").getPublicUrl(url);
     return data?.publicUrl || "https://picsum.photos/seed/ebook/600/800";
@@ -84,6 +86,9 @@ interface Product {
   admin_link?: string;
   extra_images?: string; // Comma separated links
   dropea_id?: string | number;
+  aliexpress_id?: string | number;
+  sku?: string;
+  provider?: "aliexpress" | "dropea";
   supabase_id?: string;
 }
 
@@ -159,6 +164,8 @@ export default function AdminDashboard({
   const [importing, setImporting] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
+  const [isProductCreateModalOpen, setIsProductCreateModalOpen] = useState(false);
+  const [creationSupplier, setCreationSupplier] = useState<"aliexpress" | "dropea" | null>(null);
   const [testEmailInput, setTestEmailInput] = useState("");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [productFeaturedFilter, setProductFeaturedFilter] = useState<"all" | "featured" | "standard">("all");
@@ -575,32 +582,50 @@ export default function AdminDashboard({
     }
 
     // Try to extract ID if it's a URL
-    let productId = importAliExpressId;
-    if (productId.includes('item/') && productId.includes('.html')) {
-      const match = productId.match(/item\/(\d+)\.html/);
-      if (match) productId = match[1];
-    } else if (productId.includes('?id=')) {
-      const match = productId.match(/\?id=(\d+)/);
-      if (match) productId = match[1];
+    let productId = importAliExpressId.trim();
+    if (productId.startsWith('http')) {
+      const idMatch = productId.match(/(\d{10,18})/);
+      if (idMatch) productId = idMatch[1];
     }
     
     setImporting(true);
-    const impToast = toast.loading(`Contactando AliExpress API para o produto ${productId}...`);
+    const impToast = toast.loading(`Importando produto ${productId} do AliExpress para a base de dados...`);
     
     try {
-      const data = await AliExpressService.importProduct(productId);
-      
-      toast.success(`DADOS DO ALIEXPRESS RECUPERADOS!\n"${data.title?.substring(0, 40)}..."\nPreço Base: €${data.price}`, { 
-        id: impToast, 
-        duration: 8000 
+      // Call the new integrated endpoint
+      const response = await fetch('/api/admin/products/import-aliexpress', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        },
+        body: JSON.stringify({ productId })
       });
-      setImportAliExpressId("");
+
+      const data = await response.json();
       
-      // Open editor with fetched data
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro ao importar do AliExpress');
+      }
+      
+      toast.success(`PRODUTO SINCRONIZADO!\n"${data.title?.substring(0, 40)}..."\nID: ${data.id}`, { 
+         id: impToast, 
+         duration: 8000 
+      });
+      
+      setImportAliExpressId("");
+      await fetchProducts();
+      
+      // Open editor with SAVED data
       setEditingProduct({
         ...data,
         pvp: data.price || 0
       });
+
+      // Close creation modal if it was open
+      setIsProductCreateModalOpen(false);
+      setCreationSupplier(null);
+
     } catch (e: any) {
       toast.error(e.message || "Erro ao conectar com AliExpress API", { id: impToast });
     } finally {
@@ -632,6 +657,10 @@ export default function AdminDashboard({
         ...data,
         pvp: data.price || 0
       });
+
+      // Close creation modal if it was open
+      setIsProductCreateModalOpen(false);
+      setCreationSupplier(null);
     } catch (e: any) {
       toast.error(e.message, { id: impToast });
     } finally {
@@ -1064,6 +1093,74 @@ export default function AdminDashboard({
     } catch (err: any) {
       console.error("[Manual Fulfill Error]", err);
       toast.error(err.message, { id: "fulfill" });
+    }
+  };
+
+  const handleAliExpressFulfill = async (orderId: string) => {
+    const loadingToast = toast.loading('Sincronizando com AliExpress...');
+    try {
+      const order = orders.find(o => o.id === orderId);
+      if (!order) throw new Error("Ordem não encontrada.");
+
+      // Parse shipping details
+      let customerAddress;
+      if (!order.shipping_details) {
+         // Try selected_options.shipping_details fallback if exists
+         customerAddress = order.selected_options?.shipping_details;
+      } else if (typeof order.shipping_details === 'string') {
+        try {
+          customerAddress = JSON.parse(order.shipping_details);
+        } catch(e) {
+          customerAddress = order.shipping_details;
+        }
+      } else {
+        customerAddress = order.shipping_details;
+      }
+
+      if (!customerAddress || typeof customerAddress === 'string') {
+        throw new Error("Dados de entrega incompletos ou em formato inválido.");
+      }
+
+      const response = await AliExpressService.placeOrder(order, customerAddress);
+      
+      // Check for API errors
+      if (response.error_response) {
+        const err = response.error_response;
+        // Code 27 is IllegalAccessToken, but also check for msg
+        if (err.code === 27 || err.msg?.toLowerCase().includes('token') || err.msg?.toLowerCase().includes('permission')) {
+           toast.error("API Pendente: Por favor, faça a encomenda manualmente no AliExpress usando a morada do cliente.", { id: loadingToast, duration: 6000 });
+           return;
+        }
+        throw new Error(err.msg || "Erro na API AliExpress");
+      }
+
+      // Success: Update status in Supabase
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ 
+          status: 'processing_provider',
+          shipping_status: 'preparing',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+
+      if (updateError) throw updateError;
+
+      toast.success("🎉 Pedido enviado para AliExpress com sucesso!", { id: loadingToast });
+      
+      // Update local state if viewing
+      if (viewingOrder && viewingOrder.id === orderId) {
+        setViewingOrder({
+          ...viewingOrder,
+          status: 'processing_provider',
+          shipping_status: 'preparing'
+        } as any);
+      }
+      
+      fetchDashboardData();
+    } catch (error: any) {
+      console.error("[ALIEXPRESS_FULFILL_ERROR]", error);
+      toast.error(`Falha no Processamento: ${error.message}`, { id: loadingToast });
     }
   };
 
@@ -1739,25 +1836,7 @@ export default function AdminDashboard({
                 </div>
               </div>
               <Button
-                onClick={() =>
-                  setEditingProduct({
-                    title: "",
-                    price: 0,
-                    description: "",
-                    category: "Geral",
-                    image_url: "",
-                    file_url: "",
-                    sizes_enabled: false,
-                    colors_enabled: false,
-                    sizes: "",
-                    colors: "",
-                    admin_link: "",
-                    extra_images: "",
-                    is_active: true,
-                    is_featured: false,
-                    dropea_id: "",
-                  })
-                }
+                onClick={() => setIsProductCreateModalOpen(true)}
                 className="w-full sm:w-auto bg-luxury-gold text-black hover:bg-black hover:text-white rounded-none h-12 px-8 uppercase tracking-widest text-[10px] font-bold transition-all"
               >
                 <Plus size={16} className="mr-2" /> Criar Produto
@@ -1943,55 +2022,205 @@ export default function AdminDashboard({
               </div>
             )}
 
-              {/* Advanced Import Section */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Full Import Component (New) */}
-                <div className="lg:col-span-2">
-                  <ImportAliExpressProduct 
-                    userId={user.id} 
-                    onSuccess={(data) => {
-                      if (data.metadata?.source === 'MockImport') {
-                        fetchProducts();
-                      } else {
-                        // Official import: data is mapped, open editor
-                        setEditingProduct({
-                          ...data,
-                          pvp: data.price || 0
-                        });
-                      }
-                    }} 
-                  />
+            {/* Dropea ID Sync (Restored as requested) */}
+            <div className="bg-black/60 border border-emerald-500/10 p-8 rounded-[2rem] space-y-6 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 blur-[80px] rounded-full -mr-32 -mt-32 group-hover:bg-emerald-500/10 transition-colors duration-700" />
+              
+              <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+                <div className="max-w-md space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-emerald-500/10 rounded-xl">
+                      <Truck className="w-5 h-5 text-emerald-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-serif text-white italic">Dropea Cloud Sync</h3>
+                      <p className="text-[10px] uppercase tracking-widest text-emerald-500/60 font-bold">Importação Instantânea via ID</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Sincronize ativos do catálogo Dropea introduzindo o identificador exclusivo. 
+                    Imagens, descrições e logística serão puxadas automaticamente.
+                  </p>
                 </div>
 
-                {/* Import by Dropea ID Section */}
-                <div className="bg-luxury-dark border border-black/5 dark:border-white/5 p-8 flex flex-col items-start gap-6 rounded-3xl shadow-xl">
-                  <div className="w-full space-y-2">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-emerald-500/10 rounded-lg">
-                        <Truck className="w-5 h-5 text-emerald-500" />
-                      </div>
-                      <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-500">Dropea Cloud</h3>
-                    </div>
-                    <p className="text-[10px] uppercase tracking-widest opacity-40 leading-relaxed">Sincronize com o catálogo oficial da rede Dropea localmente</p>
-                  </div>
-                  <div className="flex w-full gap-3 mt-auto">
+                <div className="flex w-full md:w-auto gap-3 items-center min-w-[320px]">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-emerald-500/30" />
                     <input
                       type="text"
-                      placeholder="ID DROPEA..."
+                      placeholder="EX: INT-XXXX-XX..."
                       value={importDropeaId}
                       onChange={(e) => setImportDropeaId(e.target.value)}
-                      className={`flex-1 border-none px-5 py-4 text-sm focus:ring-1 focus:ring-emerald-500 outline-none transition-all rounded-xl ${theme === 'dark' ? 'bg-white/5 text-white' : 'bg-black/5 text-black'}`}
+                      className="w-full h-14 bg-white/[0.03] border border-white/5 rounded-xl pl-12 pr-6 text-white font-mono text-[10px] uppercase tracking-widest outline-none focus:border-emerald-500/30 transition-all"
                     />
-                    <Button
-                      onClick={handleImportDropea}
-                      disabled={importing || !importDropeaId}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white transition-all h-14 px-6 rounded-xl"
-                    >
-                      {importing ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                    </Button>
                   </div>
+                  <Button
+                    onClick={handleImportDropea}
+                    disabled={importing || !importDropeaId}
+                    className="h-14 px-8 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold uppercase tracking-widest text-[10px] active:scale-95 transition-all shadow-lg shadow-emerald-900/20"
+                  >
+                    {importing ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : "Extrair Ativo"}
+                  </Button>
                 </div>
               </div>
+            </div>
+
+            {/* AliExpress Cloud Sync (Added for parity) */}
+            <div className="bg-black/60 border border-luxury-gold/10 p-8 rounded-[2rem] space-y-6 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-luxury-gold/5 blur-[80px] rounded-full -mr-32 -mt-32 group-hover:bg-luxury-gold/10 transition-colors duration-700" />
+              
+              <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+                <div className="max-w-md space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-luxury-gold/10 rounded-xl">
+                      <Zap className="w-5 h-5 text-luxury-gold" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-serif text-white italic">AliExpress Boutique Sync</h3>
+                      <p className="text-[10px] uppercase tracking-widest text-luxury-gold/60 font-bold">Importação via Link ou ID</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-relaxed">
+                    Importe produtos diretamente do AliExpress. Cole o link do produto ou apenas o ID numérico.
+                    O sistema extrairá automaticamente a descrição, galeria de imagens e preços base.
+                  </p>
+                </div>
+
+                <div className="flex w-full md:w-auto gap-3 items-center min-w-[320px]">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-luxury-gold/30" />
+                    <input
+                      type="text"
+                      placeholder="ID: 100500... ou Link"
+                      value={importAliExpressId}
+                      onChange={(e) => setImportAliExpressId(e.target.value)}
+                      className="w-full h-14 bg-white/[0.03] border border-white/5 rounded-xl pl-12 pr-6 text-white font-mono text-[10px] tracking-widest outline-none focus:border-luxury-gold/30 transition-all"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleImportAliExpress}
+                    disabled={importing || !importAliExpressId}
+                    className="h-14 px-8 bg-luxury-gold hover:bg-luxury-gold/80 text-black rounded-xl font-bold uppercase tracking-widest text-[10px] active:scale-95 transition-all shadow-lg shadow-luxury-gold/20"
+                  >
+                    {importing ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : "Sincronizar"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Creation Modal */}
+            {isProductCreateModalOpen && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-black/95 backdrop-blur-sm" onClick={() => setIsProductCreateModalOpen(false)} />
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="relative w-full max-w-2xl bg-[#050505] border border-white/10 p-1 rounded-[2.5rem] shadow-[0_0_100px_rgba(0,0,0,1)]"
+                >
+                  <div className="bg-black/50 p-8 md:p-12 rounded-[2rem] space-y-10">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-3xl font-serif text-white italic">Novo Produto</h3>
+                        <p className="text-[10px] uppercase tracking-[0.3em] text-white/30 font-medium mt-2">Selecione a origem logística para criação manual</p>
+                      </div>
+                      <button onClick={() => setIsProductCreateModalOpen(false)} className="text-white/20 hover:text-white transition-colors">
+                        <X size={24} />
+                      </button>
+                    </div>
+
+                    {!creationSupplier ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <button 
+                          onClick={() => setCreationSupplier("aliexpress")}
+                          className="group bg-white/[0.02] border border-white/5 hover:border-luxury-gold/40 p-8 text-left transition-all duration-500 hover:bg-white/[0.04] rounded-2xl relative overflow-hidden"
+                        >
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-luxury-gold/5 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-luxury-gold/10 transition-colors" />
+                          <div className="relative z-10 space-y-4">
+                            <div className="p-3 bg-luxury-gold/10 w-fit rounded-xl">
+                              <Zap className="w-6 h-6 text-luxury-gold" />
+                            </div>
+                            <div>
+                              <h4 className="text-lg font-serif text-white italic">AliExpress Boutique</h4>
+                              <p className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Manual AliExpress Fulfillment</p>
+                            </div>
+                          </div>
+                        </button>
+
+                        <button 
+                          onClick={() => setCreationSupplier("dropea")}
+                          className="group bg-white/[0.02] border border-white/5 hover:border-emerald-500/40 p-8 text-left transition-all duration-500 hover:bg-white/[0.04] rounded-2xl relative overflow-hidden"
+                        >
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-emerald-500/10 transition-colors" />
+                          <div className="relative z-10 space-y-4">
+                            <div className="p-3 bg-emerald-500/10 w-fit rounded-xl">
+                              <Truck className="w-6 h-6 text-emerald-500" />
+                            </div>
+                            <div>
+                              <h4 className="text-lg font-serif text-white italic">Dropea Curatorship</h4>
+                              <p className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Manual Dropea Node Sync</p>
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-10">
+                        <div className="flex items-center justify-between">
+                          <button 
+                            onClick={() => setCreationSupplier(null)}
+                            className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/40 hover:text-white transition-colors"
+                          >
+                            <ArrowLeft size={12} /> Alterar Fornecedor
+                          </button>
+                          <div className={`px-4 py-1.5 rounded-full border text-[9px] uppercase tracking-[0.2em] font-black ${
+                            creationSupplier === 'aliexpress' ? 'bg-luxury-gold/10 border-luxury-gold/30 text-luxury-gold' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                          }`}>
+                            {creationSupplier === 'aliexpress' ? 'AliExpress Mode' : 'Dropea Mode'}
+                          </div>
+                        </div>
+
+                        {/* Quick Sync inside the modal */}
+                        <div className="space-y-4">
+                          <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold ml-1">Sincronização Automática (Recomendado)</p>
+                          <div className="flex gap-2">
+                             <input
+                              type="text"
+                              placeholder={creationSupplier === 'aliexpress' ? "Link ou ID AliExpress..." : "ID Dropea (Ex: INT-...)"}
+                              value={creationSupplier === 'aliexpress' ? importAliExpressId : importDropeaId}
+                              onChange={(e) => creationSupplier === 'aliexpress' ? setImportAliExpressId(e.target.value) : setImportDropeaId(e.target.value)}
+                              className="flex-1 h-14 bg-white/[0.03] border border-white/5 rounded-xl px-6 text-white font-mono text-[11px] outline-none focus:border-white/20 transition-all"
+                            />
+                            <Button
+                              onClick={creationSupplier === 'aliexpress' ? handleImportAliExpress : handleImportDropea}
+                              disabled={importing || (creationSupplier === 'aliexpress' ? !importAliExpressId : !importDropeaId)}
+                              className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all ${
+                                creationSupplier === 'aliexpress' ? 'bg-luxury-gold text-black hover:bg-luxury-gold/80' : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                              }`}
+                            >
+                              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Extrair"}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="relative h-px bg-white/5 flex items-center justify-center">
+                          <span className="bg-black px-4 text-[9px] uppercase tracking-[0.3em] text-white/20 font-bold">Ou Criar Manualmente</span>
+                        </div>
+
+                        <div className="max-h-[50vh] overflow-y-auto luxury-scrollbar pr-2 pt-2">
+                          <CreateManualProduct 
+                            defaultProvider={creationSupplier} 
+                            onSuccess={() => {
+                              fetchProducts();
+                              setIsProductCreateModalOpen(false);
+                              setCreationSupplier(null);
+                            }} 
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
               {filteredProducts.length === 0 ? (
@@ -2119,7 +2348,7 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                          Dropea ID (Sync)
+                          Fornecedor ID: Dropea Node Code
                         </label>
                         <input
                           value={editingProduct.dropea_id || ""}
@@ -2129,8 +2358,40 @@ export default function AdminDashboard({
                               dropea_id: e.target.value,
                             })
                           }
-                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
+                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-xs md:text-sm outline-none focus:border-luxury-gold transition-colors font-mono"
                           placeholder="ID original da Dropea"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                          Fornecedor ID: AliExpress Code
+                        </label>
+                        <input
+                          value={editingProduct.aliexpress_id || ""}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              aliexpress_id: e.target.value,
+                            })
+                          }
+                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-xs md:text-sm outline-none focus:border-luxury-gold transition-colors font-mono"
+                          placeholder="ID original do AliExpress"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                          Referência Logística (SKU)
+                        </label>
+                        <input
+                          value={editingProduct.sku || ""}
+                          onChange={(e) =>
+                            setEditingProduct({
+                              ...editingProduct,
+                              sku: e.target.value,
+                            })
+                          }
+                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-xs md:text-sm outline-none focus:border-luxury-gold transition-colors font-mono"
+                          placeholder="Ex: SKU-123..."
                         />
                       </div>
                       <div className="space-y-2">
@@ -2355,6 +2616,20 @@ export default function AdminDashboard({
                                className="w-full bg-transparent border border-white/10 p-3 text-[10px] min-h-[80px] outline-none focus:border-luxury-gold font-mono"
                                placeholder="URL 1, URL 2, URL 3 (Separados por vírgula)"
                              />
+                             {editingProduct.extra_images && (
+                               <div className="grid grid-cols-5 gap-2 mt-2">
+                                 {editingProduct.extra_images.split(',').filter(url => url.trim()).map((url, i) => (
+                                   <div key={i} className="aspect-square border border-white/10 relative group">
+                                     <img 
+                                       src={getImageUrl(url.trim())} 
+                                       alt={`Gallery ${i}`} 
+                                       className="w-full h-full object-cover"
+                                       referrerPolicy="no-referrer"
+                                     />
+                                   </div>
+                                 ))}
+                               </div>
+                             )}
                            </div>
                       </div>
                     </div>
@@ -2641,13 +2916,23 @@ export default function AdminDashboard({
                                 >
                                   Verificar
                                 </Button>
-                                <Button 
-                                  size="sm"
-                                  onClick={() => handleManualFulfill(order.id)}
-                                  className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
-                                >
-                                  Enviar Manual
-                                </Button>
+                                {order.product?.aliexpress_id ? (
+                                  <Button 
+                                    size="sm"
+                                    onClick={() => handleAliExpressFulfill(order.id)}
+                                    className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
+                                  >
+                                    API AliExpress
+                                  </Button>
+                                ) : (
+                                  <Button 
+                                    size="sm"
+                                    onClick={() => handleManualFulfill(order.id)}
+                                    className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
+                                  >
+                                    Enviar Manual
+                                  </Button>
+                                )}
                               </>
                             )}
                           </div>
@@ -3228,11 +3513,13 @@ export default function AdminDashboard({
                   <div className="flex items-center gap-2">
                      <span className={`text-[10px] uppercase font-black px-2 py-1 ${
                        ["paid", "completed", "succeeded", "pago"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-emerald-500/10 text-emerald-500" :
+                       viewingOrder.status === 'manual_fulfillment_required' ? "bg-red-500/10 text-red-500 border border-red-500/20" :
                        ["canceled", "cancelled"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-red-500/10 text-red-500" :
                        ["refunded", "reembolsado", "refund_pending"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-zinc-500/10 text-zinc-500" :
                        "bg-white/10 text-white"
                      }`}>
                        {["paid", "completed", "succeeded", "pago"].includes(viewingOrder.status?.toLowerCase() || "") ? "Pago" : 
+                        viewingOrder.status === 'manual_fulfillment_required' ? "Fulfillment Pendente" :
                         ["canceled", "cancelled"].includes(viewingOrder.status?.toLowerCase() || "") ? "Cancelado" : 
                         ["refunded", "reembolsado", "refund_pending"].includes(viewingOrder.status?.toLowerCase() || "") ? "Reembolsado" :
                         "Pendente"}
@@ -3261,6 +3548,15 @@ export default function AdminDashboard({
                 <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-3">
                   <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
                   <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
+                  
+                  {viewingOrder.fulfillment_error && (
+                    <div className="mt-4 p-4 bg-red-500/5 border border-red-500/20 rounded-xl">
+                      <div className="flex items-center gap-2 text-red-500 text-[10px] font-bold uppercase tracking-widest mb-1">
+                        <AlertTriangle size={12} /> Erro de Automação
+                      </div>
+                      <p className="text-xs text-white/60 font-mono italic">{viewingOrder.fulfillment_error}</p>
+                    </div>
+                  )}
                   
                   {/* Utilidades de E-mail */}
                   <div className="py-3 mt-3 border-y border-white/5 space-y-3">
@@ -3316,13 +3612,25 @@ export default function AdminDashboard({
                           >
                             <Search size={10} className="mr-2" /> Verificar Dropea
                           </Button>
-                          <Button 
-                            size="sm"
-                            onClick={() => handleManualFulfill(viewingOrder.id)}
-                            className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
-                          >
-                            Enviar Manualmente
-                          </Button>
+                          
+                          {/* Botão AliExpress (Dinâmico) */}
+                          {viewingOrder.product?.aliexpress_id ? (
+                            <Button 
+                              size="sm"
+                              onClick={() => handleAliExpressFulfill(viewingOrder.id)}
+                              className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20"
+                            >
+                              <Zap size={10} className="mr-2" /> Enviar p/ AliExpress
+                            </Button>
+                          ) : (
+                            <Button 
+                              size="sm"
+                              onClick={() => handleManualFulfill(viewingOrder.id)}
+                              className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
+                            >
+                              Enviar Manualmente (Dropea)
+                            </Button>
+                          )}
                         </div>
                       )}
 

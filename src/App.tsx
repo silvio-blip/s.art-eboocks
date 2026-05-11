@@ -58,14 +58,14 @@ import {
 } from "@/components/ui/dialog";
 
 const getImageUrl = (url: string) => {
-  if (!url) return "";
+  if (!url) return "https://picsum.photos/seed/shop/600/800";
   if (url.startsWith("http")) return url;
   try {
     const { data } = supabase.storage.from("assets").getPublicUrl(url);
-    return data?.publicUrl || "";
+    return data?.publicUrl || "https://picsum.photos/seed/shop/600/800";
   } catch (err) {
     console.warn("Error generating public URL for image:", err);
-    return "";
+    return "https://picsum.photos/seed/shop/600/800";
   }
 };
 
@@ -1387,6 +1387,7 @@ const ProductDetailsPage = ({
         .split(",")
         .map((img) => img.trim())
         .filter(Boolean)
+        .map(url => getImageUrl(url))
     : [];
   const allImages = [getImageUrl(product.image_url), ...extraImages];
 
@@ -2633,17 +2634,17 @@ export default function App() {
                       }}
                       className="w-full h-full object-cover opacity-100 transition-opacity duration-1000"
                     >
-                      <source src={siteHero.video_url} type="video/mp4" />
+                      {siteHero.video_url && <source src={siteHero.video_url} type="video/mp4" />}
                       {/* Fallback image if video fails to load */}
                       <img 
-                        src={siteHero.image} 
+                        src={getImageUrl(siteHero.image)} 
                         alt="Luxury Background" 
                         className="w-full h-full object-cover"
                       />
                     </video>
                   ) : (
                     <img 
-                      src={siteHero.image} 
+                      src={getImageUrl(siteHero.image)} 
                       alt="Luxury Background" 
                       className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-[10%] transition-opacity duration-1000"
                     />
