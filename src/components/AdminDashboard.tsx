@@ -1166,28 +1166,19 @@ export default function AdminDashboard({
 
   const handleSyncStatus = async (orderId: string) => {
     try {
-      toast.loading("Iniciando verificação profunda na Dropea...", { id: "sync" });
+      toast.loading("Verificando Dropea...", { id: "sync" });
       const res = await fetch(`/api/orders/${orderId}/sync`, {
         method: 'POST'
       });
       
-      const contentType = res.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        const text = await res.text();
-        console.error("[Sync] Non-JSON response received:", text.substring(0, 200));
-        if (text.includes("Starting Server") || text.includes("Vite + React")) {
-          throw new Error("O servidor ainda está iniciando ou reiniciando. Aguarde 5-10 segundos e tente novamente.");
-        }
-        throw new Error("Resposta inválida do servidor (HTML). Isto geralmente indica um erro de rota ou servidor em manutenção.");
-      }
-
       const data = await res.json();
       if (!res.ok) {
-        // Se o erro for de ordem não encontrada no sistema local, damos um erro diferente
-        if (data.error === 'Ordem não encontrada no sistema local') {
-          throw new Error("Erro Crítico: Esta ordem não foi encontrada no banco de dados.");
+        if (data.error === 'PEDIDO_NAO_ENCONTRADO' || data.error === 'Ordem não encontrada no sistema local') {
+           toast.error("Pedido não encontrado na Dropea. Tente o envio manual.", { id: "sync" });
+        } else {
+           toast.error(data.message || data.error || "Erro ao sincronizar", { id: "sync" });
         }
-        throw new Error(data.message || data.error || "Erro ao sincronizar");
+        return;
       }
       
       const dropeaStatus = data.dropea_status || "Desconhecido";
@@ -1212,9 +1203,9 @@ export default function AdminDashboard({
       }
       
       fetchDashboardData();
-    } catch (err: any) {
-      console.error("[Sync Detail Error]", err);
-      const msg = err.message || "";
+    } catch (error: any) {
+      console.error("[Sync] Error:", error);
+      const msg = error.message || "";
       if (msg.includes('não vinculado') || msg.includes('PEDIDO_NAO_ENCONTRADO')) {
          toast.info("Atenção: Este pedido ainda não existe na Dropea. Verifique o e-mail ou utilize 'Enviar Manual'.", { id: "sync", duration: 8000 });
       } else {
@@ -2911,7 +2902,7 @@ export default function AdminDashboard({
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleSyncStatus(order.id)}
-                                  className="border-white/10 text-white/60 hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
+                                  className="border-2 border-blue-500/50 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
                                   title="Tentar encontrar vínculo na Dropea"
                                 >
                                   Verificar
@@ -2920,17 +2911,18 @@ export default function AdminDashboard({
                                   <Button 
                                     size="sm"
                                     onClick={() => handleAliExpressFulfill(order.id)}
-                                    className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
+                                    className="border-2 border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
                                   >
                                     API AliExpress
                                   </Button>
                                 ) : (
                                   <Button 
                                     size="sm"
+                                    disabled={!!order.provider_order_id}
                                     onClick={() => handleManualFulfill(order.id)}
-                                    className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
+                                    className={`border-2 ${order.provider_order_id ? 'border-gray-500/50 bg-gray-500/10 text-gray-400' : 'border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20'} rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1`}
                                   >
-                                    Enviar Manual
+                                    {order.provider_order_id ? 'Enviado' : 'Enviar Manual'}
                                   </Button>
                                 )}
                               </>

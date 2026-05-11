@@ -621,7 +621,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
       formData.append(key, String(value));
     }
 
-    const response = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+    const response = await axios.post('https://api-sg.aliexpress.com/rest', formData.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
     });
 
@@ -783,7 +783,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   variables.products = [productEntry];
 
-  console.log("[DROPEA DEBUG] Payload final a ser enviado ao endpoint Dropea:", JSON.stringify(variables));
+  console.log("[DROPEA UPLOAD DEBUG] Payload a enviar:", JSON.stringify(variables));
 
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
@@ -797,10 +797,12 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     timeout: 30000
   });
 
+  console.log("[DROPEA UPLOAD DEBUG] Resposta bruta da Dropea:", JSON.stringify(response.data));
+
   if (response?.data?.errors) {
-    console.error('[DROPEA INTERNAL ERRORS]', JSON.stringify(response.data.errors, null, 2));
-    const msg = response.data.errors[0]?.message || 'Erro desconhecido na API Dropea';
-    throw new Error(`Dropea rejection: ${msg}`);
+    const errorMsg = JSON.stringify(response.data.errors);
+    console.error('[DROPEA INTERNAL ERRORS]', errorMsg);
+    throw new Error(`Dropea API errors: ${errorMsg}`);
   }
 
   const newId = response.data?.data?.orderCreate?.id;
@@ -846,7 +848,7 @@ async function executeDropeaQuery(query: string, variables: any, rootField: stri
 async function findDropeaOrderByEmail(email: string, expectedAmount?: number) {
   const graphqlQuery = `
     query FindOrdersByEmail {
-      orders(limit: 50) {
+      orders(limit: 500) {
         data {
           id
           customer { email }
@@ -2617,7 +2619,8 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
         sizes_enabled,
         colors_enabled,
         sizes,
-        colors
+        colors,
+        provider: 'dropea'
       }, { onConflict: 'dropea_id' })
       .select()
       .single();
@@ -2800,7 +2803,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const sign = generateSignature(allParams, appSecret);
     const formData = new URLSearchParams({ ...allParams, sign });
 
-    const aliRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+    const aliRes = await axios.post('https://api-sg.aliexpress.com/rest', formData.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
     });
     const result = aliRes.data;
@@ -3054,7 +3057,8 @@ async function syncOrderWithExternalSources(id: string) {
     return { success: false, error: 'Ordem não encontrada no sistema local' };
   }
 
-  let dropeaId = order.dropea_order_id;
+  let dropeaId = order.dropea_order_id || order.provider_order_id;
+
   if (!dropeaId) {
     let email = order.customer_email;
     if (!email && order.user_id) {
@@ -3067,15 +3071,18 @@ async function syncOrderWithExternalSources(id: string) {
       console.log(`[SYNC] Resultado findDropeaOrderByEmail: ${foundId}`);
       if (foundId) {
         dropeaId = String(foundId);
-        // Evitar erro de UNIQUE constraint no dropea_order_id
-        const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
-        if (!duplicate) {
-          await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
-          order.dropea_order_id = dropeaId;
-        } else {
-          console.warn(`[SYNC] O ID Dropea ${dropeaId} já está vinculado ao pedido ${duplicate.id}`);
-        }
       }
+    }
+  }
+
+  if (dropeaId) {
+    // Evitar erro de UNIQUE constraint no dropea_order_id
+    const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
+    if (!duplicate || duplicate.id === id) {
+      await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
+      order.dropea_order_id = dropeaId;
+    } else {
+      console.warn(`[SYNC] O ID Dropea ${dropeaId} já está vinculado ao pedido ${duplicate.id}`);
     }
   }
 
@@ -3561,13 +3568,13 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       .maybeSingle();
 
     if (fetchErr) {
-      console.error(`[FULFILLMENT ERROR] Erro na query DB para ordem ${order.id}:`, JSON.stringify(fetchErr));
+      console.log(`[FULFILLMENT ERROR] Erro na query DB para ordem ${order.id}:`, fetchErr);
     }
 
     const currentOrder = latestOrder || order;
     
     if (!currentOrder || !currentOrder.id) {
-       console.error(`[FULFILLMENT FATAL] Dados de ordem inválidos.`);
+       console.log(`[FULFILLMENT FATAL] Dados de ordem inválidos para ordem ${order?.id}`);
        return;
     }
 
@@ -3581,9 +3588,8 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 
     // Resolve product and provider
     const { data: productInDb, error: productErr } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
-    console.log(`[FULFILL] Processing order ${currentOrder.id}. Product ID: ${currentOrder.product_id}, Product Data: ${JSON.stringify(productInDb)}, Product Error: ${JSON.stringify(productErr)}`);
+    console.log(`[FULFILL] Processing order ${currentOrder.id}. Product ID: ${currentOrder.product_id}, Product: ${productInDb?.title || 'Unknown Product'}`);
     const provider = productInDb?.provider || 'aliexpress';
-    console.log(`[FULFILL] Provider resolved: ${provider}`);
 
     // Normalizar shipping_details
     let customerData;
@@ -3592,15 +3598,15 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
         ? JSON.parse(currentOrder.shipping_details) 
         : (currentOrder.shipping_details || {});
     } catch (e) {
-      console.error(`[FULFILL] Erro ao parsear shipping_details da ordem ${currentOrder.id}:`, e);
+      console.log(`[FULFILL] Erro ao parsear shipping_details da ordem ${currentOrder.id}:`, e);
       customerData = {}; // fallback seguro
     }
-
+    
     // Ensure email
     if (!customerData.email && currentOrder.customer_email) {
       customerData.email = currentOrder.customer_email;
     }
-
+    
     const priceToSubmit = Math.max(
       parseFloat(String(currentOrder.total_amount || 0)),
       parseFloat(String(productInDb?.pvp || 0))
@@ -3609,14 +3615,68 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     let providerOrderId = null;
 
     if (provider === 'dropea') {
-        console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para Dropea...`);
-        providerOrderId = await createDropeaOrderInternal(Number(DROPEA_SHOP_ID), customerData, {
-            product_id: productInDb.dropea_id,
+      console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para Dropea...`);
+      try {
+        const graphqlMutation = `
+          mutation Mutation($shopId: Int!, $paymentMethod: PaymentMethodEnum, $customer: CustomerInputType, $products: [OrderProductInputType]) {
+            orderCreate(shop_id: $shopId, payment_method: $paymentMethod, customer: $customer, products: $products) {
+              id
+            }
+          }
+        `;
+        
+        const variables = {
+          shopId: Number(DROPEA_SHOP_ID),
+          paymentMethod: "MANUAL",
+          customer: {
+            first_name: customerData.name || "Cliente",
+            last_name: "S.Art",
+            email: customerData.email,
+            phone: customerData.phone || "",
+            address: customerData.address || "",
+            city: customerData.city || "",
+            zip: customerData.zip || "",
+            country: "PT"
+          },
+          products: [{
+            product_id: Number(productInDb?.dropea_id),
             quantity: 1,
             total_value: priceToSubmit,
-            unit_price: priceToSubmit,
-            selected_options: (typeof currentOrder.selected_options === 'string') ? JSON.parse(currentOrder.selected_options) : currentOrder.selected_options
+            unit_price: priceToSubmit
+          }]
+        };
+
+        console.log("[DROPEA UPLOAD DEBUG] Payload a enviar:", JSON.stringify(variables));
+
+        const response = await axios.post(DROPEA_API_URL, {
+          query: graphqlMutation,
+          variables
+        }, {
+          headers: {
+            'x-api-key': DROPEA_API_KEY,
+            'Content-Type': 'application/json',
+            'User-Agent': 'SArt-Boutique-Boutique/1.0'
+          },
+          timeout: 30000
         });
+
+        console.log("RESPOSTA DROPEA:", JSON.stringify(response.data));
+
+        if (response?.data?.errors) {
+            throw new Error(`Dropea API errors: ${JSON.stringify(response.data.errors)}`);
+        }
+        
+        const newId = response.data?.data?.orderCreate?.id;
+        if (!newId) {
+            throw new Error("Dropea não retornou ID de pedido");
+        }
+        
+        providerOrderId = newId;
+
+      } catch (error) {
+        console.error("ERRO FATAL AO CONTACTAR DROPEA:", error);
+        throw error;
+      }
     } else {
         console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para AliExpress...`);
         // Aqui implementamos a lógica do AliExpress
@@ -3624,10 +3684,14 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     }
 
     if (providerOrderId) {
-      await supabase.from('orders').update({ 
+      const updateData: any = { 
         provider_order_id: String(providerOrderId),
         status: 'processing_at_supplier'
-      }).eq('id', currentOrder.id);
+      };
+      if (provider === 'dropea') {
+        updateData.dropea_order_id = String(providerOrderId);
+      }
+      await supabase.from('orders').update(updateData).eq('id', currentOrder.id);
       
       console.log(`[FULFILLMENT SUCCESS] Provider Order ID: ${providerOrderId}`);
     } else {
