@@ -585,23 +585,27 @@ function generateAliExpressSignature(params: Record<string, any>, appSecret: str
   const sortedKeys = Object.keys(paramsToSign).sort();
 
   // 3. Juntar chave e valor
-  // Para MD5: appSecret + key1 + value1 + key2 + value2... + appSecret
-  // Para HMAC: key1 + value1 + key2 + value2...
+  // O AliExpress exige MD5(secret + key1value1key2value2... + secret) por padrão na maioria dos casos DS
+  // No caso de HMAC, é HMAC_SHA256(secret, key1value1key2value2...)
   let signString = '';
   
-  const isHmac = params.sign_method === 'hmac';
+  const signMethod = String(params.sign_method || 'md5').toLowerCase();
+  const isHmac = signMethod.includes('hmac');
+  
   if (!isHmac) signString += appSecret;
 
   for (const key of sortedKeys) {
     let value = paramsToSign[key];
     
-    // Garantir que objetos JSON sejam serializados de forma densa (sem espaços)
+    // Se for objeto, converter para JSON denso (sem espaços)
     if (typeof value === 'object' && value !== null) {
       value = JSON.stringify(value);
     }
     
-    if (value !== undefined && value !== null && value !== '') {
-      signString += key + value;
+    // IMPORTANTE: AliExpress ignora parâmetros vazios no cálculo do sign
+    const strVal = String(value ?? '');
+    if (strVal !== '') {
+      signString += key + strVal;
     }
   }
 
@@ -630,9 +634,9 @@ function getAliExpressTimestamp(): string {
 apiRouter.post('/aliexpress/proxy', async (req, res) => {
   const { method, params } = req.body;
   try {
-    const appKey = process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY;
-    const appSecret = process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET;
-    const accessToken = process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN;
+    const appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
+    const appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
+    const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
     console.log("🔍 Token lido do ENV:", accessToken ? `${accessToken.substring(0, 10)}... (protegido)` : "NÃO DEFINIDO");
 
     if (!appKey || !appSecret) {
@@ -642,7 +646,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
     const systemParams: Record<string, any> = {
       app_key: appKey,
       timestamp: getAliExpressTimestamp(),
-      sign_method: 'hmac',
+      sign_method: 'md5',
       method: method,
       format: 'json',
       v: '2.0',
@@ -656,22 +660,33 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
     const allParams: Record<string, any> = { ...systemParams };
     for (const [key, value] of Object.entries(params || {})) {
       if (value !== null && value !== undefined && value !== '') {
-          allParams[key] = value;
+          // LIMPAR PREFIXOS DE IDs COMUNS (product_id, order_id, etc)
+          if (['product_id', 'aliexpress_id', 'order_id', 'parent_order_id'].includes(key.toLowerCase())) {
+            allParams[key] = cleanAliExpressId(value as string);
+          } else {
+            allParams[key] = value;
+          }
       }
     }
     
     const sign = generateAliExpressSignature(allParams, appSecret);
-    const formData = new URLSearchParams();
     const sortedKeys = Object.keys(allParams).sort();
+    
+    // Construir o corpo x-www-form-urlencoded purista
+    const bodySegments: string[] = [];
     for (const key of sortedKeys) {
         const val = allParams[key];
         const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
-        formData.append(key, stringVal);
+        bodySegments.push(`${key}=${encodeURIComponent(stringVal)}`);
     }
-    formData.append('sign', sign);
+    bodySegments.push(`sign=${sign}`);
+    const body = bodySegments.join('&');
 
-    const response = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
+    console.log(`[ALIEXPRESS PROXY] Call: ${method} | ParamsKeys: ${Object.keys(params || {}).join(',')} | Sign: ${sign}`);
+
+    const response = await axios.post('https://api-sg.aliexpress.com/sync', body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+      timeout: 15000
     });
 
     if (response.data.error_response) {
@@ -3131,6 +3146,12 @@ async function syncOrderWithExternalSources(id: string) {
   let providerOrderId = order.provider_order_id || order.dropea_order_id;
   
   const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+  
+  if (provider === 'aliexpress') {
+    // Garantir que o ID do AliExpress esteja limpo de prefixos como ALI-
+    providerOrderId = cleanAliExpressId(providerOrderId);
+  }
+
   console.log(`[SYNC LOG] Sincronizando: ${providerLabel} | Ordem: ${id} | ExtID: ${providerOrderId}`);
 
   // 1. Tentar encontrar ID se não existir
@@ -3880,29 +3901,50 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
 }
 
 async function getAliExpressOrderDetail(aliOrderId: string) {
+    if (!aliOrderId) return null;
     try {
         const cleanOrderId = cleanAliExpressId(aliOrderId);
-        console.log(`[ALIEXPRESS API] Chamando aliexpress.ds.trade.order.get para: ${cleanOrderId} (Original: ${aliOrderId})`);
-        const result = await callAliExpressAPIInternal('aliexpress.ds.trade.order.get', {
+        if (!cleanOrderId) return null;
+
+        console.log(`[ALIEXPRESS API] Consultando order_id: ${cleanOrderId} (Original: ${aliOrderId})`);
+        
+        // Tentar Método 1: aliexpress.ds.trade.order.get (Padrão Dropshipping)
+        let result = await callAliExpressAPIInternal('aliexpress.ds.trade.order.get', {
             single_order_query: {
-                order_id: cleanOrderId
+                order_id: Number(cleanOrderId) // Garantir tipo Number no JSON
             }
         });
         
-        console.log("[ALIEXPRESS SYNC] Resposta bruta:", JSON.stringify(result));
+        const tryExtract = (res: any) => {
+            const keys = ['aliexpress_ds_trade_order_get_response', 'aliexpress_solution_order_get_response', 'aliexpress_trade_buy_order_get_response'];
+            for (const key of keys) {
+                if (res && res[key]) {
+                    const data = res[key].result || res[key].data || res[key];
+                    if (data && (data.order_status || data.status)) return data;
+                }
+            }
+            // Busca genérica por sufixo
+            const altKey = Object.keys(res || {}).find(k => k.endsWith('order_get_response'));
+            if (altKey && res[altKey]) {
+                return res[altKey].result || res[altKey].data || res[altKey];
+            }
+            return null;
+        };
 
-        const responseKey = 'aliexpress_ds_trade_order_get_response';
-        
-        if (result && result[responseKey]) {
-            const resp = result[responseKey];
-            if (resp.result) return resp.result;
-            if (resp.data) return resp.data; // Algumas versões da API usam .data
+        let data = tryExtract(result);
+
+        // Tentar Método 2: aliexpress.solution.order.get (Fallback comum)
+        if (!data) {
+            console.log(`[ALIEXPRESS SYNC] Fallback para aliexpress.solution.order.get...`);
+            result = await callAliExpressAPIInternal('aliexpress.solution.order.get', {
+                order_id: Number(cleanOrderId)
+            });
+            data = tryExtract(result);
         }
-        
-        // Verificação alternativa se o nome do campo for diferente
-        const altKey = Object.keys(result || {}).find(k => k.includes('trade_order_get_response'));
-        if (altKey && result[altKey]) {
-            return result[altKey].result || result[altKey].data;
+
+        if (data) {
+            console.log(`[ALIEXPRESS SYNC] Sucesso ao obter detalhes para ${cleanOrderId}`);
+            return data;
         }
 
         if (result && result.error_response) {
@@ -3911,8 +3953,8 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
 
         return null;
     } catch (error: any) {
-        console.error("[ALIEXPRESS API FATAL]", error.message);
-        return null;
+        console.error(`[ALIEXPRESS SYNC FATAL] Order: ${aliOrderId}:`, error.message);
+        return null; // Silencioso para não quebrar o loop de sync
     }
 }
 
@@ -3947,13 +3989,12 @@ async function callAliExpressAPIInternal(method: string, params: any) {
         throw new Error("Credenciais AliExpress Ausentes");
     }
 
-    // Formato Obrigatório: "YYYY-MM-DD HH:mm:ss" em UTC
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
     const fullParams: Record<string, any> = {
       app_key: appKey,
       timestamp: timestamp,
-      sign_method: 'hmac',
+      sign_method: 'md5',
       method: method,
       format: 'json',
       v: '2.0',
@@ -3963,40 +4004,52 @@ async function callAliExpressAPIInternal(method: string, params: any) {
         fullParams.session = accessToken;
     }
 
-    // Mesclar com parâmetros de negócio remediando vazios
+    // Mesclar com parâmetros de negócio remediando vazios e limpando IDs
     for (const [key, value] of Object.entries(params)) {
         if (value !== null && value !== undefined && value !== '') {
-            fullParams[key] = value;
+            if (['product_id', 'aliexpress_id', 'order_id'].includes(key.toLowerCase())) {
+                fullParams[key] = cleanAliExpressId(value as string);
+            } else {
+                fullParams[key] = value;
+            }
         }
     }
 
     // Gerar assinatura usando a lógica definitiva
     const sign = generateAliExpressSignature(fullParams, appSecret);
     
-    // 4. Construir o corpo da requisição de forma idêntica à assinatura
-    const formData = new URLSearchParams();
+    // Construir o corpo da requisição de forma idêntica à assinatura
     const sortedKeys = Object.keys(fullParams).sort();
+    const bodySegments: string[] = [];
     for (const key of sortedKeys) {
         const val = fullParams[key];
         const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
-        formData.append(key, stringVal);
+        bodySegments.push(`${key}=${encodeURIComponent(stringVal)}`);
     }
-    formData.append('sign', sign);
+    bodySegments.push(`sign=${sign}`);
+    const body = bodySegments.join('&');
 
-    console.log(`[ALIEXPRESS API] Call: ${method} | Time: ${timestamp} | Sign: ${sign.substring(0, 8)}...`);
+    console.log(`[ALIEXPRESS API] Call: ${method} | Sign: ${sign.substring(0, 8)}...`);
 
     try {
-        const response = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+        const response = await axios.post('https://api-sg.aliexpress.com/sync', body, {
           headers: { 
               'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' 
           },
           timeout: 15000
         });
-        return response.data;
+
+        const result = response.data;
+        if (result && result.error_response) {
+            const err = result.error_response;
+            console.error("[ALIEXPRESS API ERROR]", JSON.stringify(err));
+            throw new Error(`AliExpress API Error: ${err.msg} (${err.code})`);
+        }
+        return result;
     } catch (error: any) {
         const errorData = error.response?.data || error.message;
         console.error(`[ALIEXPRESS API FATAL ERROR] ${method}:`, JSON.stringify(errorData));
-        return error.response?.data || { error_response: { msg: error.message } };
+        throw error;
     }
 }
 

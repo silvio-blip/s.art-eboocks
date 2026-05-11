@@ -649,7 +649,7 @@ export default function AdminDashboard({
     try {
       const data = await DropeaService.importProduct(importDropeaId, user.id);
       
-      toast.success(`PRODUTO EXTRAÍDO COM SUCESSO!\n"${data.title}"\nID Dropea: ${data.dropea_id}\nPVP: €${data.price}`, { 
+      toast.success(`PRODUTO EXTRAÍDO COM SUCESSO!\n"${data.title}"\nID Dropea: ${data.dropea_id}\nPVP: €${Number(data.price).toFixed(2)}`, { 
         id: impToast, 
         duration: 8000 
       });
@@ -1164,12 +1164,26 @@ export default function AdminDashboard({
         throw new Error(err.msg || "Erro na API AliExpress");
       }
 
+      // Extrair Order ID retornado pelo AliExpress
+      let aliOrderId = "";
+      const respKey = "aliexpress_trade_buy_placeorder_response";
+      if (response[respKey] && response[respKey].result) {
+        const result = response[respKey].result;
+        if (result.order_id) {
+          aliOrderId = String(result.order_id);
+        } else if (result.order_id_list && result.order_id_list.length > 0) {
+          aliOrderId = String(result.order_id_list[0]);
+        }
+      }
+
       // Success: Update status in Supabase
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
           status: 'processing_provider',
           shipping_status: 'preparing',
+          provider: 'aliexpress',
+          provider_order_id: aliOrderId || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', orderId);
@@ -1599,7 +1613,7 @@ export default function AdminDashboard({
                             textTransform: "uppercase",
                             letterSpacing: "0.2em",
                           }}
-                          formatter={(value: number) => [`€ ${value.toLocaleString("pt-PT")}`, "Faturamento"]}
+                          formatter={(value: number) => [`€ ${value.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}`, "Faturamento"]}
                         />
                         <Area
                           type="monotone"
@@ -1775,7 +1789,7 @@ export default function AdminDashboard({
                         </td>
 
                         <td className="px-6 py-4 font-medium">
-                          €{order.total_amount}
+                          €{Number(order.total_amount).toFixed(2)}
                         </td>
                         <td className="px-6 py-4">
                           <span
@@ -2327,7 +2341,7 @@ export default function AdminDashboard({
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <div className="text-luxury-gold text-xs">€{p.pvp}</div>
+                      <div className="text-luxury-gold text-xs">€{Number(p.pvp || 0).toFixed(2)}</div>
                       {p.admin_link && (
                         <a
                           href={p.admin_link}
@@ -2895,7 +2909,7 @@ export default function AdminDashboard({
                       </td>
 
                       <td className="px-8 py-6 font-medium text-lg">
-                        €{order.total_amount}
+                        €{Number(order.total_amount).toFixed(2)}
                       </td>
                       <td className="px-8 py-6">
                         {order.product?.product_type === "digital" ? (
@@ -3104,7 +3118,7 @@ export default function AdminDashboard({
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-white/40 uppercase tracking-widest">Valor</span>
-                    <span className="text-white font-bold">€{orderToRefund.total_amount}</span>
+                    <span className="text-white font-bold">€{Number(orderToRefund.total_amount).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-white/40 uppercase tracking-widest">Cliente</span>
@@ -3501,7 +3515,12 @@ export default function AdminDashboard({
                 )}
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Produto Adquirido</p>
-                  <h4 className="font-serif text-lg text-white">{viewingOrder.product?.title || "Produto Removido"}</h4>
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-serif text-lg text-white">{viewingOrder.product?.title || "Produto Removido"}</h4>
+                    <div className="text-xl font-mono font-black text-white ml-4">
+                      €{Number(viewingOrder.total_amount).toFixed(2)}
+                    </div>
+                  </div>
                   {viewingOrder.selected_options && (
                     <p className="text-white/60 mt-1 uppercase text-[10px] tracking-widest">
                       {viewingOrder.selected_options.size && `Tamanho: ${viewingOrder.selected_options.size} `}
@@ -3621,80 +3640,81 @@ export default function AdminDashboard({
                   </div>
 
                   <div className="pt-2 flex items-center justify-between gap-4">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status Dropea</span>
-                        <div className="flex items-center gap-2">
-                          {viewingOrder.dropea_order_id ? (
-                            <>
-                              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-                              <span className="text-emerald-500 font-bold tracking-widest text-[9px] uppercase font-mono">Sincronizado (#{viewingOrder.dropea_order_id})</span>
-                            </>
-                          ) : (
-                            <>
-                              <div className="w-2 h-2 rounded-full bg-amber-500" />
-                              <span className="text-amber-500 font-bold tracking-widest text-[9px] uppercase">Aguardando Envio</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
                       {(() => {
-                        const product = viewingOrder.product;
-                        const provider = viewingOrder.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
-                        const isAli = provider === 'aliexpress';
-                        const providerLabel = isAli ? 'AliExpress' : 'Dropea';
-                        
-                        return (
-                          <>
-                            {!viewingOrder.dropea_order_id && !viewingOrder.provider_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === "pago" || viewingOrder.status === 'completed') && (
+                         const product = viewingOrder.product;
+                         const provider = viewingOrder.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
+                         const isAli = provider === 'aliexpress';
+                         const providerLabel = isAli ? 'AliExpress' : 'Dropea';
+                         const externalId = isAli ? viewingOrder.provider_order_id : viewingOrder.dropea_order_id;
+                         
+                         return (
+                           <>
+                              <div className="flex flex-col gap-1">
+                                <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status {providerLabel}</span>
+                                <div className="flex items-center gap-2">
+                                  {externalId ? (
+                                    <>
+                                      <div className={`w-2 h-2 rounded-full ${isAli ? 'bg-orange-500' : 'bg-emerald-500'} animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.5)]`} />
+                                      <span className={`${isAli ? 'text-orange-500' : 'text-emerald-500'} font-bold tracking-widest text-[9px] uppercase font-mono`}>Sincronizado (#{externalId})</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="w-2 h-2 rounded-full bg-amber-500" />
+                                      <span className="text-amber-500 font-bold tracking-widest text-[9px] uppercase">Aguardando Envio</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
                               <div className="flex gap-2">
-                                <Button 
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleSyncStatus(viewingOrder.id)}
-                                  className="border-white/10 text-white hover:bg-white/5 rounded-none text-[9px] uppercase tracking-widest font-bold h-9 px-4"
-                                >
-                                  <Search size={10} className="mr-2" /> 
-                                  Verificar Stat. {providerLabel}
-                                </Button>
-                                
-                                {isAli ? (
+                                {!externalId && (viewingOrder.status === 'paid' || viewingOrder.status === "pago" || viewingOrder.status === 'completed') && (
+                                  <>
+                                    <Button 
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleSyncStatus(viewingOrder.id)}
+                                      className="border-white/10 text-white hover:bg-white/5 rounded-none text-[9px] uppercase tracking-widest font-bold h-9 px-4"
+                                    >
+                                      <Search size={10} className="mr-2" /> 
+                                      Verificar Stat. {providerLabel}
+                                    </Button>
+                                    
+                                    {isAli ? (
+                                      <Button 
+                                        size="sm"
+                                        onClick={() => handleAliExpressFulfill(viewingOrder.id)}
+                                        className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20"
+                                      >
+                                        <Zap size={10} className="mr-2" /> Enviar p/ AliExpress
+                                      </Button>
+                                    ) : (
+                                      <Button 
+                                        size="sm"
+                                        onClick={() => handleManualFulfill(viewingOrder.id)}
+                                        className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
+                                      >
+                                        Enviar p/ Dropea
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
+
+                                {externalId && (
                                   <Button 
                                     size="sm"
-                                    onClick={() => handleAliExpressFulfill(viewingOrder.id)}
-                                    className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20"
+                                    variant="outline"
+                                    onClick={() => handleSyncStatus(viewingOrder.id)}
+                                    className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
                                   >
-                                    <Zap size={10} className="mr-2" /> Enviar p/ AliExpress
-                                  </Button>
-                                ) : (
-                                  <Button 
-                                    size="sm"
-                                    onClick={() => handleManualFulfill(viewingOrder.id)}
-                                    className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
-                                  >
-                                    Enviar p/ Dropea
+                                    <RefreshCw size={10} className="mr-2" /> 
+                                    Sincronizar c/ {providerLabel}
                                   </Button>
                                 )}
                               </div>
-                            )}
-
-                            {(viewingOrder.dropea_order_id || viewingOrder.provider_order_id) && (
-                              <div className="flex gap-2">
-                                <Button 
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleSyncStatus(viewingOrder.id)}
-                                  className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
-                                >
-                                  <RefreshCw size={10} className="mr-2" /> 
-                                  Sincronizar c/ {providerLabel}
-                                </Button>
-                              </div>
-                            )}
-                          </>
-                        );
+                           </>
+                         );
                       })()}
-                    </div>
+                  </div>
 
                   {viewingOrder.shipping_status_metadata && (
                     <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
