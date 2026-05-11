@@ -162,6 +162,7 @@ export default function AdminDashboard({
   const [importDropeaId, setImportDropeaId] = useState("");
   const [importAliExpressId, setImportAliExpressId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [verifying, setVerifying] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
   const [isProductCreateModalOpen, setIsProductCreateModalOpen] = useState(false);
@@ -1064,6 +1065,29 @@ export default function AdminDashboard({
     return true;
   });
 
+  const handleVerifyProduct = async (product: any) => {
+    setVerifying(product.id);
+    const provider = product.provider || (product.dropea_id ? 'dropea' : 'aliexpress');
+    const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+    const vToast = toast.loading(`Verificando integridade de ${product.title} no ${providerLabel}...`);
+    try {
+      const res = await fetch(`/api/admin/products/${product.id}/verify`, { 
+        method: 'POST',
+        headers: { 'x-user-id': user.id }
+      });
+      const data = await res.json();
+      if (data.exists) {
+        toast.success(data.message || "Produto ativo no fornecedor.", { id: vToast });
+      } else {
+        toast.error(data.message || "Produto não encontrado ou inativo.", { id: vToast });
+      }
+    } catch (err) {
+      toast.error("Erro na comunicação com o servidor.", { id: vToast });
+    } finally {
+      setVerifying(null);
+    }
+  };
+
   const handleManualFulfill = async (orderId: string) => {
     try {
       toast.loading("A enviar pedido manualmente para a Dropea...", { id: "fulfill" });
@@ -1076,9 +1100,12 @@ export default function AdminDashboard({
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao enviar pedido para a Dropea");
+      if (!res.ok) throw new Error(data.error || "Erro ao conectar com fornecedor");
       
-      toast.success("Pedido ENVIADO com sucesso para a Dropea!", { id: "fulfill" });
+      const provider = viewingOrder?.provider || viewingOrder?.product?.provider || (viewingOrder?.product?.dropea_id ? 'dropea' : 'aliexpress');
+      const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+      
+      toast.success(`Pedido ENVIADO com sucesso para ${providerLabel}!`, { id: "fulfill" });
       
       // Atualizar estado local
       if (viewingOrder && viewingOrder.id === orderId) {
@@ -1166,36 +1193,43 @@ export default function AdminDashboard({
 
   const handleSyncStatus = async (orderId: string) => {
     try {
-      toast.loading("Verificando Dropea...", { id: "sync" });
+      const order = orders.find(o => o.id === orderId);
+      const product = order?.product;
+      const initialProvider = order?.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
+      const initialLabel = initialProvider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+      
+      toast.loading(`Sincronizando com ${initialLabel} e Stripe...`, { id: "sync" });
       const res = await fetch(`/api/orders/${orderId}/sync`, {
         method: 'POST'
       });
       
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.error === 'PEDIDO_NAO_ENCONTRADO' || data.error === 'Ordem não encontrada no sistema local') {
-           toast.error("Pedido não encontrado na Dropea. Tente o envio manual.", { id: "sync" });
-        } else {
-           toast.error(data.message || data.error || "Erro ao sincronizar", { id: "sync" });
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await res.text();
+        console.error("[Sync] Non-JSON response received:", text.substring(0, 200));
+        if (text.includes("Starting Server") || text.includes("Vite + React")) {
+          throw new Error("O servidor ainda está iniciando ou reiniciando. Aguarde 5-10 segundos e tente novamente.");
         }
+        throw new Error("Resposta inválida do servidor (HTML). Isto geralmente indica um erro de rota ou servidor em manutenção.");
+      }
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        const errorMsg = data.message || data.error || "Erro na sincronização";
+        const providerName = data.provider || initialLabel;
+        toast.error(`${providerName}: ${errorMsg}`, { id: "sync", duration: 5000 });
         return;
       }
       
-      const dropeaStatus = data.dropea_status || "Desconhecido";
-      const localStatus = data.local_status || "Em dia";
+      const syncedMsg = data.synced ? "Dados atualizados!" : "Já estava sincronizado.";
+      toast.success(`[${data.provider || initialLabel}] ${syncedMsg} Status: ${data.external_status || 'OK'}`, { id: "sync" });
       
-      // Construir mensagem de sucesso detalhada
-      let infoMsg = `Verificado! Status: ${dropeaStatus}.`;
-      if (data.synced) {
-        infoMsg = `Sincronizado! Dropea: ${dropeaStatus} -> SArt: ${localStatus}`;
+      if (data.updatedOrder) {
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data.updatedOrder, product: o.product } : o));
+        if (viewingOrder && viewingOrder.id === orderId) {
+          setViewingOrder({ ...viewingOrder, ...data.updatedOrder });
+        }
       }
-
-      if (data.details?.items && data.details.items.length > 0) {
-        const itemNames = data.details.items.map((it: any) => it.product?.name).filter(Boolean).join(", ");
-        if (itemNames) infoMsg += ` (${itemNames} validado na Dropea)`;
-      }
-      
-      toast.success(infoMsg, { id: "sync", duration: 7000 });
       
       // Fechar para atualizar
       if (viewingOrder && viewingOrder.id === orderId) {
@@ -1203,9 +1237,9 @@ export default function AdminDashboard({
       }
       
       fetchDashboardData();
-    } catch (error: any) {
-      console.error("[Sync] Error:", error);
-      const msg = error.message || "";
+    } catch (err: any) {
+      console.error("[Sync Detail Error]", err);
+      const msg = err.message || "";
       if (msg.includes('não vinculado') || msg.includes('PEDIDO_NAO_ENCONTRADO')) {
          toast.info("Atenção: Este pedido ainda não existe na Dropea. Verifique o e-mail ou utilize 'Enviar Manual'.", { id: "sync", duration: 8000 });
       } else {
@@ -2255,6 +2289,15 @@ export default function AdminDashboard({
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                       <Button
+                        variant="outline"
+                        className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest hover:bg-white hover:text-black"
+                        onClick={() => handleVerifyProduct(p)}
+                        title="Verificar Estoque/Link"
+                        disabled={verifying === p.id}
+                      >
+                        {verifying === p.id ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
+                      </Button>
                       <Button
                         variant="outline"
                         className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest hover:bg-white hover:text-black"
@@ -2856,7 +2899,7 @@ export default function AdminDashboard({
                           <span className="text-emerald-500 font-bold text-[9px] uppercase tracking-widest inline-block py-1">
                             Sem Logística (Digital)
                           </span>
-                        ) : order.dropea_order_id ? (
+                        ) : (order.dropea_order_id || order.provider_order_id) ? (
                           <div className="flex flex-col gap-1">
                             <span className={`text-[10px] uppercase font-black ${
                               order.shipping_status === "delivered" ? "text-emerald-500" :
@@ -2880,15 +2923,14 @@ export default function AdminDashboard({
                                ['canceled', 'cancelled'].includes(order.status?.toLowerCase() || '') ? 'Cancelado' : 
                                'Em Processamento'}
                             </span>
-                            {order.shipping_status_metadata?.trackingNumber && (
-                              <span className="text-[8px] text-white/30 font-mono tracking-tighter">
-                                {order.shipping_status_metadata.trackingNumber}
-                              </span>
-                            )}
+                            <span className="text-[8px] text-white/30 font-mono tracking-tighter">
+                               {order.provider_order_id || order.dropea_order_id} 
+                               {order.shipping_status_metadata?.trackingNumber && ` | ${order.shipping_status_metadata.trackingNumber}`}
+                            </span>
                           </div>
                         ) : (["paid", "pago", "completed", "succeeded"].includes(order.status?.toLowerCase() || "")) ? (
                           <div className="flex items-center gap-1.5 min-w-[140px]">
-                            {order.dropea_order_id ? (
+                            {(order.dropea_order_id || order.provider_order_id) ? (
                                <Button 
                                 size="sm"
                                 onClick={() => handleSyncStatus(order.id)}
@@ -2902,7 +2944,7 @@ export default function AdminDashboard({
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleSyncStatus(order.id)}
-                                  className="border-2 border-blue-500/50 text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
+                                  className="border-white/10 text-white/60 hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
                                   title="Tentar encontrar vínculo na Dropea"
                                 >
                                   Verificar
@@ -2911,18 +2953,17 @@ export default function AdminDashboard({
                                   <Button 
                                     size="sm"
                                     onClick={() => handleAliExpressFulfill(order.id)}
-                                    className="border-2 border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
+                                    className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
                                   >
                                     API AliExpress
                                   </Button>
                                 ) : (
                                   <Button 
                                     size="sm"
-                                    disabled={!!order.provider_order_id}
                                     onClick={() => handleManualFulfill(order.id)}
-                                    className={`border-2 ${order.provider_order_id ? 'border-gray-500/50 bg-gray-500/10 text-gray-400' : 'border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20'} rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1`}
+                                    className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
                                   >
-                                    {order.provider_order_id ? 'Enviado' : 'Enviar Manual'}
+                                    Enviar Manual
                                   </Button>
                                 )}
                               </>
@@ -3594,50 +3635,62 @@ export default function AdminDashboard({
                         </div>
                       </div>
 
-                      {!viewingOrder.dropea_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === 'pago' || viewingOrder.status === 'completed') && (
-                        <div className="flex gap-2">
-                           <Button 
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleSyncStatus(viewingOrder.id)}
-                            className="border-white/10 text-white hover:bg-white/5 rounded-none text-[9px] uppercase tracking-widest font-bold h-9 px-4"
-                          >
-                            <Search size={10} className="mr-2" /> Verificar Dropea
-                          </Button>
-                          
-                          {/* Botão AliExpress (Dinâmico) */}
-                          {viewingOrder.product?.aliexpress_id ? (
-                            <Button 
-                              size="sm"
-                              onClick={() => handleAliExpressFulfill(viewingOrder.id)}
-                              className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20"
-                            >
-                              <Zap size={10} className="mr-2" /> Enviar p/ AliExpress
-                            </Button>
-                          ) : (
-                            <Button 
-                              size="sm"
-                              onClick={() => handleManualFulfill(viewingOrder.id)}
-                              className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
-                            >
-                              Enviar Manualmente (Dropea)
-                            </Button>
-                          )}
-                        </div>
-                      )}
+                      {(() => {
+                        const product = viewingOrder.product;
+                        const provider = viewingOrder.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
+                        const isAli = provider === 'aliexpress';
+                        const providerLabel = isAli ? 'AliExpress' : 'Dropea';
+                        
+                        return (
+                          <>
+                            {!viewingOrder.dropea_order_id && !viewingOrder.provider_order_id && (viewingOrder.status === 'paid' || viewingOrder.status === "pago" || viewingOrder.status === 'completed') && (
+                              <div className="flex gap-2">
+                                <Button 
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleSyncStatus(viewingOrder.id)}
+                                  className="border-white/10 text-white hover:bg-white/5 rounded-none text-[9px] uppercase tracking-widest font-bold h-9 px-4"
+                                >
+                                  <Search size={10} className="mr-2" /> 
+                                  Verificar Stat. {providerLabel}
+                                </Button>
+                                
+                                {isAli ? (
+                                  <Button 
+                                    size="sm"
+                                    onClick={() => handleAliExpressFulfill(viewingOrder.id)}
+                                    className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20"
+                                  >
+                                    <Zap size={10} className="mr-2" /> Enviar p/ AliExpress
+                                  </Button>
+                                ) : (
+                                  <Button 
+                                    size="sm"
+                                    onClick={() => handleManualFulfill(viewingOrder.id)}
+                                    className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
+                                  >
+                                    Enviar p/ Dropea
+                                  </Button>
+                                )}
+                              </div>
+                            )}
 
-                      {viewingOrder.dropea_order_id && (
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleSyncStatus(viewingOrder.id)}
-                            className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
-                          >
-                            <RefreshCw size={10} className="mr-2" /> Sincronizar
-                          </Button>
-                        </div>
-                      )}
+                            {(viewingOrder.dropea_order_id || viewingOrder.provider_order_id) && (
+                              <div className="flex gap-2">
+                                <Button 
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleSyncStatus(viewingOrder.id)}
+                                  className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
+                                >
+                                  <RefreshCw size={10} className="mr-2" /> 
+                                  Sincronizar c/ {providerLabel}
+                                </Button>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
 
                   {viewingOrder.shipping_status_metadata && (

@@ -166,6 +166,10 @@ const initDB = async () => {
               ALTER TABLE orders ADD COLUMN fulfillment_error TEXT;
             END IF;
 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'provider_order_id') THEN
+              ALTER TABLE orders ADD COLUMN provider_order_id TEXT;
+            END IF;
+
             -- Update status constraint if exists to include manual_fulfillment_required
             -- (Assuming status is check constrained or just a text field)
 
@@ -281,12 +285,18 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       // 1. VERIFICAR SE JÁ EXISTE PARA EVITAR DUPLICAÇÃO
       const { data: existingOrder, error: checkError } = await supabase
         .from('orders')
-        .select('*, products(*)')
+        .select('*')
         .eq('stripe_session_id', session.id)
         .maybeSingle();
 
       if (existingOrder) {
         console.log(`[STRIPE WEBHOOK] Pedido já existe: ${existingOrder.id}. Forçando disparo direto de e-mail agora.`);
+        
+        // Fetch product separately since join failed
+        if (!existingOrder.products && existingOrder.product_id) {
+          const { data: prod } = await supabase.from('products').select('*').eq('id', existingOrder.product_id).maybeSingle();
+          if (prod) existingOrder.products = prod;
+        }
         
         // Disparo DIRETO sem passar por triggers de banco
         triggerOrderNotification(existingOrder.id, 'paid', existingOrder.shipping_status || 'pending', existingOrder, true).catch(err => 
@@ -568,7 +578,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
       return res.status(500).json({ error: 'AliExpress API credentials are missing on server (VITE_ALIEXPRESS_APP_KEY/SECRET).' });
     }
 
-    const generateSignature = (p: Record<string, any>, secret: string): string => {
+    const generateAliExpressSignature = (p: Record<string, any>, secret: string): string => {
       const sortedKeys = Object.keys(p).sort();
       let message = '';
       for (const key of sortedKeys) {
@@ -577,23 +587,17 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
           message += `${key}${val}`;
         }
       }
-      
-      const stringBaseDaAssinatura = message;
-      // Logging strictly for debugging
-      console.log("✍️ [ALIEXPRESS] Signature Base String:", stringBaseDaAssinatura);
-      
-      return CryptoJS.HmacSHA256(stringBaseDaAssinatura, secret).toString(CryptoJS.enc.Hex).toUpperCase();
+      return CryptoJS.HmacSHA256(message, secret).toString(CryptoJS.enc.Hex).toUpperCase();
     };
 
-    const getTimestamp = (): string => {
-      const now = new Date();
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const getAliExpressTimestamp = (): string => {
+      // Use format YYYY-MM-DD HH:mm:ss in UTC as requested
+      return new Date().toISOString().replace('T', ' ').substring(0, 19);
     };
 
     const systemParams: Record<string, any> = {
       app_key: appKey,
-      timestamp: getTimestamp(),
+      timestamp: getAliExpressTimestamp(),
       sign_method: 'hmac',
       method: method,
       format: 'json',
@@ -611,7 +615,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
     console.log("📦 [ALIEXPRESS] Combined Params (Keys):", Object.keys(allParams).sort().join(', '));
     console.log("📦 [ALIEXPRESS] Access Token prefix:", accessToken ? accessToken.substring(0, 5) : "NONE");
 
-    const sign = generateSignature(allParams, appSecret);
+    const sign = generateAliExpressSignature(allParams, appSecret);
     const finalParams = { ...allParams, sign };
 
     console.log(`[ALIEXPRESS] Calling ${method} with paramsKeys: ${Object.keys(params).join(',')}`);
@@ -621,7 +625,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
       formData.append(key, String(value));
     }
 
-    const response = await axios.post('https://api-sg.aliexpress.com/rest', formData.toString(), {
+    const response = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
     });
 
@@ -712,22 +716,27 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
       last_name: (customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || 'S.Art' : "S.Art")).trim(),
       email: (customer.email || "").trim(),
       phone: (customer.phone || "").trim(),
-      address: sanitizeAddressInput(String(customer.address || "")).substring(0, 200),
-      city: sanitizeAddressInput((customer.city || "").trim()).substring(0, 100),
+      address: sanitizeAddressInput(String(customer.address || "")),
+      city: sanitizeAddressInput((customer.city || "").trim()),
       zip: (customer.zip || customer.postalCode || "").trim(),
       country: countryCode
     },
     products: [] as any[]
   };
 
-  if (!variables.customer.first_name || !variables.customer.email || !variables.customer.email.includes("@")) {
-      console.error('[DROPEA] Erro: Dados do cliente inválidos:', JSON.stringify(variables.customer));
-      throw new Error("Dados de cliente inválidos ou e-mail ausente para Dropea");
+  if (!variables.customer.first_name || !variables.customer.email || !variables.customer.address) {
+    console.error('[DROPEA] Erro: Dados do cliente incompletos:', JSON.stringify(variables.customer));
+    throw new Error("Dados de cliente incompletos para Dropea");
   }
 
   // Find correct variant ID from Dropea if options are selected
   let variantId: number | null = null;
   const dropeaProductId = parseInt(String(product.product_id || product.dropea_id || 0), 10);
+  
+  if (!dropeaProductId || dropeaProductId === 0) {
+    console.error('[DROPEA] Erro: dropeaProductId inválido:', { product_id: product.product_id, dropea_id: product.dropea_id });
+    throw new Error("Este produto não possui um ID válido no catálogo da Dropea. Sincronização impossível.");
+  }
   
   if (product.selected_options && (product.selected_options.size || product.selected_options.color)) {
     try {
@@ -775,7 +784,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   // Build product list
   const productEntry: any = {
-    product_id: variantId || dropeaProductId,
+    product_id: variantId || dropeaProductId, // If variant exists, we might need to use it as product_id if variant_id is not allowed
     quantity: parseInt(String(product.quantity || 1), 10),
     total_value: parseFloat(String(product.total_value || product.pvp || 0)),
     unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
@@ -783,8 +792,8 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   variables.products = [productEntry];
 
-  console.log("[DROPEA UPLOAD DEBUG] Payload a enviar:", JSON.stringify(variables));
-
+  console.log(`[DROPEA INTERNAL] Executando orderCreate para e-mail: ${variables.customer.email}`);
+  
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
     variables
@@ -797,12 +806,10 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
     timeout: 30000
   });
 
-  console.log("[DROPEA UPLOAD DEBUG] Resposta bruta da Dropea:", JSON.stringify(response.data));
-
   if (response?.data?.errors) {
-    const errorMsg = JSON.stringify(response.data.errors);
-    console.error('[DROPEA INTERNAL ERRORS]', errorMsg);
-    throw new Error(`Dropea API errors: ${errorMsg}`);
+    console.error('[DROPEA INTERNAL ERRORS]', JSON.stringify(response.data.errors, null, 2));
+    const msg = response.data.errors[0]?.message || 'Erro desconhecido na API Dropea';
+    throw new Error(`Dropea rejection: ${msg}`);
   }
 
   const newId = response.data?.data?.orderCreate?.id;
@@ -848,7 +855,7 @@ async function executeDropeaQuery(query: string, variables: any, rootField: stri
 async function findDropeaOrderByEmail(email: string, expectedAmount?: number) {
   const graphqlQuery = `
     query FindOrdersByEmail {
-      orders(limit: 500) {
+      orders(limit: 50) {
         data {
           id
           customer { email }
@@ -895,8 +902,12 @@ async function findDropeaOrderByEmail(email: string, expectedAmount?: number) {
 }
 
 async function getDropeaOrderStatus(dropeaOrderId: string) {
+  console.log(`[DROPEA] Buscando status da ordem: ${dropeaOrderId}`);
   const numericId = parseInt(dropeaOrderId, 10);
-  if (isNaN(numericId)) return null;
+  if (isNaN(numericId)) {
+    console.error(`[DROPEA ERROR] ID da ordem inválido para Dropea: ${dropeaOrderId}`);
+    return null;
+  }
 
   const graphqlQuery = `
     query GetOrderStatus($id: [Int]) {
@@ -919,6 +930,7 @@ async function getDropeaOrderStatus(dropeaOrderId: string) {
   const orderData = await executeDropeaQuery(graphqlQuery, { id: [numericId] }, 'orders');
   
   if (!orderData || (orderData as any).errors || (orderData as any).error) {
+    console.warn(`[DROPEA] Ordem ${dropeaOrderId} não encontrada ou erro na API.`);
     return null;
   }
 
@@ -1395,7 +1407,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     if (!order || !order.customer_email || !order.product_id) {
       const { data: fetchData, error: fetchErr } = await supabase
         .from('orders')
-        .select('*, profiles(*)')
+        .select('*')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -1408,6 +1420,12 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         return;
       }
       order = fetchData;
+
+      // Fetch profile separately
+      if (order && !order.profiles && order.user_id) {
+        const { data: prof } = await supabase.from('profiles').select('*').eq('id', order.user_id).maybeSingle();
+        if (prof) order.profiles = [prof];
+      }
     }
 
     // Buscar produto se não estiver presente na carga
@@ -2619,8 +2637,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
         sizes_enabled,
         colors_enabled,
         sizes,
-        colors,
-        provider: 'dropea'
+        colors
       }, { onConflict: 'dropea_id' })
       .select()
       .single();
@@ -2776,9 +2793,9 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     };
 
     const getTimestamp = (): string => {
-      const now = new Date();
-      const pad = (n: number) => n.toString().padStart(2, '0');
-      return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      // Garante que o tempo está a ser gerado em UTC/GMT para evitar conflitos com o servidor da China.
+      // Usa o formato obrigatório: YYYY-MM-DD HH:mm:ss
+      return new Date().toISOString().replace('T', ' ').substring(0, 19);
     };
 
     const systemParams: Record<string, any> = {
@@ -2803,7 +2820,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const sign = generateSignature(allParams, appSecret);
     const formData = new URLSearchParams({ ...allParams, sign });
 
-    const aliRes = await axios.post('https://api-sg.aliexpress.com/rest', formData.toString(), {
+    const aliRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
     });
     const result = aliRes.data;
@@ -3057,45 +3074,100 @@ async function syncOrderWithExternalSources(id: string) {
     return { success: false, error: 'Ordem não encontrada no sistema local' };
   }
 
-  let dropeaId = order.dropea_order_id || order.provider_order_id;
+  // Fetch product separately
+  if (!order.products && order.product_id) {
+    const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
+    if (prod) order.products = prod;
+  }
 
-  if (!dropeaId) {
-    let email = order.customer_email;
-    if (!email && order.user_id) {
-      const { data: profile } = await supabase.from('profiles').select('email').eq('id', order.user_id).single();
-      if (profile) email = profile.email;
+  const product = Array.isArray(order.products) ? order.products[0] : order.products;
+  // Identificação robusta do provedor
+  let provider = order.provider;
+  if (!provider) {
+    if (product?.provider) provider = product.provider;
+    else if (product?.dropea_id) provider = 'dropea';
+    else if (product?.aliexpress_id) provider = 'aliexpress';
+    else provider = 'aliexpress'; // Default
+  }
+  
+  let providerOrderId = order.provider_order_id || order.dropea_order_id;
+  
+  const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+  console.log(`[SYNC LOG] Sincronizando: ${providerLabel} | Ordem: ${id} | ExtID: ${providerOrderId}`);
+
+  // 1. Tentar encontrar ID se não existir
+  if (!providerOrderId) {
+    if (provider === 'dropea') {
+       let email = order.customer_email;
+       if (!email && order.user_id) {
+         const { data: profile } = await supabase.from('profiles').select('email').eq('id', order.user_id).single();
+         if (profile) email = profile.email;
+       }
+       if (email) {
+         const foundId = await findDropeaOrderByEmail(email, order.total_amount);
+         if (foundId) {
+           providerOrderId = String(foundId);
+           await supabase.from('orders').update({ dropea_order_id: providerOrderId, provider_order_id: providerOrderId }).eq('id', id);
+           order.provider_order_id = providerOrderId;
+         }
+       }
     }
-    if (email) {
-      console.log(`[SYNC] Tentando vincular pedido ${id} por e-mail: ${email}`);
-      const foundId = await findDropeaOrderByEmail(email, order.total_amount);
-      console.log(`[SYNC] Resultado findDropeaOrderByEmail: ${foundId}`);
-      if (foundId) {
-        dropeaId = String(foundId);
+    // Para AliExpress não temos busca por email fácil na DS API
+  }
+
+  if (!providerOrderId) {
+    return { success: false, error: 'PEDIDO_NAO_ENCONTRADO', message: `Pedido não vinculado para o provedor ${provider}` };
+  }
+
+  let externalData: any = null;
+  let externalStatus = "";
+  let trackingNumber = "";
+  let trackingUrl = "";
+
+  try {
+    if (provider === 'dropea') {
+      externalData = await getDropeaOrderStatus(providerOrderId);
+      if (externalData) {
+        externalStatus = String(externalData.status).toUpperCase();
+        trackingNumber = externalData.tracking_number;
+        trackingUrl = externalData.tracking_url;
+      }
+    } else {
+      console.log(`[ALIEXPRESS SYNC] Iniciando consulta para order_id: ${providerOrderId}`);
+      externalData = await getAliExpressOrderDetail(providerOrderId);
+      
+      if (externalData) {
+        console.log(`[ALIEXPRESS SYNC] Dados retornados com sucesso para ${providerOrderId}`);
+        externalStatus = String(externalData.order_status || "").toUpperCase();
+        
+        // Tentar extrair tracking se disponível
+        if (externalData.logistics_info_list && externalData.logistics_info_list.length > 0) {
+            trackingNumber = externalData.logistics_info_list[0].logistics_no;
+            console.log(`[ALIEXPRESS SYNC] Tracking encontrado: ${trackingNumber}`);
+        }
+      } else {
+        console.warn(`[ALIEXPRESS SYNC] Falha: Provedor não retornou dados para ID ${providerOrderId}`);
       }
     }
+  } catch (err: any) {
+    console.error(`[SYNC API ERROR] Provider: ${provider}, ID: ${providerOrderId}:`, err.message);
+    return { success: false, error: 'ERRO_API_EXTERNA', message: err.message };
   }
 
-  if (dropeaId) {
-    // Evitar erro de UNIQUE constraint no dropea_order_id
-    const { data: duplicate } = await supabase.from('orders').select('id').eq('dropea_order_id', dropeaId).maybeSingle();
-    if (!duplicate || duplicate.id === id) {
-      await supabase.from('orders').update({ dropea_order_id: dropeaId }).eq('id', id);
-      order.dropea_order_id = dropeaId;
-    } else {
-      console.warn(`[SYNC] O ID Dropea ${dropeaId} já está vinculado ao pedido ${duplicate.id}`);
-    }
+  if (!externalData) {
+    console.error(`[SYNC ERROR] ${providerLabel} não retornou dados para ID: ${providerOrderId}`);
+    return { 
+      success: false, 
+      error: 'PROVEDOR_NAO_RETORNOU_DADOS', 
+      provider: providerLabel,
+      externalId: providerOrderId,
+      message: `O fornecedor ${providerLabel} não encontrou informações para o pedido ${providerOrderId}. Verifique se o ID está correto no site do fornecedor.` 
+    };
   }
-
-  if (!dropeaId) {
-    return { success: false, error: 'PEDIDO_NAO_ENCONTRADO', message: 'Pedido não vinculado e não encontrado na Dropea.' };
-  }
-
-  const dropeaData = await getDropeaOrderStatus(dropeaId);
-  if (!dropeaData) return { success: false, error: 'Dropea não retornou dados.' };
 
   const updateData: any = { updated_at: new Date().toISOString() };
   
-  // VERIFICAÇÃO STRIPE
+  // VERIFICAÇÃO STRIPE (Blindagem contra CS_TEST expirados ou sessões não encontradas)
   if (stripe && order.stripe_session_id) {
     try {
       const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id, {
@@ -3119,86 +3191,87 @@ async function syncOrderWithExternalSources(id: string) {
            updateData.payment_status = 'refunded';
            updateData.status = 'refunded';
          }
-      } else if (pi && pi.status === 'succeeded' && pi.amount_received > 0) {
-         updateData.payment_status = 'paid';
       }
     } catch (stripeErr: any) {
-      console.warn(`[SYNC STRIPE WARN] Order ${id}:`, stripeErr.message);
+      // Blindagem silenciosa para sessões de teste expiradas
+      if (stripeErr.message?.includes('No such checkout.session') && order.stripe_session_id?.startsWith('cs_test_')) {
+        console.log(`[SYNC STRIPE INFO] Ignorando sessão de teste legada: ${order.stripe_session_id}`);
+      } else {
+        console.warn(`[SYNC STRIPE WARN] Order ${id} session not found:`, stripeErr.message);
+      }
+      // O código continua normalmente para sincronizar com fornecedores
     }
   }
 
-  const dropeaStatus = String(dropeaData.status).toUpperCase();
+  // MAPEAMENTO DE STATUS
   const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
-  const mapped = mapDropeaStatusToInternal(dropeaStatus);
   
-  if (mapped) {
-    if (mapped.status) {
-      if (mapped.status === 'canceled') {
-        if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status) && orderAgeMinutes > 10) {
-          updateData.status = 'canceled';
-        }
-      } else if (order.status !== 'refunded' && order.status !== 'completed') {
-         updateData.status = mapped.status;
+  if (provider === 'dropea') {
+    const mapped = mapDropeaStatusToInternal(externalStatus);
+    if (mapped) {
+      if (mapped.status && order.status !== 'refunded' && order.status !== 'completed') {
+          updateData.status = mapped.status;
       }
-    }
-    if (mapped.shipping) {
-      updateData.shipping_status = mapped.shipping;
+      if (mapped.shipping) updateData.shipping_status = mapped.shipping;
     }
   } else {
-    // Fallback logic
-    if (['DELIVERED', 'COMPLETED', 'RECEIVED', 'ENTREGADO'].includes(dropeaStatus)) {
-      updateData.shipping_status = 'delivered';
-      updateData.status = 'completed';
-    } else if (['CANCELLED', 'CANCELED', 'VOID', 'CANCELADO'].includes(dropeaStatus)) {
-      if (!['refunded', 'refund_pending', 'refund_requested'].includes(order.status) && orderAgeMinutes > 10) {
-        updateData.status = 'canceled';
-      }
+    // AliExpress Mapping
+    // WAIT_SELLER_SEND_GOODS, SELLER_SEND_GOODS, FINISH, IN_ISSUE, ARB_FINISHED, WAIT_BUYER_PAY
+    if (['FINISH', 'COMPLETED', 'SHIPPED_TO_SENDER'].includes(externalStatus)) {
+        updateData.status = 'completed';
+        updateData.shipping_status = 'delivered';
+    } else if (['SELLER_SEND_GOODS', 'SHIPPED'].includes(externalStatus)) {
+        updateData.shipping_status = 'sent';
+    } else if (['WAIT_SELLER_SEND_GOODS', 'WAIT_SELLER_SEND'].includes(externalStatus)) {
+        updateData.status = 'paid';
+        updateData.shipping_status = 'preparing';
+    } else if (['WAIT_BUYER_PAY', 'PENDING'].includes(externalStatus)) {
+         // Se ainda não pagou lá, mas aqui está como pago, talvez esperar or alert?
+         // Mantemos conforme o sistema
+    } else if (['IN_ISSUE', 'IN_DISPUTE'].includes(externalStatus)) {
+        updateData.shipping_status = 'disputed';
+    } else if (['CANCELLED', 'CANCELED', 'VOID'].includes(externalStatus)) {
+        if (!['refunded', 'refund_pending'].includes(order.status) && orderAgeMinutes > 10) {
+            updateData.status = 'canceled';
+        }
     }
   }
-  
-  if ((updateData.status === 'paid' || order.status === 'paid' || order.status === 'completed') && !order.payment_status) {
-    updateData.payment_status = 'paid';
-  }
 
-  if (dropeaData.tracking_number) {
+  if (trackingNumber) {
       updateData.shipping_status_metadata = {
         ...(order.shipping_status_metadata || {}),
-        trackingNumber: dropeaData.tracking_number,
-        trackingUrl: dropeaData.tracking_url,
+        trackingNumber: trackingNumber,
+        trackingUrl: trackingUrl || (provider === 'aliexpress' ? `https://www.17track.net/en/track?nums=${trackingNumber}` : ''),
         syncedAt: new Date().toISOString()
       };
-      // Somente assumimos 'sent' se não houver um status mais específico mapeado da Dropea
       if (!updateData.shipping_status && !['delivered', 'sent', 'out_for_delivery'].includes(order.shipping_status)) {
         updateData.shipping_status = 'sent';
       }
   }
 
-  const hasStatusChange = updateData.status && updateData.status !== order.status;
-  const hasShippingChange = updateData.shipping_status && updateData.shipping_status !== order.shipping_status;
-  const hasPaymentStatusChange = updateData.payment_status && updateData.payment_status !== order.payment_status;
-  const hasTrackingChange = !!updateData.shipping_status_metadata;
-  const hasChanges = hasStatusChange || hasShippingChange || hasPaymentStatusChange || hasTrackingChange;
+  const hasChanges = Object.keys(updateData).some(key => key !== 'updated_at' && updateData[key] !== order[key]);
 
   if (hasChanges) {
     const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
     if (updateError) return { success: false, error: 'Falha ao atualizar no banco' };
     
-    // AUTO-REFUND IF CANCELED
-    const nowCanceled = updateData.status === 'canceled' && order.status !== 'canceled';
-    const isPaid = ['paid', 'completed'].includes(order.status);
-    if (nowCanceled && isPaid && order.stripe_session_id) {
-       console.log(`[SYNC AUTO-REFUND] Ordem ${order.id} cancelada na Dropea. Iniciando Stripe Refund...`);
-       processRefundInternal(order.id).catch(e => console.error('[SYNC REFUND ERROR]', e));
-    }
-
-    if (hasStatusChange || hasPaymentStatusChange) {
+    // Auto Email on status changes logic...
+    if (updateData.status || updateData.shipping_status) {
       triggerOrderNotification(order.id, updateData.status || order.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
-    } else if (hasShippingChange) {
-      triggerOrderNotification(order.id, order.status, updateData.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
     }
   }
 
-  return { success: true, synced: hasChanges, dropea_status: dropeaStatus };
+  // Fetch fresh order
+  const { data: updatedOrder } = await supabase.from('orders').select('*').eq('id', id).single();
+
+  return { 
+    success: true, 
+    synced: hasChanges, 
+    external_status: externalStatus,
+    provider: providerLabel,
+    externalId: providerOrderId,
+    updatedOrder
+  };
 }
 
 adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
@@ -3207,6 +3280,54 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
     const result = await syncOrderWithExternalSources(id);
     if (!result.success) return res.status(result.error === 'Ordem não encontrada no sistema local' ? 404 : 500).json(result);
     res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/products/:id/verify', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+    
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', id)
+      .single();
+      
+    if (error || !product) return res.status(404).json({ error: 'Produto não encontrado' });
+    
+    const provider = product.provider || (product.dropea_id ? 'dropea' : 'aliexpress');
+    const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+    let exists = false;
+    let stock = 0;
+    let message = "";
+    
+    console.log(`[VERIFY] Verificando integridade de ${product.title} no provedor ${providerLabel}...`);
+
+    if (provider === 'dropea') {
+      const dropProduct = await getDropeaProductDetail(product.dropea_id);
+      if (dropProduct) {
+        exists = true;
+        // Dropea sometimes doesn't give exact stock number easily in catalog, check description or variants
+        stock = dropProduct.stock !== undefined ? dropProduct.stock : 10;
+        message = "Produto ativo no catálogo Dropea.";
+      } else {
+        message = "Produto não encontrado na Dropea.";
+      }
+    } else {
+      const aliProduct = await getAliExpressProductDetail(product.aliexpress_id);
+      if (aliProduct) {
+        exists = true;
+        // aliexpress_ds_product_get_response gives status in result
+        message = "Link AliExpress ativo.";
+      } else {
+        message = "Link AliExpress inativo ou erro na API.";
+      }
+    }
+    
+    res.json({ success: true, exists, stock, message, provider });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -3222,7 +3343,7 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
     const supabase = getSupabase();
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, products(*) ')
+      .select('*')
       .eq('id', orderId)
       .in('status', ['paid', 'completed'])
       .single();
@@ -3232,12 +3353,18 @@ apiRouter.get('/orders/:orderId/download', async (req, res) => {
       return res.status(404).json({ error: `Ordem não encontrada: ${orderError.message}` });
     }
 
+    // Fetch product separately
+    if (!order.products && order.product_id) {
+      const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
+      if (prod) order.products = prod;
+    }
+
     const productData = Array.isArray(order.products) ? order.products[0] : order.products;
     if (!order || !productData) {
       return res.status(404).json({ error: 'Produto não associado a esta ordem.' });
     }
 
-    const originalPath = order.product.file_url || '';
+    const originalPath = productData.file_url || '';
     
     // Se for URL externo
     if (originalPath.startsWith('http')) {
@@ -3568,45 +3695,68 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       .maybeSingle();
 
     if (fetchErr) {
-      console.log(`[FULFILLMENT ERROR] Erro na query DB para ordem ${order.id}:`, fetchErr);
+      console.error(`[FULFILLMENT ERROR] Erro na query DB para ordem ${order.id}:`, JSON.stringify(fetchErr));
     }
 
     const currentOrder = latestOrder || order;
-    
+
     if (!currentOrder || !currentOrder.id) {
-       console.log(`[FULFILLMENT FATAL] Dados de ordem inválidos para ordem ${order?.id}`);
+       console.error(`[FULFILLMENT FATAL] Dados de ordem inválidos.`);
        return;
     }
 
+    // Fetch product separately
+    if (!currentOrder.products && currentOrder.product_id) {
+      const { data: prod } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
+      if (prod) currentOrder.products = prod;
+    }
+
     // Check if already fulfilled
-    if (currentOrder.provider_order_id && !forceManual) {
-        console.log(`[FULFILLMENT SKIP] Ordem ${currentOrder.id} já possui provider_order_id: ${currentOrder.provider_order_id}`);
+    const existingExtId = currentOrder.provider_order_id || currentOrder.dropea_order_id;
+    if (existingExtId && !forceManual) {
+        console.log(`[FULFILLMENT SKIP] Ordem ${currentOrder.id} já possui provider_order_id: ${existingExtId}`);
         return;
     }
 
     console.log(`[FULFILLMENT START] Ordem ${currentOrder.id} - Manual: ${forceManual}`);
 
-    // Resolve product and provider
-    const { data: productInDb, error: productErr } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
-    console.log(`[FULFILL] Processing order ${currentOrder.id}. Product ID: ${currentOrder.product_id}, Product: ${productInDb?.title || 'Unknown Product'}`);
-    const provider = productInDb?.provider || 'aliexpress';
-
-    // Normalizar shipping_details
-    let customerData;
-    try {
-      customerData = typeof currentOrder.shipping_details === 'string' 
-        ? JSON.parse(currentOrder.shipping_details) 
-        : (currentOrder.shipping_details || {});
-    } catch (e) {
-      console.log(`[FULFILL] Erro ao parsear shipping_details da ordem ${currentOrder.id}:`, e);
-      customerData = {}; // fallback seguro
+    // RESOLVE PRODUCT (Reforçado para evitar 'Produto não encontrado')
+    let productInDb = null;
+    if (currentOrder.products) {
+      productInDb = Array.isArray(currentOrder.products) ? currentOrder.products[0] : currentOrder.products;
     }
     
+    // Se ainda não temos produto, tentamos fetch direto no DB se houver product_id
+    if (!productInDb && currentOrder.product_id) {
+      const { data: fallbackProd } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
+      if (fallbackProd) productInDb = fallbackProd;
+    }
+
+    if (!productInDb) {
+        throw new Error(`Produto não encontrado (ID: ${currentOrder.product_id}). Verifique se o produto ainda existe na base de dados.`);
+    }
+    
+    // Identificação robusta do provedor
+    let provider = currentOrder.provider;
+    if (!provider) {
+      if (productInDb?.provider) provider = productInDb.provider;
+      else if (productInDb?.dropea_id) provider = 'dropea';
+      else if (productInDb?.aliexpress_id) provider = 'aliexpress';
+      else provider = 'aliexpress';
+    }
+    const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+    console.log(`[FULFILLMENT LOG] Provedor Identificado: ${providerLabel} (Baseado em: order.provider=${currentOrder.provider}, product.provider=${productInDb?.provider}, dropea_id=${productInDb?.dropea_id}, ali_id=${productInDb?.aliexpress_id})`);
+
+    // Normalizar shipping_details
+    const customerData = typeof currentOrder.shipping_details === 'string' 
+      ? JSON.parse(currentOrder.shipping_details) 
+      : (currentOrder.shipping_details || {});
+
     // Ensure email
     if (!customerData.email && currentOrder.customer_email) {
       customerData.email = currentOrder.customer_email;
     }
-    
+
     const priceToSubmit = Math.max(
       parseFloat(String(currentOrder.total_amount || 0)),
       parseFloat(String(productInDb?.pvp || 0))
@@ -3615,103 +3765,183 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     let providerOrderId = null;
 
     if (provider === 'dropea') {
-      console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para Dropea...`);
-      try {
-        const graphqlMutation = `
-          mutation Mutation($shopId: Int!, $paymentMethod: PaymentMethodEnum, $customer: CustomerInputType, $products: [OrderProductInputType]) {
-            orderCreate(shop_id: $shopId, payment_method: $paymentMethod, customer: $customer, products: $products) {
-              id
-            }
-          }
-        `;
-        
-        const variables = {
-          shopId: Number(DROPEA_SHOP_ID),
-          paymentMethod: "MANUAL",
-          customer: {
-            first_name: customerData.name || "Cliente",
-            last_name: "S.Art",
-            email: customerData.email,
-            phone: customerData.phone || "",
-            address: customerData.address || "",
-            city: customerData.city || "",
-            zip: customerData.zip || "",
-            country: "PT"
-          },
-          products: [{
-            product_id: Number(productInDb?.dropea_id),
-            quantity: 1,
+        console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para Dropea...`);
+        providerOrderId = await createDropeaOrderInternal(Number(DROPEA_SHOP_ID), customerData, {
+            product_id: productInDb.dropea_id,
+            quantity: currentOrder.quantity || 1,
             total_value: priceToSubmit,
-            unit_price: priceToSubmit
-          }]
-        };
-
-        console.log("[DROPEA UPLOAD DEBUG] Payload a enviar:", JSON.stringify(variables));
-
-        const response = await axios.post(DROPEA_API_URL, {
-          query: graphqlMutation,
-          variables
-        }, {
-          headers: {
-            'x-api-key': DROPEA_API_KEY,
-            'Content-Type': 'application/json',
-            'User-Agent': 'SArt-Boutique-Boutique/1.0'
-          },
-          timeout: 30000
+            unit_price: priceToSubmit,
+            selected_options: (typeof currentOrder.selected_options === 'string') ? JSON.parse(currentOrder.selected_options) : currentOrder.selected_options
         });
-
-        console.log("RESPOSTA DROPEA:", JSON.stringify(response.data));
-
-        if (response?.data?.errors) {
-            throw new Error(`Dropea API errors: ${JSON.stringify(response.data.errors)}`);
-        }
-        
-        const newId = response.data?.data?.orderCreate?.id;
-        if (!newId) {
-            throw new Error("Dropea não retornou ID de pedido");
-        }
-        
-        providerOrderId = newId;
-
-      } catch (error) {
-        console.error("ERRO FATAL AO CONTACTAR DROPEA:", error);
-        throw error;
-      }
     } else {
         console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para AliExpress...`);
-        // Aqui implementamos a lógica do AliExpress
         providerOrderId = await fulfillAliExpressOrder(currentOrder, productInDb, customerData);
     }
 
     if (providerOrderId) {
-      const updateData: any = { 
-        provider_order_id: String(providerOrderId),
-        status: 'processing_at_supplier'
-      };
-      if (provider === 'dropea') {
-        updateData.dropea_order_id = String(providerOrderId);
-      }
-      await supabase.from('orders').update(updateData).eq('id', currentOrder.id);
+      console.log(`[FULFILLMENT SUCCESS] Provider: ${provider}, Order ID: ${providerOrderId}. Atualizando base de dados...`);
       
-      console.log(`[FULFILLMENT SUCCESS] Provider Order ID: ${providerOrderId}`);
+      const { error: updateError } = await supabase.from('orders').update({ 
+        provider_order_id: String(providerOrderId),
+        dropea_order_id: provider === 'dropea' ? String(providerOrderId) : currentOrder.dropea_order_id,
+        status: 'processing_at_supplier'
+      }).eq('id', currentOrder.id);
+      
+      if (updateError) {
+          console.error(`[FULFILLMENT DB UPDATE ERROR]`, updateError);
+          throw new Error(`Pedido criado no fornecedor (${providerOrderId}), mas falhou ao atualizar banco local: ${updateError.message}`);
+      }
+      
+      console.log(`[FULFILLMENT FINALIZED] Ordem ${currentOrder.id} atualizada com sucesso.`);
     } else {
       throw new Error("Fornecedor API não retornou um ID de pedido válido.");
     }
   } catch (err: any) {
     console.error(`[FULFILLMENT SYSTEM ERROR] Falha Crítica na Ordem ${order.id}:`, err.message);
-    // Update status to indicate failure if needed
     await getSupabase().from('orders').update({ fulfillment_error: err.message }).eq('id', order.id);
     throw err; 
   }
 }
 
 async function fulfillAliExpressOrder(order: any, product: any, customerData: any) {
-    // PLACEHOLDER: Logic to call AliExpress API
-    console.log('[ALIEXPRESS FULFILLMENT] Placeholder: Chamando API do AliExpress para produto:', product.aliexpress_id);
-    // Example: await axios.post('https://api-sg.aliexpress.com/sync?method=aliexpress.trade.buy.placeorder', ...)
+    const address = {
+        address: sanitizeAddressInput(customerData.address || ""),
+        city: sanitizeAddressInput(customerData.city || ""),
+        contact_person: (customerData.fullName || `${customerData.firstName || ""} ${customerData.lastName || ""}`).trim() || "Cliente",
+        country: customerData.countryCode || customerData.country || 'PT',
+        phone: customerData.phone || "000000000",
+        province: sanitizeAddressInput(customerData.province || customerData.city || ""),
+        zip: (customerData.zip || customerData.postalCode || "").trim()
+    };
+
+    const businessParams = {
+      param_place_order_request: JSON.stringify({
+        logistics_address: address,
+        product_items: [
+          {
+            product_cnt: order.quantity || 1,
+            product_id: parseInt(product.aliexpress_id, 10),
+            sku_attr: order.selected_options?.sku || ""
+          }
+        ]
+      })
+    };
+
+    const result = await callAliExpressAPIInternal('aliexpress.ds.trade.order.add', businessParams);
     
-    // Simulating success
-    return `ALI-${Date.now()}`;
+    const responseKey = 'aliexpress_ds_trade_order_add_response';
+    if (result && result[responseKey] && result[responseKey].result) {
+        return result[responseKey].result.order_id;
+    }
+    
+    if (result && result.error_response) {
+        throw new Error(`AliExpress API Error: ${result.error_response.msg} (Code: ${result.error_response.code})`);
+    }
+
+    throw new Error("AliExpress não retornou order_id. Resposta: " + JSON.stringify(result));
+}
+
+async function getAliExpressOrderDetail(aliOrderId: string) {
+    try {
+        const cleanOrderId = aliOrderId.replace(/[^0-9]/g, '');
+        console.log(`[ALIEXPRESS API] Chamando aliexpress.ds.trade.order.get para: ${cleanOrderId} (Original: ${aliOrderId})`);
+        const result = await callAliExpressAPIInternal('aliexpress.ds.trade.order.get', {
+            order_id: cleanOrderId
+        });
+        
+        console.log("[ALIEXPRESS SYNC] Resposta bruta:", JSON.stringify(result));
+
+        const responseKey = 'aliexpress_ds_trade_order_get_response';
+        
+        if (result && result[responseKey]) {
+            const resp = result[responseKey];
+            if (resp.result) return resp.result;
+            if (resp.data) return resp.data; // Algumas versões da API usam .data
+        }
+        
+        // Verificação alternativa se o nome do campo for diferente
+        const altKey = Object.keys(result || {}).find(k => k.includes('trade_order_get_response'));
+        if (altKey && result[altKey]) {
+            return result[altKey].result || result[altKey].data;
+        }
+
+        if (result && result.error_response) {
+            console.error("[ALIEXPRESS API ERROR]", JSON.stringify(result.error_response));
+        }
+
+        return null;
+    } catch (error: any) {
+        console.error("[ALIEXPRESS API FATAL]", error.message);
+        return null;
+    }
+}
+
+async function getAliExpressProductDetail(aliexpressId: string) {
+    const result = await callAliExpressAPIInternal('aliexpress.ds.product.get', {
+        product_id: aliexpressId
+    });
+    const responseKey = 'aliexpress_ds_product_get_response';
+    if (result && result[responseKey] && result[responseKey].result) {
+        return result[responseKey].result;
+    }
+    return null;
+}
+
+async function getDropeaProductDetail(dropeaId: string | number) {
+    const query = `query GetProduct($id: [Int]) { 
+        products(id: $id) { 
+          data { id name stock category description images } 
+        } 
+      }`;
+    const result = await executeDropeaQuery(query, { id: [Number(dropeaId)] }, 'products');
+    return result?.[0];
+}
+
+async function callAliExpressAPIInternal(method: string, params: any) {
+    const appKey = process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY;
+    const appSecret = process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET;
+    const accessToken = process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN;
+
+    if (!appKey || !appSecret) throw new Error("Credenciais AliExpress Ausentes");
+
+    const systemParams: Record<string, any> = {
+      app_key: appKey,
+      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      sign_method: 'md5',
+      method: method,
+      format: 'json',
+      v: '2.0',
+    };
+    if (accessToken) systemParams.access_token = accessToken;
+
+    const allParams = { ...systemParams, ...params };
+    const sortedKeys = Object.keys(allParams).sort();
+    
+    // Assinatura MD5 padrão AliExpress/Taobao: Secret + sorted(key+value) + Secret
+    let message = appSecret;
+    for (const key of sortedKeys) {
+      const val = allParams[key];
+      if (val !== undefined && val !== null && val !== '') {
+        message += `${key}${val}`;
+      }
+    }
+    message += appSecret;
+    
+    const sign = CryptoJS.MD5(message).toString().toUpperCase();
+    
+    const formData = new URLSearchParams();
+    for (const [key, value] of Object.entries({ ...allParams, sign })) {
+      formData.append(key, String(value));
+    }
+
+    console.log(`[ALIEXPRESS API] Assinando via MD5. Params signed: ${sortedKeys.length}`);
+
+    const response = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+      timeout: 20000
+    });
+
+    return response.data;
 }
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
