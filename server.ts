@@ -3062,7 +3062,9 @@ async function syncOrderWithExternalSources(id: string) {
       if (profile) email = profile.email;
     }
     if (email) {
+      console.log(`[SYNC] Tentando vincular pedido ${id} por e-mail: ${email}`);
       const foundId = await findDropeaOrderByEmail(email, order.total_amount);
+      console.log(`[SYNC] Resultado findDropeaOrderByEmail: ${foundId}`);
       if (foundId) {
         dropeaId = String(foundId);
         // Evitar erro de UNIQUE constraint no dropea_order_id
@@ -3578,13 +3580,21 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     console.log(`[FULFILLMENT START] Ordem ${currentOrder.id} - Manual: ${forceManual}`);
 
     // Resolve product and provider
-    const { data: productInDb } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
+    const { data: productInDb, error: productErr } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
+    console.log(`[FULFILL] Processing order ${currentOrder.id}. Product ID: ${currentOrder.product_id}, Product Data: ${JSON.stringify(productInDb)}, Product Error: ${JSON.stringify(productErr)}`);
     const provider = productInDb?.provider || 'aliexpress';
+    console.log(`[FULFILL] Provider resolved: ${provider}`);
 
     // Normalizar shipping_details
-    const customerData = typeof currentOrder.shipping_details === 'string' 
-      ? JSON.parse(currentOrder.shipping_details) 
-      : (currentOrder.shipping_details || {});
+    let customerData;
+    try {
+      customerData = typeof currentOrder.shipping_details === 'string' 
+        ? JSON.parse(currentOrder.shipping_details) 
+        : (currentOrder.shipping_details || {});
+    } catch (e) {
+      console.error(`[FULFILL] Erro ao parsear shipping_details da ordem ${currentOrder.id}:`, e);
+      customerData = {}; // fallback seguro
+    }
 
     // Ensure email
     if (!customerData.email && currentOrder.customer_email) {
