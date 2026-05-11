@@ -712,17 +712,17 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
       last_name: (customer.lastName || customer.last_name || (customer.fullName ? customer.fullName.split(' ').slice(1).join(' ') || 'S.Art' : "S.Art")).trim(),
       email: (customer.email || "").trim(),
       phone: (customer.phone || "").trim(),
-      address: sanitizeAddressInput(String(customer.address || "")),
-      city: sanitizeAddressInput((customer.city || "").trim()),
+      address: sanitizeAddressInput(String(customer.address || "")).substring(0, 200),
+      city: sanitizeAddressInput((customer.city || "").trim()).substring(0, 100),
       zip: (customer.zip || customer.postalCode || "").trim(),
       country: countryCode
     },
     products: [] as any[]
   };
 
-  if (!variables.customer.first_name || !variables.customer.email || !variables.customer.address) {
-    console.error('[DROPEA] Erro: Dados do cliente incompletos:', JSON.stringify(variables.customer));
-    throw new Error("Dados de cliente incompletos para Dropea");
+  if (!variables.customer.first_name || !variables.customer.email || !variables.customer.email.includes("@")) {
+      console.error('[DROPEA] Erro: Dados do cliente inválidos:', JSON.stringify(variables.customer));
+      throw new Error("Dados de cliente inválidos ou e-mail ausente para Dropea");
   }
 
   // Find correct variant ID from Dropea if options are selected
@@ -775,7 +775,7 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   // Build product list
   const productEntry: any = {
-    product_id: variantId || dropeaProductId, // If variant exists, we might need to use it as product_id if variant_id is not allowed
+    product_id: variantId || dropeaProductId,
     quantity: parseInt(String(product.quantity || 1), 10),
     total_value: parseFloat(String(product.total_value || product.pvp || 0)),
     unit_price: parseFloat(String(product.unit_price || product.total_value || product.pvp || 0))
@@ -783,8 +783,8 @@ async function createDropeaOrderInternal(shopId: number, customer: any, product:
 
   variables.products = [productEntry];
 
-  console.log("[DROPEA DEBUG] Payload a ser enviado:", JSON.stringify(variables));
-  
+  console.log("[DROPEA DEBUG] Payload final a ser enviado ao endpoint Dropea:", JSON.stringify(variables));
+
   const response = await axios.post(DROPEA_API_URL, {
     query: graphqlMutation,
     variables
