@@ -592,48 +592,28 @@ function generateAliExpressSignature(params: Record<string, any>, appSecret: str
   const sortedKeys = Object.keys(paramsToSign).sort();
 
   // 3. Juntar chave e valor
-  // O AliExpress exige MD5(secret + key1value1key2value2... + secret) por padrão na maioria dos casos DS
-  // No caso de HMAC, é HMAC_SHA256(secret, key1value1key2value2...)
-  let signString = '';
-  
-  const signMethod = String(params.sign_method || 'md5').toLowerCase();
-  const isHmac = signMethod.includes('hmac');
-  
-  if (!isHmac) signString += appSecret;
+  let signString = appSecret; // Início com Secret para MD5 padrão TOP
 
   for (const key of sortedKeys) {
-    let value = paramsToSign[key];
-    
-    // Se for objeto, converter para JSON denso (sem espaços)
-    if (typeof value === 'object' && value !== null) {
-      value = JSON.stringify(value);
-    }
-    
+    const value = paramsToSign[key];
     // IMPORTANTE: AliExpress ignora parâmetros vazios no cálculo do sign
-    const strVal = String(value ?? '');
-    if (strVal !== '') {
+    if (value !== null && value !== undefined && value !== '') {
+      const strVal = (typeof value === 'object') ? JSON.stringify(value) : String(value);
       signString += key + strVal;
     }
   }
 
-  if (!isHmac) signString += appSecret;
+  signString += appSecret; // Fim com Secret para MD5 padrão TOP
 
-  if (isHmac) {
-    return crypto
-      .createHmac('sha256', appSecret)
-      .update(signString, 'utf8')
-      .digest('hex')
-      .toUpperCase();
-  } else {
-    return crypto
-      .createHash('md5')
-      .update(signString, 'utf8')
-      .digest('hex')
-      .toUpperCase();
-  }
+  return crypto
+    .createHash('md5')
+    .update(signString, 'utf8')
+    .digest('hex')
+    .toUpperCase();
 }
 
 function getAliExpressTimestamp(): string {
+  // Formato Obrigatório: "YYYY-MM-DD HH:mm:ss" em UTC/GMT
   return new Date().toISOString().replace('T', ' ').substring(0, 19);
 }
 
@@ -650,16 +630,17 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
       return res.status(500).json({ error: 'AliExpress API credentials are missing on server (VITE_ALIEXPRESS_APP_KEY/SECRET).' });
     }
 
+    const currentTimestamp = getAliExpressTimestamp();
     const systemParams: Record<string, any> = {
       app_key: appKey,
-      timestamp: getAliExpressTimestamp(),
+      timestamp: currentTimestamp,
       sign_method: 'md5',
       method: method,
       format: 'json',
       v: '2.0',
     };
 
-    // Usamos 'session' conforme padrão para Dropshipping/Top API com HMAC
+    // Usamos 'session' conforme padrão para Dropshipping/Top API
     if (accessToken) {
       systemParams.session = accessToken;
     }
@@ -667,7 +648,6 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
     const allParams: Record<string, any> = { ...systemParams };
     for (const [key, value] of Object.entries(params || {})) {
       if (value !== null && value !== undefined && value !== '') {
-          // LIMPAR PREFIXOS DE IDs COMUNS (product_id, order_id, etc)
           if (['product_id', 'aliexpress_id', 'order_id', 'parent_order_id'].includes(key.toLowerCase())) {
             allParams[key] = cleanAliExpressId(value as string);
           } else {
@@ -1453,6 +1433,10 @@ apiRouter.post('/orders/:id/sync', async (req, res) => {
     const { id } = req.params;
     const result = await syncOrderWithExternalSources(id);
     if (!result.success) {
+      console.warn(`[SYNC WARNING] Sync failed for Order ${id}:`, result);
+      if (result.error && result.error.startsWith('Aviso:')) {
+        return res.status(400).json(result);
+      }
       return res.status(result.error === 'Ordem não encontrada no sistema local' ? 404 : 500).json(result);
     }
     res.json(result);
@@ -2848,9 +2832,10 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
       return res.status(500).json({ error: 'Credenciais do AliExpress ausentes no servidor.' });
     }
 
+    const currentTimestamp = getAliExpressTimestamp();
     const systemParams: Record<string, any> = {
       app_key: appKey,
-      timestamp: getAliExpressTimestamp(),
+      timestamp: currentTimestamp,
       sign_method: 'md5',
       method: 'aliexpress.ds.product.get',
       format: 'json',
@@ -3126,6 +3111,7 @@ adminRouter.post('/orders/:id/fulfill', async (req, res) => {
 async function syncOrderWithExternalSources(id: string) {
   const supabase = getSupabase();
 
+  // 1. Buscar Pedido (Sem join para evitar falhas do PostgREST)
   const { data: order, error: fetchError } = await supabase
     .from('orders')
     .select('*')
@@ -3133,17 +3119,17 @@ async function syncOrderWithExternalSources(id: string) {
     .maybeSingle();
 
   if (fetchError || !order) {
-    console.error(`[SYNC ERROR] Order ${id} not found:`, fetchError);
+    console.error(`[SYNC ERROR] Order ${id} not found in DB:`, fetchError || 'Record missing');
     return { success: false, error: 'Ordem não encontrada no sistema local' };
   }
 
-  // Fetch product separately
-  if (!order.products && order.product_id) {
-    const { data: prod } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
-    if (prod) order.products = prod;
+  // 2. Buscar Produto
+  let product = null;
+  if (order.product_id) {
+    const { data: prodData } = await supabase.from('products').select('*').eq('id', order.product_id).maybeSingle();
+    product = prodData;
   }
-
-  const product = Array.isArray(order.products) ? order.products[0] : order.products;
+  
   // Identificação robusta do provedor
   let provider = order.provider;
   if (!provider) {
@@ -3153,12 +3139,16 @@ async function syncOrderWithExternalSources(id: string) {
     else provider = 'aliexpress'; // Default
   }
   
+  // Buscar o ID externo em todas as colunas possíveis
   let providerOrderId = order.provider_order_id || order.dropea_order_id;
+
+  if ((provider === 'aliexpress' || provider === 'dropea') && (!providerOrderId || String(providerOrderId).trim() === '')) {
+    return { success: false, error: 'Aviso: Esta encomenda ainda não foi enviada para o fornecedor ou o envio falhou. Faça o Envio Manual primeiro.' };
+  }
   
   const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
   
   if (provider === 'aliexpress') {
-    // Garantir que o ID do AliExpress esteja limpo de prefixos como ALI-
     providerOrderId = cleanAliExpressId(providerOrderId);
   }
 
@@ -3181,11 +3171,20 @@ async function syncOrderWithExternalSources(id: string) {
          }
        }
     }
-    // Para AliExpress não temos busca por email fácil na DS API
+    // No AliExpress, se não temos ID, podemos estar em um estado onde falhou o salvamento mas o pedido foi feito?
+    // Verificamos se há algum erro de fulfillment anterior
+    if (!providerOrderId && order.fulfillment_error && order.fulfillment_error.includes('duplicate')) {
+       // Talvez tentar buscar? Mas sem ID é difícil.
+    }
   }
 
   if (!providerOrderId) {
-    return { success: false, error: 'PEDIDO_NAO_ENCONTRADO', message: `Pedido não vinculado para o provedor ${provider}` };
+    return { 
+        success: false, 
+        error: 'PEDIDO_NAO_ENCONTRADO', 
+        provider: providerLabel,
+        message: `Este pedido ainda não está vinculado ao fornecedor ${providerLabel}. Verifique se ele já foi processado/enviado manualmente.` 
+    };
   }
 
   let externalData: any = null;
@@ -3284,35 +3283,41 @@ async function syncOrderWithExternalSources(id: string) {
       if (mapped.shipping) updateData.shipping_status = mapped.shipping;
     }
   } else {
-    // AliExpress Mapping
-    // WAIT_SELLER_SEND_GOODS, SELLER_SEND_GOODS, FINISH, IN_ISSUE, ARB_FINISHED, WAIT_BUYER_PAY
-    if (['FINISH', 'COMPLETED', 'SHIPPED_TO_SENDER'].includes(externalStatus)) {
+    // AliExpress Mapping - Expanded
+    const statusUpper = String(externalStatus || "").toUpperCase();
+    if (['FINISH', 'COMPLETED', 'SHIPPED_TO_SENDER', 'FUND_PROCESSING'].includes(statusUpper)) {
         updateData.status = 'completed';
         updateData.shipping_status = 'delivered';
-    } else if (['SELLER_SEND_GOODS', 'SHIPPED'].includes(externalStatus)) {
-        updateData.shipping_status = 'sent';
-    } else if (['WAIT_SELLER_SEND_GOODS', 'WAIT_SELLER_SEND'].includes(externalStatus)) {
+    } else if (['SELLER_SEND_GOODS', 'SHIPPED', 'WAIT_BUYER_ACCEPT_GOODS'].includes(statusUpper)) {
         updateData.status = 'paid';
-        updateData.shipping_status = 'preparing';
-    } else if (['WAIT_BUYER_PAY', 'PENDING'].includes(externalStatus)) {
-         // Se ainda não pagou lá, mas aqui está como pago, talvez esperar or alert?
-         // Mantemos conforme o sistema
-    } else if (['IN_ISSUE', 'IN_DISPUTE'].includes(externalStatus)) {
+        updateData.shipping_status = 'sent';
+    } else if (['WAIT_SELLER_SEND_GOODS', 'WAIT_SELLER_SEND', 'PLACE_ORDER_SUCCESS', 'RISK_CONTROL'].includes(statusUpper)) {
+        updateData.status = 'paid';
+        if (!['sent', 'delivered'].includes(order.shipping_status)) {
+            updateData.shipping_status = 'preparing';
+        }
+    } else if (['WAIT_BUYER_PAY', 'PENDING'].includes(statusUpper)) {
+        // Status inicial
+    } else if (['IN_ISSUE', 'IN_DISPUTE'].includes(statusUpper)) {
         updateData.shipping_status = 'disputed';
-    } else if (['CANCELLED', 'CANCELED', 'VOID'].includes(externalStatus)) {
+    } else if (['CANCELLED', 'CANCELED', 'VOID', 'CLOSED'].includes(statusUpper)) {
         if (!['refunded', 'refund_pending'].includes(order.status) && orderAgeMinutes > 10) {
             updateData.status = 'canceled';
         }
     }
   }
 
+  // Garantir metadados atualizados
+  updateData.shipping_status_metadata = {
+    ...(order.shipping_status_metadata || {}),
+    syncedAt: new Date().toISOString(),
+    lastExternalStatus: externalStatus || 'UNKNOWN'
+  };
+
   if (trackingNumber) {
-      updateData.shipping_status_metadata = {
-        ...(order.shipping_status_metadata || {}),
-        trackingNumber: trackingNumber,
-        trackingUrl: trackingUrl || (provider === 'aliexpress' ? `https://www.17track.net/en/track?nums=${trackingNumber}` : ''),
-        syncedAt: new Date().toISOString()
-      };
+      updateData.shipping_status_metadata.trackingNumber = trackingNumber;
+      updateData.shipping_status_metadata.trackingUrl = trackingUrl || (provider === 'aliexpress' ? `https://www.17track.net/en/track?nums=${trackingNumber}` : '');
+      
       if (!updateData.shipping_status && !['delivered', 'sent', 'out_for_delivery'].includes(order.shipping_status)) {
         updateData.shipping_status = 'sent';
       }
@@ -3347,7 +3352,12 @@ adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await syncOrderWithExternalSources(id);
-    if (!result.success) return res.status(result.error === 'Ordem não encontrada no sistema local' ? 404 : 500).json(result);
+    if (!result.success) {
+      if (result.error && result.error.startsWith('Aviso:')) {
+        return res.status(400).json(result);
+      }
+      return res.status(result.error === 'Ordem não encontrada no sistema local' ? 404 : 500).json(result);
+    }
     res.json(result);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -3904,6 +3914,7 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
 
     const businessParams = {
       param_place_order_request4_open_api_d_t_o: JSON.stringify({
+        out_order_id: order.id,
         logistics_address: address,
         product_items: [
           {
@@ -3957,18 +3968,28 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
         });
         
         const tryExtract = (res: any) => {
-            const keys = ['aliexpress_ds_trade_order_get_response', 'aliexpress_solution_order_get_response', 'aliexpress_trade_buy_order_get_response'];
+            if (!res) return null;
+            const keys = [
+                'aliexpress_ds_trade_order_get_response', 
+                'aliexpress_solution_order_get_response', 
+                'aliexpress_trade_buy_order_get_response'
+            ];
+            
             for (const key of keys) {
-                if (res && res[key]) {
-                    const data = res[key].result || res[key].data || res[key];
-                    if (data && (data.order_status || data.status)) return data;
+                if (res[key]) {
+                    const resultObj = res[key].result || res[key].data || res[key];
+                    // Caso o result contenha um campo data (comum na DS API)
+                    const finalData = (resultObj && resultObj.data) ? resultObj.data : resultObj;
+                    
+                    if (finalData && (finalData.order_status || finalData.status || finalData.order_id)) {
+                        return finalData;
+                    }
                 }
             }
-            // Busca genérica por sufixo
-            const altKey = Object.keys(res || {}).find(k => k.endsWith('order_get_response'));
-            if (altKey && res[altKey]) {
-                return res[altKey].result || res[altKey].data || res[altKey];
-            }
+            
+            // Busca genérica recursiva por status (fallback de última instância)
+            if (res.order_status || res.status) return res;
+            
             return null;
         };
 
@@ -4030,11 +4051,11 @@ async function callAliExpressAPIInternal(method: string, params: any) {
         throw new Error("Credenciais AliExpress Ausentes");
     }
 
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const currentTimestamp = getAliExpressTimestamp();
 
     const fullParams: Record<string, any> = {
       app_key: appKey,
-      timestamp: timestamp,
+      timestamp: currentTimestamp,
       sign_method: 'md5',
       method: method,
       format: 'json',

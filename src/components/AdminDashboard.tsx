@@ -1114,7 +1114,9 @@ export default function AdminDashboard({
       if (viewingOrder && viewingOrder.id === orderId) {
         setViewingOrder({
           ...viewingOrder,
-          dropea_order_id: data.order.dropea_order_id
+          status: 'processing_at_supplier',
+          provider_order_id: data.order.provider_order_id || data.order.dropea_order_id,
+          provider: provider
         });
       }
       
@@ -1164,15 +1166,34 @@ export default function AdminDashboard({
         throw new Error(err.msg || "Erro na API AliExpress");
       }
 
-      // Extrair Order ID retornado pelo AliExpress
+      // Extrair Order ID retornado pelo AliExpress com fallbacks robustos
       let aliOrderId = "";
-      const respKey = "aliexpress_trade_buy_placeorder_response";
-      if (response[respKey] && response[respKey].result) {
-        const result = response[respKey].result;
-        if (result.order_id) {
-          aliOrderId = String(result.order_id);
-        } else if (result.order_id_list && result.order_id_list.length > 0) {
-          aliOrderId = String(result.order_id_list[0]);
+      const respKeys = [
+        "aliexpress_trade_buy_placeorder_response",
+        "aliexpress_ds_trade_buy_placeorder_response"
+      ];
+      
+      for (const key of respKeys) {
+        const resp = response[key];
+        if (resp && resp.result) {
+          const result = resp.result;
+          if (result.order_id) {
+            aliOrderId = String(result.order_id);
+          } else if (result.order_id_list && result.order_id_list.length > 0) {
+            aliOrderId = String(result.order_id_list[0]);
+          } else if (result.data && result.data.order_id) {
+             aliOrderId = String(result.data.order_id);
+          }
+        }
+        if (aliOrderId) break;
+      }
+      
+      if (!aliOrderId) {
+        console.warn("[ALIEXPRESS] Ordem colocada mas ID não encontrado no retorno:", response);
+        // Tentar busca genérica se falhar as chaves conhecidas
+        for (const k in response) {
+          if (response[k]?.result?.order_id) aliOrderId = String(response[k].result.order_id);
+          if (aliOrderId) break;
         }
       }
 
@@ -1217,17 +1238,26 @@ export default function AdminDashboard({
       
       toast.loading(`Sincronizando com ${initialLabel} e Stripe...`, { id: "sync" });
       const res = await fetch(`/api/orders/${orderId}/sync`, {
-        method: 'POST'
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        }
       });
       
       const contentType = res.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("[Sync] Non-JSON response received:", text.substring(0, 200));
+        
+        if (text.toLowerCase().includes("failed to fetch") || !text) {
+           throw new Error("Erro de conexão: O servidor não respondeu. Tente novamente em instantes.");
+        }
+        
         if (text.includes("Starting Server") || text.includes("Vite + React")) {
           throw new Error("O servidor ainda está iniciando ou reiniciando. Aguarde 5-10 segundos e tente novamente.");
         }
-        throw new Error("Resposta inválida do servidor (HTML). Isto geralmente indica um erro de rota ou servidor em manutenção.");
+        throw new Error("Resposta inválida do servidor (HTML). Isto geralmente indica um erro de rota ou servidor em reinicialização.");
       }
 
       const data = await res.json();
@@ -1242,9 +1272,21 @@ export default function AdminDashboard({
       toast.success(`[${data.provider || initialLabel}] ${syncedMsg} Status: ${data.external_status || 'OK'}`, { id: "sync" });
       
       if (data.updatedOrder) {
-        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...data.updatedOrder, product: o.product } : o));
+        // Garantir que mantemos o objeto product que o front espera
+        setOrders(prev => prev.map(o => o.id === orderId ? { 
+            ...o, 
+            ...data.updatedOrder, 
+            // Preservar ID se vier do back mas as colunas podem variar
+            provider_order_id: data.updatedOrder.provider_order_id || o.provider_order_id,
+            product: o.product 
+        } : o));
+        
         if (viewingOrder && viewingOrder.id === orderId) {
-          setViewingOrder({ ...viewingOrder, ...data.updatedOrder });
+          setViewingOrder({ 
+            ...viewingOrder, 
+            ...data.updatedOrder,
+            provider_order_id: data.updatedOrder.provider_order_id || viewingOrder.provider_order_id
+          });
         }
       }
       
@@ -1258,7 +1300,9 @@ export default function AdminDashboard({
       console.error("[Sync Detail Error]", err);
       const msg = err.message || "";
       if (msg.includes('não vinculado') || msg.includes('PEDIDO_NAO_ENCONTRADO')) {
-         toast.info("Atenção: Este pedido ainda não existe na Dropea. Verifique o e-mail ou utilize 'Enviar Manual'.", { id: "sync", duration: 8000 });
+         const ord = orders.find(o => o.id === orderId);
+         const provider = viewingOrder?.provider || ord?.provider || "AliExpress";
+         toast.info(`Atenção: Este pedido ainda não está vinculado ao fornecedor ${provider}. Tente "Enviar para ${provider}" primeiro ou verifique o estado do pedido no painel do fornecedor.`, { id: "sync", duration: 8000 });
       } else {
          toast.error(`Falha na Verificação: ${msg}`, { id: "sync", duration: 6000 });
       }
@@ -3645,7 +3689,7 @@ export default function AdminDashboard({
                          const provider = viewingOrder.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
                          const isAli = provider === 'aliexpress';
                          const providerLabel = isAli ? 'AliExpress' : 'Dropea';
-                         const externalId = isAli ? viewingOrder.provider_order_id : viewingOrder.dropea_order_id;
+                         const externalId = (viewingOrder.provider_order_id || viewingOrder.dropea_order_id);
                          
                          return (
                            <>

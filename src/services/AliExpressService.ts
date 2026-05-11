@@ -95,6 +95,7 @@ export class AliExpressService {
   public static async placeOrder(order: any, customerAddress: any): Promise<any> {
     const businessParams = {
       param_place_order_request4_open_api_d_t_o: JSON.stringify({
+        out_order_id: order.id,
         logistics_address: {
           address: customerAddress.address,
           city: customerAddress.city,
