@@ -340,7 +340,7 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       const userId = customerData.userId;
 
       // 2. CRIAR PEDIDO
-      const quantity = session.line_items?.data?.[0]?.quantity || 1;
+      const quantity = parseInt(metadata.quantity || "0") || (session as any).line_items?.data?.[0]?.quantity || 1;
       
       const orderData = {
         user_id: userId,
@@ -3944,7 +3944,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
           },
           unit_amount: 115, // 1.15€ in cents
         },
-        quantity: qty, // Shipping often scales with quantity in dropshipping
+        quantity: 1,
       });
     }
 
@@ -3958,6 +3958,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
         dropea_id: String(product.dropea_id),
         customer_data: JSON.stringify(customer),
         product_id: String(product.id),
+        quantity: String(qty),
         selected_options: JSON.stringify(selectedOptions || {})
       }
     });

@@ -3487,13 +3487,13 @@ export default function App() {
                           </span>
                         ) : (
                           <span className="text-white/60">
-                            €{(1.15 * quantity).toFixed(2)}
+                            €1.15
                           </span>
                         )}
                       </div>
                       <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
-                        <span>€{((Number(selectedProduct.pvp) + (selectedProduct.free_shipping ? 0 : 1.15)) * quantity).toFixed(2)}</span>
+                        <span>€{(Number(selectedProduct.pvp) * quantity + (selectedProduct.free_shipping ? 0 : 1.15)).toFixed(2)}</span>
                       </div>
                     </div>
 
