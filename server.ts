@@ -2912,11 +2912,16 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
         }
 
         // 3. Record Usage
-        await supabase.from('coupon_usage').insert({
+        const { error: insertError } = await supabase.from('coupon_usage').insert({
             coupon_id: coupon.id,
             user_id: customer.userId,
             product_id: product.id
         });
+        
+        if (insertError) {
+          console.error("Failed to insert coupon usage:", insertError);
+          return res.status(500).json({ error: "Erro ao registrar cupom. Tente novamente mais tarde." });
+        }
 
         unitAmount = Math.round(unitAmount * (1 - coupon.percentage_discount / 100));
     }
