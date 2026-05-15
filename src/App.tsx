@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import { supabase } from "./lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { Routes, Route, useLocation } from "react-router-dom";
+import { t } from "./services/i18n";
 
 import AdminDashboard from "./components/AdminDashboard";
 import TermsAndPrivacy from "./components/TermsAndPrivacy";
@@ -101,57 +102,6 @@ const QuantitySelector = ({ value, onChange, label = "Quantidade" }: { value: nu
   </div>
 );
 
-const CountryDropdown = ({ value, onChange }: { value: any; onChange: (c: any) => void }) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  return (
-    <div className="relative">
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 hover:border-luxury-gold/40 transition-all rounded-sm group overflow-hidden"
-      >
-        <span className="text-lg leading-none">{value.flag}</span>
-        <span className="text-[9px] uppercase tracking-widest text-white/50 group-hover:text-white font-bold transition-colors">{value.name}</span>
-        <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-500 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      <AnimatePresence>
-        {isOpen && (
-          <>
-            <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
-            <motion.div 
-              initial={{ opacity: 0, y: 5, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 5, scale: 0.95 }}
-              className="absolute top-full right-0 mt-2 w-56 bg-[#0a0a0a] border border-white/10 shadow-2xl z-[101] overflow-hidden rounded-sm"
-            >
-              <div className="max-h-72 overflow-y-auto luxury-scrollbar p-1">
-                {COUNTRIES.map(country => (
-                  <button 
-                    key={country.code}
-                    onClick={() => {
-                      onChange(country);
-                      setIsOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5 group ${value.code === country.code ? 'bg-luxury-gold/10' : ''}`}
-                  >
-                    <span className="text-xl">{country.flag}</span>
-                    <div className="flex flex-col">
-                      <span className={`text-[10px] uppercase tracking-widest font-bold ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
-                        {country.name}
-                      </span>
-                      <span className="text-[8px] text-white/30 uppercase tracking-tighter">Entrega S.Art VIP</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
 
 const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
   const activeProducts = useMemo(() => products.filter(p => p.is_active && p.image_url), [products]);
@@ -594,6 +544,86 @@ function ScrollToTop() {
   return null;
 }
 
+const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onChange: (c: any) => void; className?: string }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className={`relative ${className}`}>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 hover:border-luxury-gold/40 transition-all rounded-sm group overflow-hidden"
+      >
+        <span className="text-lg leading-none">{value.flag}</span>
+        <span className="text-[9px] uppercase tracking-widest text-white/50 group-hover:text-white font-bold transition-colors">{value.name}</span>
+        <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-500 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
+            <motion.div 
+              initial={{ opacity: 0, y: 5, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 5, scale: 0.95 }}
+              className="absolute top-full right-0 mt-2 w-56 bg-[#0a0a0a] border border-white/10 shadow-2xl z-[101] overflow-hidden rounded-sm"
+            >
+              <div className="max-h-72 overflow-y-auto luxury-scrollbar p-1">
+                {COUNTRIES.map(country => (
+                  <button 
+                    key={country.code}
+                    onClick={() => {
+                      onChange(country);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5 group ${value.code === country.code ? 'bg-luxury-gold/10' : ''}`}
+                  >
+                    <span className="text-xl">{country.flag}</span>
+                    <div className="flex flex-col">
+                      <span className={`text-[10px] uppercase tracking-widest font-bold ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
+                        {country.name}
+                      </span>
+                      <span className="text-[8px] text-white/30 uppercase tracking-tighter">Entrega S.Art VIP</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+const LANGUAGE_MAP: Record<string, string> = {
+  PT: 'pt',
+  BR: 'pt',
+  ES: 'es',
+  US: 'en',
+  FR: 'fr',
+  DE: 'de',
+  IT: 'it',
+  GB: 'en',
+  CA: 'en',
+  AU: 'en',
+  JP: 'ja',
+  KR: 'ko',
+  CL: 'es',
+  MX: 'es',
+  NL: 'nl',
+  BE: 'nl',
+  CH: 'de',
+  SE: 'sv',
+  NO: 'no',
+  FI: 'fi',
+  DK: 'da',
+  IE: 'en',
+  AT: 'de',
+  GR: 'el',
+};
+
+// --- Navbar ---
 const Navbar = ({
   user,
   profile,
@@ -606,6 +636,7 @@ const Navbar = ({
   searchQuery,
   selectedCountry,
   onCountryChange,
+  currentLanguage,
 }: {
   user: any;
   profile: any;
@@ -618,6 +649,7 @@ const Navbar = ({
   searchQuery: string;
   selectedCountry: any;
   onCountryChange: (c: any) => void;
+  currentLanguage: string;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -655,7 +687,7 @@ const Navbar = ({
 
         <div className="flex items-center gap-3 md:gap-6">
           <div className="hidden sm:block">
-            <CountryDropdown value={selectedCountry} onChange={onCountryChange} />
+            <CountryDropdown value={selectedCountry} onChange={onCountryChange} className="hover:ring-2 hover:ring-luxury-gold/50 hover:shadow-lg transition-all" />
           </div>
           {/* Superior Luxury Search */}
           <div className="relative flex items-center">
@@ -677,7 +709,7 @@ const Navbar = ({
                         setIsSearchOpen(false);
                       }
                     }}
-                    placeholder="ENCANTAR COM..."
+                    placeholder={currentLanguage === 'pt' ? "ENCANTAR COM..." : "ENCHANT WITH..."}
                     autoFocus
                     className="bg-transparent border-none text-white w-full outline-none text-[9px] uppercase tracking-[0.3em] placeholder:text-white/40"
                   />
@@ -1913,6 +1945,7 @@ export default function App() {
 
   const [quantity, setQuantity] = useState(1);
   const [globalCountry, setGlobalCountry] = useState(COUNTRIES[0]);
+  const [currentLanguage, setCurrentLanguage] = useState('pt');
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
@@ -2629,8 +2662,11 @@ export default function App() {
             searchQuery={searchQuery}
             onCartClick={() => {}}
             selectedCountry={globalCountry}
+            currentLanguage={currentLanguage}
             onCountryChange={(c) => {
               setGlobalCountry(c);
+              const lang = LANGUAGE_MAP[c.code] || 'en';
+              setCurrentLanguage(lang);
               setShippingInfo(prev => ({ 
                 ...prev, 
                 country: c.name, 
@@ -2665,14 +2701,14 @@ export default function App() {
               }}
               className="rounded-none bg-luxury-foreground text-luxury-bg h-12 uppercase tracking-[0.2em] text-[10px] font-bold hover:opacity-80 transition-opacity"
             >
-              Confirmar Saída
+              {t('confirm_logout', currentLanguage)}
             </Button>
             <Button
               variant="ghost"
               onClick={() => setIsLogoutOpen(false)}
               className="rounded-none h-12 uppercase tracking-[0.2em] text-[10px] text-luxury-foreground/60 hover:text-luxury-foreground transition-all"
             >
-              Cancelar
+              {t('cancel', currentLanguage)}
             </Button>
           </div>
         </DialogContent>

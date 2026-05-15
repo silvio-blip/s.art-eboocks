@@ -52,6 +52,7 @@ import { supabase } from "../lib/supabase";
 import { AliExpressService } from "../services/AliExpressService";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { CreateManualProduct } from "./CreateManualProduct";
+import { CouponManager } from "./CouponManager";
 
 const getImageUrl = (url: string) => {
   if (!url) return "https://picsum.photos/seed/ebook/600/800";
@@ -156,7 +157,7 @@ export default function AdminDashboard({
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(
     null,
   );
-  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds">(
+  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons">(
     "overview",
   );
   const [timeRange, setTimeRange] = useState<"weekly" | "monthly" | "yearly">(
@@ -1374,7 +1375,7 @@ export default function AdminDashboard({
           </div>
 
           <div className={`hidden sm:flex rounded-full p-1 border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
-            {(["overview", "products", "orders", "refunds", "users"] as const).map((t) => (
+            {(["overview", "products", "orders", "refunds", "users", "coupons"] as const).map((t) => (
               <button
                 key={t}
                 id={t === "users" ? "tab-users" : undefined}
@@ -1395,6 +1396,8 @@ export default function AdminDashboard({
                           ? "Ordens"
                           : t === "refunds"
                             ? "Reembolsos"
+                            : t === "coupons"
+                            ? "Cupons"
                             : "Utilizadores"}
                   </span>
                   {t === "refunds" && <Undo2 size={12} className={theme === 'dark' ? "text-white/20" : "text-black/20"} />}
@@ -1445,7 +1448,7 @@ export default function AdminDashboard({
 
         {/* Mobile Tabs */}
         <div className={`sm:hidden flex border-t ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
-          {(["overview", "products", "orders", "refunds", "users"] as const).map((t) => (
+          {(["overview", "products", "orders", "refunds", "users", "coupons"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -1463,7 +1466,9 @@ export default function AdminDashboard({
                       ? "Vendas"
                       : t === "refunds"
                         ? "Reembolsos"
-                        : "Users"}
+                        : t === "coupons"
+                          ? "Cupons"
+                          : "Users"}
             </button>
           ))}
         </div>
@@ -3445,6 +3450,12 @@ export default function AdminDashboard({
                   </table>
                 </div>
               </div>
+          </div>
+        )}
+
+        {tab === "coupons" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <CouponManager />
           </div>
         )}
 
