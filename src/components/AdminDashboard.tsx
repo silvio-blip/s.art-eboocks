@@ -173,6 +173,7 @@ export default function AdminDashboard({
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [userSearch, setUserSearch] = useState("");
   const [importAliExpressId, setImportAliExpressId] = useState("");
+  const [importMarkup, setImportMarkup] = useState<number>(10.00); // Default markup
   const [importing, setImporting] = useState(false);
   const [isSyncingAllAliExpress, setIsSyncingAllAliExpress] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
@@ -647,9 +648,9 @@ export default function AdminDashboard({
     setImporting(true);
     const impToast = toast.loading(`Importando produto ${productId} para a base de dados...`);
     
-    try {
-      // Use the markup from the current editing session if it exists, or 0
-      const markupValue = editingProduct?.price_markup || 0;
+     try {
+      // Use the markup from the current editing session if it exists, or the default import markup
+      const markupValue = editingProduct?.price_markup !== undefined ? editingProduct.price_markup : importMarkup;
 
       // Call the new integrated endpoint
       const response = await fetch('/api/admin/products/import-aliexpress', {
@@ -2207,14 +2208,29 @@ export default function AdminDashboard({
 
                       <div className="space-y-4">
                         <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold ml-1">Sincronização Automática (Recomendado)</p>
-                        <div className="flex gap-2">
-                           <input
-                            type="text"
-                            placeholder="Link ou ID Internacional..."
-                            value={importAliExpressId}
-                            onChange={(e) => setImportAliExpressId(e.target.value)}
-                            className="flex-1 h-14 bg-white/[0.03] border border-white/5 rounded-xl px-6 text-white font-mono text-[11px] outline-none focus:border-white/20 transition-all"
-                          />
+                        <div className="flex flex-col md:flex-row gap-3">
+                           <div className="relative flex-1">
+                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
+                             <input
+                              type="text"
+                              placeholder="Link ou ID Internacional..."
+                              value={importAliExpressId}
+                              onChange={(e) => setImportAliExpressId(e.target.value)}
+                              className="w-full h-14 bg-white/[0.03] border border-white/5 rounded-xl pl-12 pr-6 text-white font-mono text-[11px] outline-none focus:border-luxury-gold/30 transition-all"
+                            />
+                           </div>
+                           <div className="relative w-full md:w-32">
+                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-luxury-gold/40" />
+                             <input
+                              type="number"
+                              step="0.01"
+                              placeholder="Margem"
+                              value={importMarkup}
+                              onChange={(e) => setImportMarkup(parseFloat(e.target.value) || 0)}
+                              className="w-full h-14 bg-luxury-gold/5 border border-luxury-gold/20 rounded-xl pl-12 pr-4 text-luxury-gold font-mono text-[11px] outline-none focus:border-luxury-gold/40 transition-all"
+                              title="Valor fixo que será somado ao preço de custo"
+                            />
+                           </div>
                           <Button
                             onClick={handleImportAliExpress}
                             disabled={importing || !importAliExpressId}
@@ -2223,6 +2239,9 @@ export default function AdminDashboard({
                             {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Extrair"}
                           </Button>
                         </div>
+                        <p className="text-[8px] text-luxury-gold/40 uppercase tracking-[0.2em] ml-1 font-bold">
+                          Dica: A margem de €{importMarkup.toFixed(2)} será somada automaticamente ao preço base do AliExpress.
+                        </p>
                       </div>
 
                       <div className="relative h-px bg-white/5 flex items-center justify-center">
@@ -2500,9 +2519,16 @@ export default function AdminDashboard({
                             onChange={(e) => {
                               const val = e.target.value;
                               const numVal = val === "" ? 0 : parseFloat(val);
+                              
+                              // Automatically update PVP if base_price exists
+                              const basePrice = Number(editingProduct.metadata?.base_price || 0);
+                              const updatedPvp = basePrice > 0 ? basePrice + numVal : editingProduct.pvp;
+
                               setEditingProduct({
                                 ...editingProduct,
-                                price_markup: numVal
+                                price_markup: numVal,
+                                pvp: updatedPvp,
+                                price: updatedPvp
                               });
                             }}
                             className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-orange-500 transition-colors font-mono text-orange-500"

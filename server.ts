@@ -406,40 +406,48 @@ function extractAliExpressPrice(field: any): number {
   if (field === null || field === undefined) return 0;
   if (typeof field === 'number') return field;
   if (typeof field === 'string') {
-    // If it's a range like "10.00 - 20.00", take the first part to avoid concatenation
+    // 1. Remove range (e.g. "10.00 - 20.00" -> "10.00")
     const firstPart = field.split('-')[0].trim();
     
-    // Remove currency symbols but keep digits, dots and commas
+    // 2. Remove currency symbols but keep digits, dots and commas
     let cleaned = firstPart.replace(/[^\d.,]/g, "").trim();
     if (!cleaned) return 0;
 
-    // Handle European format like 1.234,56
-    if (cleaned.includes(",") && cleaned.includes(".")) {
+    // Detect if thousands separator is . or ,
+    const dots = (cleaned.match(/\./g) || []).length;
+    const commas = (cleaned.match(/,/g) || []).length;
+
+    if (dots > 0 && commas > 0) {
       const lastDot = cleaned.lastIndexOf(".");
       const lastComma = cleaned.lastIndexOf(",");
       if (lastComma > lastDot) {
-        // European: 1.234,56 -> 1234.56
+        // EU format: 1.234,56 -> 1234.56
         cleaned = cleaned.replace(/\./g, "").replace(",", ".");
       } else {
-        // American: 1,234.56 -> 1234.56
+        // US format: 1,234.56 -> 1234.56
         cleaned = cleaned.replace(/,/g, "");
       }
-    } else if (cleaned.includes(",")) {
-      // Only comma: 1234,56 or 1,234
-      const parts = cleaned.split(",");
-      if (parts[parts.length - 1].length <= 2) {
-        // Likely decimal: 1234,56 -> 1234.56
+    } else if (commas > 1) {
+      // Thousands separator: 1,234,567 -> 1234567
+      cleaned = cleaned.replace(/,/g, "");
+    } else if (dots > 1) {
+      // Thousands separator: 1.234.567 -> 1234567
+      cleaned = cleaned.replace(/\./g, "");
+    } else if (commas === 1) {
+      // Single comma. If it's near the end, likely decimal: 1234,56
+      const lastIdx = cleaned.lastIndexOf(",");
+      if (cleaned.length - lastIdx <= 3) {
         cleaned = cleaned.replace(",", ".");
       } else {
-        // Likely thousand separator: 1,234 -> 1234
         cleaned = cleaned.replace(",", "");
       }
     }
     
-    return parseFloat(cleaned) || 0;
+    const val = parseFloat(cleaned);
+    return isNaN(val) ? 0 : val;
   }
   if (typeof field === 'object') {
-     return extractAliExpressPrice(field.amount || field.value || field.sale_price || field.price || field.target_sale_price || field.target_sku_price);
+     return extractAliExpressPrice(field.amount || field.target_sale_price?.amount || field.value || field.sale_price || field.price || field.target_sale_price || field.target_sku_price);
   }
   return 0;
 }
@@ -2011,18 +2019,25 @@ function parseAliExpressProduct(aliexpressData: any) {
     .filter((url: string) => url !== mainImage)
     .join(',');
 
-  // 3. Preço (Min variation price of IN-STOCK items is the most representative)
-  const inStockVariations = processedVariations.filter(v => v.stock > 0);
-  const targetVariations = inStockVariations.length > 0 ? inStockVariations : processedVariations;
-  
-  const skuPrices = targetVariations.map(v => v.price).filter(p => p > 0);
-  const minSkuPrice = skuPrices.length > 0 ? Math.min(...skuPrices) : 0;
-  
-  // Also check target_sale_price from base info as it's often the main price shown on site
+  // 3. Preço
+  // Use target_sale_price from base info as it's the main price shown on site in the correct currency.
   const targetSalePrice = extractAliExpressPrice(base.target_sale_price);
   
-  // Use the most representative price
-  const finalPrice = minSkuPrice > 0 ? minSkuPrice : targetSalePrice;
+  // Also check min variation price of IN-STOCK items as a fallback or verification.
+  const inStockVariations = processedVariations.filter(v => v.stock > 0);
+  const targetVariations = inStockVariations.length > 0 ? inStockVariations : processedVariations;
+  const skuPrices = targetVariations.map(v => v.price).filter(p => p > 0);
+  const minSkuPrice = skuPrices.length > 0 ? Math.min(...skuPrices) : 0;
+  const maxSkuPrice = skuPrices.length > 0 ? Math.max(...skuPrices) : 0;
+  
+  // Logic Improvement:
+  // If targetSalePrice exists and is within the SKU range, prefer it.
+  // Otherwise, use minSkuPrice as it's the "Starting from" price.
+  let finalPrice = targetSalePrice;
+  if (finalPrice <= 0 || (maxSkuPrice > 0 && finalPrice > maxSkuPrice * 1.5)) {
+    finalPrice = minSkuPrice;
+  }
+  if (finalPrice <= 0) finalPrice = targetSalePrice; // Final fallback
 
   return {
     title: base.subject || "Produto Importado",
@@ -2037,7 +2052,8 @@ function parseAliExpressProduct(aliexpressData: any) {
     metadata: {
       variations: processedVariations,
       import_date: new Date().toISOString(),
-      base_price: finalPrice
+      base_price: finalPrice,
+      sku_range: { min: minSkuPrice, max: maxSkuPrice }
     }
   };
 }
@@ -2047,7 +2063,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const { productId, markup } = req.body;
     if (!productId) return res.status(400).json({ error: 'ID de importação é obrigatório.' });
 
-    const priceMarkup = parseFloat(String(markup || 0));
+    const priceMarkup = markup !== undefined ? parseFloat(String(markup)) : undefined;
     console.log(`[ADMIN] Importando produto internacional ID: ${productId} com Margem: ${priceMarkup}`);
     
     const data = await fetchAliExpressProduct(productId);
@@ -2063,7 +2079,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
       .eq('aliexpress_id', String(baseInfo.product_id))
       .maybeSingle();
 
-    const activeMarkup = priceMarkup || existing?.price_markup || 0;
+    const activeMarkup = priceMarkup !== undefined ? priceMarkup : (existing?.price_markup || 0);
     const finalPriceWithMarkup = (parsed.price || 0) + activeMarkup;
 
     // Manual Upsert Logic
