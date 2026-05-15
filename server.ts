@@ -58,6 +58,11 @@ const initDB = async () => {
         await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS dropea_id TEXT UNIQUE;' });
       } catch(e) { /* Ignore */ }
 
+      // Ensure free_shipping exists in products
+      try {
+        await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS free_shipping BOOLEAN DEFAULT FALSE;' });
+      } catch(e) { /* Ignore */ }
+
       // Define columns to ensure with their types
       const columnsToEnsure = [
         { name: 'email_paid_sent', type: 'BOOLEAN DEFAULT FALSE' },
@@ -65,6 +70,7 @@ const initDB = async () => {
         { name: 'email_review_sent', type: 'BOOLEAN DEFAULT FALSE' },
         { name: 'email_canceled_sent', type: 'BOOLEAN DEFAULT FALSE' },
         { name: 'email_refunded_sent', type: 'BOOLEAN DEFAULT FALSE' },
+        { name: 'email_delivered_sent', type: 'BOOLEAN DEFAULT FALSE' },
         { name: 'stripe_payment_intent', type: 'TEXT' },
         { name: 'payment_status', type: 'TEXT DEFAULT \'pending\'' },
         { name: 'quantity', type: 'INTEGER DEFAULT 1' },
@@ -74,10 +80,12 @@ const initDB = async () => {
         { name: 'provider_order_id', type: 'TEXT' },
         { name: 'dropea_order_id', type: 'TEXT' },
         { name: 'aliexpress_id', type: 'TEXT' },
-        { name: 'fulfillment_error', type: 'TEXT' }
+        { name: 'fulfillment_error', type: 'TEXT' },
+        { name: 'shipping_tracking_code', type: 'TEXT' },
+        { name: 'shipping_tracking_url', type: 'TEXT' }
       ];
 
-      // Ensure categories table exists and seed defaults
+      // Ensure categories table exists
       try {
         await supabase.rpc('exec_sql', { sql: `
           CREATE TABLE IF NOT EXISTS categories (
@@ -96,12 +104,6 @@ const initDB = async () => {
           INSERT INTO site_settings (key, value)
           SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
           WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
-          
-          -- Ensure defaults exist
-          INSERT INTO categories (name) VALUES ('Geral') ON CONFLICT (name) DO NOTHING;
-          INSERT INTO categories (name) VALUES ('Moda') ON CONFLICT (name) DO NOTHING;
-          INSERT INTO categories (name) VALUES ('Saúde') ON CONFLICT (name) DO NOTHING;
-          INSERT INTO categories (name) VALUES ('Tecnologia') ON CONFLICT (name) DO NOTHING;
         ` });
       } catch(e) { console.error('[INIT] Error ensuring tables:', e); }
       
@@ -159,6 +161,18 @@ const initDB = async () => {
 
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'metadata') THEN
               ALTER TABLE products ADD COLUMN metadata JSONB DEFAULT '{}'::jsonb;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'price_markup') THEN
+              ALTER TABLE products ADD COLUMN price_markup NUMERIC DEFAULT 0;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'last_aliexpress_sync') THEN
+              ALTER TABLE products ADD COLUMN last_aliexpress_sync TIMESTAMP WITH TIME ZONE;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'is_active') THEN
+              ALTER TABLE products ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
             END IF;
 
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'aliexpress_id') THEN
@@ -574,6 +588,111 @@ app.use('/api', apiRouter);
 app.use('/api/admin', adminRouter);
 
 // --- ALIEXPRESS SHARED HELPERS ---
+// Robust price extractor for AliExpress responses
+function extractAliExpressPrice(field: any): number {
+  if (field === null || field === undefined) return 0;
+  if (typeof field === 'number') return field;
+  if (typeof field === 'string') {
+    // If it's a range like "10.00 - 20.00", take the first part to avoid concatenation
+    const firstPart = field.split('-')[0].trim();
+    
+    // Remove currency symbols but keep digits, dots and commas
+    let cleaned = firstPart.replace(/[^\d.,]/g, "").trim();
+    if (!cleaned) return 0;
+
+    // Handle European format like 1.234,56
+    if (cleaned.includes(",") && cleaned.includes(".")) {
+      const lastDot = cleaned.lastIndexOf(".");
+      const lastComma = cleaned.lastIndexOf(",");
+      if (lastComma > lastDot) {
+        // European: 1.234,56 -> 1234.56
+        cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+      } else {
+        // American: 1,234.56 -> 1234.56
+        cleaned = cleaned.replace(/,/g, "");
+      }
+    } else if (cleaned.includes(",")) {
+      // Only comma: 1234,56 or 1,234
+      const parts = cleaned.split(",");
+      if (parts[parts.length - 1].length <= 2) {
+        // Likely decimal: 1234,56 -> 1234.56
+        cleaned = cleaned.replace(",", ".");
+      } else {
+        // Likely thousand separator: 1,234 -> 1234
+        cleaned = cleaned.replace(",", "");
+      }
+    }
+    
+    return parseFloat(cleaned) || 0;
+  }
+  if (typeof field === 'object') {
+     return extractAliExpressPrice(field.amount || field.value || field.sale_price || field.price || field.target_sale_price || field.target_sku_price);
+  }
+  return 0;
+}
+async function fetchAliExpressProduct(productId: string) {
+  const appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
+  const appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
+  const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
+
+  if (!appKey || !appSecret) {
+    throw new Error('Credenciais do AliExpress ausentes no servidor.');
+  }
+
+  const currentTimestamp = getAliExpressTimestamp();
+  const systemParams: Record<string, any> = {
+    app_key: appKey,
+    timestamp: currentTimestamp,
+    sign_method: 'md5',
+    method: 'aliexpress.ds.product.get',
+    format: 'json',
+    v: '2.0',
+  };
+
+  if (accessToken) systemParams.session = accessToken;
+
+  const businessParams: Record<string, any> = {
+    product_id: cleanAliExpressId(productId),
+    target_currency: 'EUR',
+    target_language: 'PT',
+    ship_to_country: 'PT',
+  };
+
+  const allParams: Record<string, any> = { ...systemParams };
+  for (const [k, v] of Object.entries(businessParams)) {
+    if (v !== null && v !== undefined && v !== '') {
+      allParams[k] = v;
+    }
+  }
+
+  const sign = generateAliExpressSignature(allParams, appSecret);
+  const formData = new URLSearchParams();
+  const sortedKeys = Object.keys(allParams).sort();
+  for (const key of sortedKeys) {
+    const val = allParams[key];
+    const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
+    formData.append(key, stringVal);
+  }
+  formData.append('sign', sign);
+
+  const aliRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+    timeout: 30000
+  });
+
+  const responseKey = 'aliexpress_ds_product_get_response';
+  const data = aliRes.data[responseKey]?.result || aliRes.data[responseKey];
+  
+  if (aliRes.data.error_response) {
+    throw new Error(`Erro AliExpress: ${aliRes.data.error_response.msg}`);
+  }
+
+  if (!data) {
+    throw new Error('Produto não encontrado no AliExpress.');
+  }
+
+  return data;
+}
 
 /**
  * Limpa qualquer prefixo (como ALI-) de IDs do AliExpress
@@ -1546,9 +1665,9 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
         </div>
       `;
-    } else if (['delivered', 'entregue'].includes(lowerShip)) {
+    } else if (['delivered', 'entregue', 'completed', 'concluído', 'concluido'].includes(lowerShip) || lowerS === 'completed' || lowerS === 'concluído') {
       subject = `O seu pedido ${formattedId} foi entregue!`;
-      flagField = 'email_review_sent';
+      flagField = 'email_delivered_sent';
       emailBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
           <h2 style="color: #10b981;">Pedido Entregue!</h2>
@@ -1578,9 +1697,18 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     } else if (['sent', 'enviado', 'shipped', 'em trânsito'].includes(lowerShip)) {
       subject = `O seu pedido ${formattedId} está a caminho!`;
       flagField = 'email_shipped_sent';
-      const trackingInfo = order.shipping_status_metadata?.trackingNumber 
-        ? `<p>Código de Rastreio: <strong>${order.shipping_status_metadata.trackingNumber}</strong></p>` 
+      
+      const trackingNumber = order.shipping_tracking_code || order.shipping_status_metadata?.trackingNumber || '';
+      const trackingUrl = order.shipping_tracking_url || order.shipping_status_metadata?.trackingUrl || '';
+
+      const trackingInfo = trackingNumber 
+        ? `<p>Código de Rastreio: <strong>${trackingNumber}</strong></p>` 
         : '';
+      
+      const trackingLink = trackingUrl
+        ? `<p><a href="${trackingUrl}" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px; margin-top: 10px;">Acompanhar Entrega</a></p>`
+        : '';
+
       emailBody = `
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
           <h2 style="color: #3b82f6;">Boas notícias!</h2>
@@ -1588,6 +1716,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
             ${trackingInfo}
+            ${trackingLink}
           </div>
           <p>Em breve receberá a sua obra de arte. Obrigado pela confiança!</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
@@ -1714,7 +1843,7 @@ apiRouter.post('/dropea/sync', async (req, res) => {
         price: isNew ? p.pvpr : existingMap.get(pId),
         image_url: Array.isArray(p.images) ? p.images[0] : (typeof p.images === 'string' ? p.images : ''),
         product_type: 'physical',
-        category: p.category || 'Coleção Boutique',
+        category: p.category || 'Geral',
         is_active: true
       };
 
@@ -1986,6 +2115,82 @@ adminRouter.post('/orders/:id/resend-notification', async (req, res) => {
   }
 });
 
+adminRouter.post('/orders/:id/manual-update', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, shipping_status, verify_stripe } = req.body;
+    const supabase = getSupabase();
+
+    // 1. Fetch Order
+    const { data: order, error: fetchErr } = await supabase.from('orders').select('*').eq('id', id).single();
+    if (fetchErr || !order) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+    // 2. Stripe Verification (if requested)
+    if (verify_stripe && (status === 'paid' || status === 'pago')) {
+      if (!order.stripe_session_id) {
+        return res.status(400).json({ error: 'Ordem não possui Stripe Session ID para verificação' });
+      }
+
+      console.log(`[ADMIN MANUAL SYNC] Verifying Stripe for Session ${order.stripe_session_id}`);
+      try {
+        const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+        if (session.payment_status !== 'paid' && session.status !== 'complete') {
+          return res.status(400).json({ 
+            error: `Stripe indica que o pagamento ainda não foi concluído. Status atual: ${session.payment_status}. Por favor, aguarde o processamento real ou desative o bloqueio Stripe se tiver certeza.` 
+          });
+        }
+        console.log(`[ADMIN MANUAL SYNC] Stripe verified! Session is paid.`);
+      } catch (stripeErr: any) {
+        console.error('[STRIPE VERIFY ERROR]', stripeErr);
+        return res.status(500).json({ error: `Falha ao conectar com Stripe: ${stripeErr.message}` });
+      }
+    }
+
+  // 3. Update Order
+    const { data: currentOrder } = await supabase.from('orders').select('shipping_status_metadata').eq('id', id).single();
+    const currentMetadata = currentOrder?.shipping_status_metadata || {};
+
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (status) updateData.status = status;
+    if (shipping_status) updateData.shipping_status = shipping_status;
+    
+    const trackingCode = req.body.tracking_code;
+    const trackingUrl = req.body.tracking_url;
+
+    if (trackingCode !== undefined) updateData.shipping_tracking_code = trackingCode;
+    if (trackingUrl !== undefined) updateData.shipping_tracking_url = trackingUrl;
+
+    // Sync metadata for customer dashboard visibility
+    const newMetadata = { ...currentMetadata };
+    if (trackingCode) newMetadata.trackingNumber = trackingCode;
+    if (trackingUrl) newMetadata.trackingUrl = trackingUrl;
+    newMetadata.lastSync = new Date().toISOString();
+    newMetadata.manual_update = true;
+    
+    updateData.shipping_status_metadata = newMetadata;
+
+    const { data: updated, error: updateErr } = await supabase
+      .from('orders')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    // 4. Trigger Notifications if status changed
+    if (status !== order.status || shipping_status !== order.shipping_status) {
+      triggerOrderNotification(id, status || order.status, shipping_status || order.shipping_status, updated, true)
+        .catch(e => console.error('[MANUAL UPDATE NOTIF ERROR]', e));
+    }
+
+    res.json({ success: true, message: 'Ordem atualizada com sucesso!', order: updated });
+  } catch (error: any) {
+    console.error('[ADMIN MANUAL UPDATE ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 adminRouter.get('/users', async (req, res) => {
   try {
     const supabase = getSupabase();
@@ -2182,11 +2387,11 @@ adminRouter.post('/products', async (req, res) => {
   try {
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured, sku, provider
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured, sku, provider, price_markup, free_shipping
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
-    const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
+    let rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
     let finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
     
     if (isNaN(finalPrice) || finalPrice === undefined || finalPrice === null) {
@@ -2194,7 +2399,7 @@ adminRouter.post('/products', async (req, res) => {
       finalPrice = 0;
     }
 
-    // console.log(`[ADMIN] Creating product. Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
+    const priceMarkup = parseFloat(String(price_markup || 0));
 
     const supabase = getSupabase();
     
@@ -2202,7 +2407,9 @@ adminRouter.post('/products', async (req, res) => {
     let query;
     const upsertData: any = { 
       title, description, price: finalPrice, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider,
+      price_markup: priceMarkup,
+      free_shipping: !!free_shipping
     };
     
     if (dropea_id) {
@@ -2300,9 +2507,14 @@ adminRouter.put('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured, sku, provider
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, dropea_id, aliexpress_id, is_featured, sku, provider, price_markup, metadata, free_shipping
     } = req.body;
     
+    const supabase = getSupabase();
+
+    // Fetch existing for metadata check (base_price)
+    const { data: existing } = await supabase.from('products').select('*').eq('id', id).single();
+
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
     const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
     let finalPrice = typeof rawPrice === 'string' ? parseFloat(rawPrice) : rawPrice;
@@ -2312,12 +2524,22 @@ adminRouter.put('/products/:id', async (req, res) => {
       finalPrice = 0;
     }
 
-    // console.log(`[ADMIN] Updating product ${id}. New Price: ${finalPrice} (from pvp: ${pvp}, price: ${price})`);
+    const priceMarkup = parseFloat(String(price_markup || 0));
 
-    const supabase = getSupabase();
+    // Recalculate price for AliExpress products if markup changed and base_price is available
+    if (provider === 'aliexpress' && existing?.metadata?.base_price !== undefined) {
+       // If the incoming price is the same as existing price, but markup changed, let's update the price automatically
+       if (priceMarkup !== (existing.price_markup || 0)) {
+          finalPrice = (existing.metadata.base_price || 0) + priceMarkup;
+       }
+    }
+
     const updateData: any = { 
       title, description, price: finalPrice, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider,
+      price_markup: priceMarkup,
+      metadata: metadata || existing?.metadata,
+      free_shipping: free_shipping !== undefined ? !!free_shipping : existing?.free_shipping
     };
     
     if (dropea_id) updateData.dropea_id = String(dropea_id);
@@ -2582,7 +2804,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
     // Check if it already exists to preserve local edits
     const { data: existing } = await supabase
       .from('products')
-      .select('title, description, price')
+      .select('title, description, price, category')
       .eq('dropea_id', String(productData.id))
       .maybeSingle();
 
@@ -2686,7 +2908,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
         image_url: image_url,
         extra_images: extra_images,
         product_type: 'physical',
-        category: 'Coleção Boutique', // Standardize on user's preferred category
+        category: existing?.category || 'Importado Dropea', 
         is_active: true,
         sizes_enabled,
         colors_enabled,
@@ -2701,15 +2923,6 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
       throw upsertError;
     }
 
-    // Ensure "Coleção Boutique" is in the categories table
-    try {
-      const { data: catExists } = await supabase.from('categories').select('id').eq('name', 'Coleção Boutique').maybeSingle();
-      if (!catExists) {
-        await supabase.from('categories').insert([{ name: 'Coleção Boutique' }]);
-      }
-    } catch(cErr) { /* non-blocking */ }
-
-    console.log(`[ADMIN] Produto ${dropeaId} importado com sucesso: ${upserted.title}`);
     res.json(upserted);
 
   } catch (error: any) {
@@ -2722,6 +2935,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
 });
 
 
+// Helper: Robust AliExpress product parser
 // Helper: Robust AliExpress product parser
 function parseAliExpressProduct(aliexpressData: any) {
   if (!aliexpressData) throw new Error("Dados do produto AliExpress vazios.");
@@ -2765,9 +2979,11 @@ function parseAliExpressProduct(aliexpressData: any) {
       };
     });
 
+    const skuPrice = extractAliExpressPrice(sku.offer_sale_price) || extractAliExpressPrice(sku.sku_price) || 0;
+
     return {
       sku_id: sku.sku_id,
-      price: parseFloat(sku.offer_sale_price || sku.sku_price || "0"),
+      price: skuPrice,
       stock: sku.sku_available_stock || 0,
       properties
     };
@@ -2793,13 +3009,23 @@ function parseAliExpressProduct(aliexpressData: any) {
     .filter((url: string) => url !== mainImage)
     .join(',');
 
-  // 3. Preço (from first SKU)
-  const price = skus.length > 0 ? parseFloat(skus[0].offer_sale_price || skus[0].sku_price || "0") : 0;
+  // 3. Preço (Min variation price of IN-STOCK items is the most representative)
+  const inStockVariations = processedVariations.filter(v => v.stock > 0);
+  const targetVariations = inStockVariations.length > 0 ? inStockVariations : processedVariations;
+  
+  const skuPrices = targetVariations.map(v => v.price).filter(p => p > 0);
+  const minSkuPrice = skuPrices.length > 0 ? Math.min(...skuPrices) : 0;
+  
+  // Also check target_sale_price from base info as it's often the main price shown on site
+  const targetSalePrice = extractAliExpressPrice(base.target_sale_price);
+  
+  // Use the most representative price
+  const finalPrice = minSkuPrice > 0 ? minSkuPrice : targetSalePrice;
 
   return {
     title: base.subject || "Produto Importado",
     description: base.detail ? base.detail.replace(/<[^>]*>?/gm, '') : "",
-    price: price,
+    price: finalPrice,
     product_main_image_url: mainImage,
     extra_images: extraImages,
     colors: Array.from(colors).join(", "),
@@ -2808,84 +3034,21 @@ function parseAliExpressProduct(aliexpressData: any) {
     sizes_enabled: sizes.size > 0,
     metadata: {
       variations: processedVariations,
-      import_date: new Date().toISOString()
+      import_date: new Date().toISOString(),
+      base_price: finalPrice
     }
   };
 }
 
 adminRouter.post('/products/import-aliexpress', async (req, res) => {
   try {
-    const { productId } = req.body;
+    const { productId, markup } = req.body;
     if (!productId) return res.status(400).json({ error: 'ID do AliExpress é obrigatório.' });
 
-    console.log(`[ADMIN] Importando produto AliExpress ID: ${productId}`);
+    const priceMarkup = parseFloat(String(markup || 0));
+    console.log(`[ADMIN] Importando produto AliExpress ID: ${productId} com Margem: ${priceMarkup}`);
     
-    // We can reuse the proxy logic or call it internally
-    // To keep it simple and robust, let's implement the extraction here
-    // using the existing proxy logic structure
-    
-    const appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
-    const appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
-    const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
-
-    if (!appKey || !appSecret) {
-      return res.status(500).json({ error: 'Credenciais do AliExpress ausentes no servidor.' });
-    }
-
-    const currentTimestamp = getAliExpressTimestamp();
-    const systemParams: Record<string, any> = {
-      app_key: appKey,
-      timestamp: currentTimestamp,
-      sign_method: 'md5',
-      method: 'aliexpress.ds.product.get',
-      format: 'json',
-      v: '2.0',
-    };
-
-    if (accessToken) systemParams.session = accessToken;
-
-    const businessParams: Record<string, any> = {
-      product_id: cleanAliExpressId(productId),
-      target_currency: 'EUR',
-      target_language: 'PT',
-      ship_to_country: 'PT',
-    };
-
-    const allParams: Record<string, any> = { ...systemParams };
-    for (const [k, v] of Object.entries(businessParams)) {
-        if (v !== null && v !== undefined && v !== '') {
-            allParams[k] = v;
-        }
-    }
-
-    const sign = generateAliExpressSignature(allParams, appSecret);
-    const formData = new URLSearchParams();
-    const sortedKeys = Object.keys(allParams).sort();
-    for (const key of sortedKeys) {
-        const val = allParams[key];
-        const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
-        formData.append(key, stringVal);
-    }
-    formData.append('sign', sign);
-
-    const aliRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' }
-    });
-    const result = aliRes.data;
-
-    if (result.error_response) {
-      throw new Error(`Erro AliExpress: ${result.error_response.msg}`);
-    }
-
-    const responseKey = 'aliexpress_ds_product_get_response';
-    const data = aliRes.data[responseKey]?.result || aliRes.data[responseKey];
-    
-    if (!data) {
-      throw new Error('Produto não encontrado no AliExpress.');
-    }
-
-    console.log("[DEBUG GIGANTE ALIEXPRESS] JSON BRUTO:", JSON.stringify(data).substring(0, 1500));
-
+    const data = await fetchAliExpressProduct(productId);
     const parsed = parseAliExpressProduct(data);
     const baseInfo = data?.ae_item_base_info_dto || {};
 
@@ -2894,78 +3057,134 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     // Check for existing
     const { data: existing } = await supabase
       .from('products')
-      .select('id, title, description, price, colors, sizes, admin_link')
+      .select('id, title, description, price, colors, sizes, admin_link, price_markup, image_url, extra_images, colors_enabled, sizes_enabled, metadata, free_shipping')
       .eq('aliexpress_id', String(baseInfo.product_id))
       .maybeSingle();
 
+    const activeMarkup = priceMarkup || existing?.price_markup || 0;
+    const finalPriceWithMarkup = (parsed.price || 0) + activeMarkup;
+
     // Manual Upsert Logic
-    let result_data;
     const commonData = {
       aliexpress_id: String(baseInfo.product_id),
-      title: existing?.title || parsed.title,
-      description: existing?.description || parsed.description || "",
-      price: existing?.price || parsed.price,
-      image_url: parsed.product_main_image_url,
-      extra_images: parsed.extra_images,
-      colors: parsed.colors || existing?.colors,
-      sizes: parsed.sizes || existing?.sizes,
-      colors_enabled: parsed.colors_enabled,
-      sizes_enabled: parsed.sizes_enabled,
+      title: (existing?.title && existing.title !== parsed.title) ? existing.title : parsed.title,
+      description: (existing?.description && existing.description.length > 50) ? existing.description : (parsed.description || ""),
+      // NEW: We ALWAYS update the price to match AliExpress + Markup when importing/syncing,
+      // as that's the primary purpose of syncing.
+      price: finalPriceWithMarkup,
+      price_markup: activeMarkup,
+      free_shipping: existing?.free_shipping ?? false,
+      image_url: existing?.image_url || parsed.product_main_image_url,
+      extra_images: existing?.extra_images || parsed.extra_images,
+      colors: existing?.colors || parsed.colors,
+      sizes: existing?.sizes || parsed.sizes,
+      colors_enabled: existing?.colors_enabled !== undefined ? existing.colors_enabled : parsed.colors_enabled,
+      sizes_enabled: existing?.sizes_enabled !== undefined ? existing.sizes_enabled : parsed.sizes_enabled,
       provider: 'aliexpress',
       admin_link: existing?.admin_link || `https://www.aliexpress.com/item/${productId}.html`,
+      last_aliexpress_sync: new Date().toISOString(),
       metadata: {
+        ...(existing?.metadata || {}),
         variations: parsed.metadata.variations,
         original_subject: baseInfo.subject,
-        import_date: new Date().toISOString(),
+        import_date: existing?.metadata?.import_date || new Date().toISOString(),
         raw_colors: parsed.colors,
-        raw_sizes: parsed.sizes
+        raw_sizes: parsed.sizes,
+        base_price: parsed.price
       }
     };
 
+    let result_data;
     if (existing?.id) {
-      console.log(`[ADMIN] Atualizando produto existente ID: ${existing.id}`);
       const { data: updated, error: updateError } = await supabase
         .from('products')
-        .update({
-          ...commonData,
-          updated_at: new Date().toISOString()
-        })
+        .update({ ...commonData, updated_at: new Date().toISOString() })
         .eq('id', existing.id)
-        .select()
-        .single();
-      
+        .select().single();
       if (updateError) throw updateError;
       result_data = updated;
     } else {
-      console.log(`[ADMIN] Criando novo produto AliExpress: ${baseInfo.subject}`);
       const { data: inserted, error: insertError } = await supabase
         .from('products')
-        .insert([{
-          ...commonData,
-          product_type: 'physical',
-          category: 'Importado AliExpress',
-          is_active: true
-        }])
-        .select()
-        .single();
-      
+        .insert([{ ...commonData, product_type: 'physical', category: 'Importado AliExpress', is_active: true }])
+        .select().single();
       if (insertError) throw insertError;
       result_data = inserted;
     }
 
-    const upserted = result_data;
-
-    // Ensure category exists
-    try {
-      const { data: catExists } = await supabase.from('categories').select('id').eq('name', 'Importado AliExpress').maybeSingle();
-      if (!catExists) await supabase.from('categories').insert([{ name: 'Importado AliExpress' }]);
-    } catch(e) {}
-
-    console.log(`[ADMIN] AliExpress Produto ${productId} importado: ${upserted.title}`);
-    res.json(upserted);
-
+    const isUpdate = !!existing;
+    res.json({ ...result_data, _isUpdate: isUpdate });
   } catch (error: any) {
     console.error(`[ADMIN ALIEXPRESS IMPORT ERROR]`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+adminRouter.post('/products/sync-aliexpress-all', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    console.log('[ADMIN] Iniciando sincronização massiva do AliExpress...');
+    
+    const { data: products, error: fetchErr } = await supabase
+      .from('products')
+      .select('*')
+      .eq('provider', 'aliexpress')
+      .not('aliexpress_id', 'is', null);
+
+    if (fetchErr) throw fetchErr;
+
+    let successCount = 0;
+    let deactivatedCount = 0;
+    let failedCount = 0;
+
+    for (const product of products) {
+      try {
+        const aliId = product.aliexpress_id;
+        if (!aliId) continue;
+
+        try {
+          const data = await fetchAliExpressProduct(aliId);
+          const parsed = parseAliExpressProduct(data);
+          
+          const markup = product.price_markup || 0;
+          const newPrice = parsed.price + markup;
+
+          await supabase.from('products').update({
+            price: newPrice,
+            last_aliexpress_sync: new Date().toISOString(),
+            is_active: true,
+            metadata: {
+              ...product.metadata,
+              variations: parsed.metadata.variations,
+              base_price: parsed.price,
+              last_sync_success: new Date().toISOString()
+            }
+          }).eq('id', product.id);
+
+          successCount++;
+        } catch (aliErr: any) {
+          if (aliErr.message?.includes('not found') || aliErr.message?.includes('não encontrado')) {
+            console.log(`[ADMIN] Produto ${product.id} (${aliId}) não encontrado no AliExpress. Desativando...`);
+            await supabase.from('products').update({ 
+               is_active: false,
+               last_aliexpress_sync: new Date().toISOString()
+            }).eq('id', product.id);
+            deactivatedCount++;
+          } else {
+            failedCount++;
+          }
+        }
+      } catch (err) {
+        console.error(`[ADMIN SYNC ERROR] Produto ${product.id}:`, err);
+        failedCount++;
+      }
+      
+      await new Promise(r => setTimeout(r, 600));
+    }
+
+    res.json({ success: true, successCount, deactivatedCount, failedCount });
+  } catch (error: any) {
+    console.error('[ADMIN ALIEXPRESS SYNC ALL ERROR]', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -3702,19 +3921,36 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
       return res.status(400).json({ error: "O sistema de pagamentos não está configurado." });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      line_items: [{
+    const lineItems: any[] = [{
+      price_data: {
+        currency: 'eur',
+        product_data: {
+          name: product.title,
+          description: (product.description && product.description.trim() !== "") ? product.description.substring(0, 120) : undefined,
+          images: product.image_url ? [product.image_url] : [],
+        },
+        unit_amount: Math.round((product.pvp || product.price) * 100),
+      },
+      quantity: 1,
+    }];
+
+    // Add shipping fee if not free shipping
+    if (!product.free_shipping) {
+      lineItems.push({
         price_data: {
           currency: 'eur',
           product_data: {
-            name: product.title,
-            description: (product.description && product.description.trim() !== "") ? product.description.substring(0, 120) : undefined,
-            images: product.image_url ? [product.image_url] : [],
+            name: 'Taxa de Envio',
+            description: 'Envio Internacional Seguro',
           },
-          unit_amount: Math.round((product.pvp || product.price) * 100),
+          unit_amount: 115, // 1.15€ in cents
         },
         quantity: 1,
-      }],
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: lineItems,
       mode: 'payment',
       success_url: `${baseUrl}?payment_status=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}?payment_status=cancel`,
@@ -3858,10 +4094,16 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
             selected_options: selectedOptions
         });
     } else {
-        console.log(`[FULFILLMENT] Enviando ordem ${currentOrder.id} para AliExpress...`);
-        // Pass normalized options to AliExpress too
-        const orderWithCorrectOptions = { ...currentOrder, selected_options: selectedOptions };
-        providerOrderId = await fulfillAliExpressOrder(orderWithCorrectOptions, productInDb, customerData);
+        console.log(`[FULFILLMENT] AliExpress order ${currentOrder.id} detected. Skipping automatic API purchase as requested.`);
+        await supabase.from('orders').update({
+            status: 'paid',
+            shipping_status: 'pending',
+            notes: (currentOrder.notes || '') + '\n[INFO] Envio para AliExpress deve ser feito manualmente pelo administrador.'
+        }).eq('id', currentOrder.id);
+        
+        // Notificar que está em processamento manual
+        triggerOrderNotification(currentOrder.id, 'paid', 'pending', null, true).catch(e => console.error('[NOTIF ERR]', e));
+        return;
     }
 
     if (providerOrderId) {
@@ -3917,28 +4159,41 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
         out_order_id: order.id,
         logistics_address: address,
         product_items: [
-          {
-            product_count: order.quantity || 1,
-            product_id: parseInt(aliId, 10),
-            sku_attr: order.selected_options?.sku || ""
-          }
+          (() => {
+            const item: any = {
+              product_count: order.quantity || 1,
+              product_id: parseInt(aliId, 10)
+            };
+            if (order.selected_options?.sku_id) {
+              item.sku_id = String(order.selected_options.sku_id);
+            } else {
+              item.sku_attr = order.selected_options?.sku || "";
+            }
+            return item;
+          })()
         ]
       })
     };
 
+    console.log("[DEBUG PAYLOAD ALIEXPRESS] Enviando:", JSON.stringify(businessParams));
     const result = await callAliExpressAPIInternal('aliexpress.trade.buy.placeorder', businessParams);
     
     const responseKey = 'aliexpress_trade_buy_placeorder_response';
-    if (result && result[responseKey] && result[responseKey].result) {
-        const platformResult = result[responseKey].result;
+    if (result && result[responseKey]) {
+        const resObj = result[responseKey];
+        if (resObj.result && resObj.result.is_success === false) {
+             throw new Error("AliExpress recusou: " + (resObj.result.error_code || "Erro desconhecido"));
+        }
+        
+        const platformResult = resObj.result;
         
         // Handle single order_id
-        if (platformResult.order_id) {
+        if (platformResult && platformResult.order_id) {
             return String(platformResult.order_id);
         }
         
         // Handle list of IDs (common in AliExpress DS API)
-        if (platformResult.order_id_list && Array.isArray(platformResult.order_id_list) && platformResult.order_id_list.length > 0) {
+        if (platformResult && platformResult.order_id_list && Array.isArray(platformResult.order_id_list) && platformResult.order_id_list.length > 0) {
             return String(platformResult.order_id_list[0]);
         }
     }

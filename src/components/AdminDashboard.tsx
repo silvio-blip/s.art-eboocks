@@ -90,6 +90,10 @@ interface Product {
   sku?: string;
   provider?: "aliexpress" | "dropea";
   supabase_id?: string;
+  price_markup?: number;
+  last_aliexpress_sync?: string;
+  metadata?: any;
+  free_shipping?: boolean;
 }
 
 interface Order {
@@ -101,13 +105,23 @@ interface Order {
   total_amount: number;
   customer_email: string;
   created_at: string;
+  email_paid_sent?: boolean;
+  email_shipped_sent?: boolean;
+  email_review_sent?: boolean;
+  email_canceled_sent?: boolean;
+  email_refunded_sent?: boolean;
+  email_delivered_sent?: boolean;
   dropea_order_id?: string;
+  provider_order_id?: string;
+  shipping_tracking_code?: string;
+  shipping_tracking_url?: string;
   product?: Product;
   selected_options?: { size?: string; color?: string; shipping_details?: any };
   shipping_status_metadata?: {
     trackingNumber?: string;
     trackingUrl?: string;
     lastSync?: string;
+    manual_update?: boolean;
   };
   shipping_details?: {
     fullName: string;
@@ -116,6 +130,7 @@ interface Order {
     postalCode: string;
     country: string;
     phone: string;
+    name?: string; // Fallback
   };
 }
 
@@ -162,6 +177,7 @@ export default function AdminDashboard({
   const [importDropeaId, setImportDropeaId] = useState("");
   const [importAliExpressId, setImportAliExpressId] = useState("");
   const [importing, setImporting] = useState(false);
+  const [isSyncingAllAliExpress, setIsSyncingAllAliExpress] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
@@ -176,10 +192,24 @@ export default function AdminDashboard({
   const [editingCategoryName, setEditingCategoryName] = useState("");
   const [categoryToDelete, setCategoryToDelete] = useState<{ id: string; name: string } | null>(null);
   const [isSiteSettingsOpen, setIsSiteSettingsOpen] = useState(false);
+  const [stripeCheckToggle, setStripeCheckToggle] = useState(false);
+  const [manualStatus, setManualStatus] = useState("");
+  const [manualShippingStatus, setManualShippingStatus] = useState("");
+  const [manualTrackingCode, setManualTrackingCode] = useState("");
+  const [manualTrackingUrl, setManualTrackingUrl] = useState("");
   
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [tab]);
+
+  useEffect(() => {
+    if (viewingOrder) {
+      setManualStatus(viewingOrder.status);
+      setManualShippingStatus(viewingOrder.shipping_status || "pending");
+      setManualTrackingCode(viewingOrder.shipping_tracking_code || "");
+      setManualTrackingUrl(viewingOrder.shipping_tracking_url || "");
+    }
+  }, [viewingOrder]);
 
   const [siteHero, setSiteHero] = useState({
     image: "",
@@ -576,6 +606,28 @@ export default function AdminDashboard({
     }
   };
 
+  const handleSyncAllAliExpress = async () => {
+    setIsSyncingAllAliExpress(true);
+    const syncToast = toast.loading("Sincronizando todos os produtos com AliExpress...");
+    try {
+      const res = await fetch("/api/admin/products/sync-aliexpress-all", {
+        method: "POST",
+        headers: { "x-user-id": user.id }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Sincronização concluída! ${data.successCount} atualizados, ${data.deactivatedCount} desativados.`, { id: syncToast });
+        fetchProducts();
+      } else {
+        toast.error("Erro na sincronização massiva.");
+      }
+    } catch (err) {
+      toast.error("Erro de rede ao sincronizar AliExpress.");
+    } finally {
+      setIsSyncingAllAliExpress(false);
+    }
+  };
+
   const handleImportAliExpress = async () => {
     if (!importAliExpressId) {
       toast.error("Insira um Link ou ID do AliExpress.");
@@ -596,6 +648,9 @@ export default function AdminDashboard({
     const impToast = toast.loading(`Importando produto ${productId} do AliExpress para a base de dados...`);
     
     try {
+      // Use the markup from the current editing session if it exists, or 0
+      const markupValue = editingProduct?.price_markup || 0;
+
       // Call the new integrated endpoint
       const response = await fetch('/api/admin/products/import-aliexpress', {
         method: 'POST',
@@ -603,7 +658,7 @@ export default function AdminDashboard({
           'Content-Type': 'application/json',
           'x-user-id': user.id
         },
-        body: JSON.stringify({ productId })
+        body: JSON.stringify({ productId, markup: markupValue })
       });
 
       const data = await response.json();
@@ -612,10 +667,17 @@ export default function AdminDashboard({
         throw new Error(data.error || 'Erro ao importar do AliExpress');
       }
       
-      toast.success(`PRODUTO SINCRONIZADO!\n"${data.title?.substring(0, 40)}..."\nID: ${data.id}`, { 
-         id: impToast, 
-         duration: 8000 
-      });
+      if (data._isUpdate) {
+        toast.success(`PRODUTO ATUALIZADO!\nDados manuais (título/desc/preço) preservados.\n"${data.title?.substring(0, 40)}..."`, { 
+          id: impToast, 
+          duration: 8000 
+        });
+      } else {
+        toast.success(`NOVO PRODUTO IMPORTADO!\n"${data.title?.substring(0, 40)}..."\nID: ${data.id}`, { 
+           id: impToast, 
+           duration: 8000 
+        });
+      }
       
       setImportAliExpressId("");
       await fetchProducts();
@@ -737,6 +799,7 @@ export default function AdminDashboard({
             category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
             is_active: supaProduct.is_active,
             is_featured: supaProduct.is_featured || false,
+            free_shipping: supaProduct.free_shipping || false,
             file_url: supaProduct.file_url,
             sizes: supaProduct.sizes,
             colors: supaProduct.colors,
@@ -1045,7 +1108,11 @@ export default function AdminDashboard({
       formattedOrderId.toLowerCase().includes(searchLower) ||
       order.customer_email?.toLowerCase().includes(searchLower) ||
       (order.shipping_details?.fullName &&
-        order.shipping_details.fullName.toLowerCase().includes(searchLower));
+        order.shipping_details.fullName.toLowerCase().includes(searchLower)) ||
+      (order.shipping_details?.name &&
+        order.shipping_details.name.toLowerCase().includes(searchLower)) ||
+      (order.shipping_details?.phone &&
+        order.shipping_details.phone.toString().includes(searchLower));
 
     if (!matchSearch) return false;
 
@@ -1328,6 +1395,46 @@ export default function AdminDashboard({
     } catch (err: any) {
       console.error("[Email Notification Error]", err);
       toast.error(`Falha ao disparar e-mail: ${err.message}`, { id: "retrigger" });
+    }
+  };
+
+  const handleManualStatusUpdate = async (orderId: string, newStatus: string, newShippingStatus?: string, verifyWithStripe: boolean = false) => {
+    const loadingToast = toast.loading('A atualizar estado administrativamente...');
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/manual-update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        },
+        body: JSON.stringify({ 
+          status: newStatus, 
+          shipping_status: newShippingStatus,
+          verify_stripe: verifyWithStripe,
+          tracking_code: manualTrackingCode,
+          tracking_url: manualTrackingUrl
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ao atualizar');
+
+      toast.success(data.message || 'Estado atualizado com sucesso!', { id: loadingToast });
+      
+      if (viewingOrder && viewingOrder.id === orderId) {
+        setViewingOrder({ 
+          ...viewingOrder, 
+          status: newStatus, 
+          shipping_status: newShippingStatus || viewingOrder.shipping_status,
+          shipping_tracking_code: manualTrackingCode,
+          shipping_tracking_url: manualTrackingUrl
+        } as any);
+      }
+      
+      fetchDashboardData();
+    } catch (error: any) {
+      console.error("[Manual Update Error]", error);
+      toast.error(`Falha: ${error.message}`, { id: loadingToast });
     }
   };
 
@@ -1949,6 +2056,20 @@ export default function AdminDashboard({
                 >
                   Gerir Categorias
                 </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={handleSyncAllAliExpress}
+                  disabled={isSyncingAllAliExpress}
+                  className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 hover:border-orange-500 text-orange-500 text-[10px] uppercase tracking-widest h-12 px-6 flex items-center gap-2"
+                >
+                  {isSyncingAllAliExpress ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                  Sincronizar AliExpress
+                </Button>
                 
                 <Button
                   variant="outline"
@@ -2384,17 +2505,40 @@ export default function AdminDashboard({
                         Curadoria
                       </span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div className="text-luxury-gold text-xs">€{Number(p.pvp || 0).toFixed(2)}</div>
-                      {p.admin_link && (
-                        <a
-                          href={p.admin_link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[8px] text-white/30 hover:text-luxury-gold uppercase tracking-widest flex items-center gap-1"
-                        >
-                          <ExternalLink size={8} /> Gestão
-                        </a>
+                    <div className="flex flex-col">
+                      <div className="flex justify-between items-center">
+                        <div className="text-luxury-gold text-xs font-bold">€{Number(p.pvp || 0).toFixed(2)}</div>
+                        <div className="flex items-center gap-1">
+                          {p.metadata?.base_price && (
+                            <span className="text-[7px] text-white/20 uppercase font-medium">
+                              Base: €{Number(p.metadata.base_price).toFixed(2)}
+                            </span>
+                          )}
+                          {p.admin_link && (
+                            <a
+                              href={p.admin_link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[8px] text-white/30 hover:text-luxury-gold uppercase tracking-widest flex items-center gap-1"
+                            >
+                              <ExternalLink size={8} /> Gestão
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      {p.price_markup > 0 && (
+                        <div className="text-[7px] text-orange-500/60 uppercase font-medium mt-0.5">
+                          Markup: +€{Number(p.price_markup).toFixed(2)}
+                        </div>
+                      )}
+                      {p.free_shipping ? (
+                        <div className="text-[7px] text-blue-500/80 uppercase font-bold mt-1 tracking-widest bg-blue-500/10 w-fit px-1">
+                          Envio Grátis
+                        </div>
+                      ) : (
+                        <div className="text-[7px] text-white/20 uppercase font-medium mt-1 tracking-widest">
+                          +1,15€ Envio
+                        </div>
                       )}
                     </div>
                   </CardContent>
@@ -2491,28 +2635,102 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                          Preço (€)
+                          Fornecedor Ativo (Provider)
                         </label>
-                        <input
-                          type="number"
-                          value={
-                            isNaN(editingProduct.pvp) ||
-                            editingProduct.pvp === undefined
-                              ? ""
-                              : editingProduct.pvp
-                          }
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            const numVal = val === "" ? 0 : parseFloat(val);
-                            setEditingProduct({
-                              ...editingProduct,
-                              pvp: numVal,
-                              price: numVal
-                            });
-                          }}
-                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
-                          placeholder="0.00"
-                        />
+                        <select 
+                          value={editingProduct.provider || "aliexpress"}
+                          onChange={(e) => setEditingProduct({ ...editingProduct, provider: e.target.value })}
+                          className="w-full bg-black/50 border border-white/10 p-2 text-xs md:text-sm uppercase text-white outline-none focus:border-luxury-gold"
+                        >
+                          <option value="aliexpress">AliExpress</option>
+                          <option value="dropea">Dropea</option>
+                          <option value="none">Nenhum / Manual</option>
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                              Preço de Venda (€)
+                            </label>
+                            {editingProduct.metadata?.base_price && (
+                              <span className="text-[8px] text-white/40 uppercase font-bold">
+                                Fornecedor: €{Number(editingProduct.metadata.base_price).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            value={
+                              isNaN(editingProduct.pvp) ||
+                              editingProduct.pvp === undefined
+                                ? ""
+                                : editingProduct.pvp
+                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const numVal = val === "" ? 0 : parseFloat(val);
+                              setEditingProduct({
+                                ...editingProduct,
+                                pvp: numVal,
+                                price: numVal
+                              });
+                            }}
+                            className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-luxury-gold transition-colors font-mono"
+                            placeholder="0.00"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                              Markup AliExpress (€)
+                            </label>
+                            <div className="flex items-center gap-2">
+                               {editingProduct.metadata?.base_price && (
+                                 <button 
+                                   onClick={() => {
+                                     const base = Number(editingProduct.metadata.base_price || 0);
+                                     const markup = Number(editingProduct.price_markup || 0);
+                                     const suggested = base + markup;
+                                     setEditingProduct({
+                                       ...editingProduct,
+                                       pvp: suggested,
+                                       price: suggested
+                                     });
+                                     toast.success(`Preço sugerido aplicado: €${suggested.toFixed(2)}`);
+                                   }}
+                                   className="text-[8px] bg-luxury-gold/10 hover:bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30 px-2 py-0.5 uppercase font-bold transition-all"
+                                 >
+                                   Sugerir Preço
+                                 </button>
+                               )}
+                               {editingProduct.last_aliexpress_sync && (
+                                 <span className="text-[8px] text-orange-500 uppercase font-bold">
+                                   Sync: {format(new Date(editingProduct.last_aliexpress_sync), "dd/MM/yyyy HH:mm")}
+                                 </span>
+                               )}
+                            </div>
+                          </div>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editingProduct.price_markup || 0}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const numVal = val === "" ? 0 : parseFloat(val);
+                              setEditingProduct({
+                                ...editingProduct,
+                                price_markup: numVal
+                              });
+                            }}
+                            className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-orange-500 transition-colors font-mono text-orange-500"
+                            placeholder="Valor a somar ao preço base"
+                          />
+                          <p className="text-[8px] text-white/20 uppercase tracking-widest leading-relaxed">
+                            Este valor será somado ao preço original do AliExpress durante a sincronização automática.
+                          </p>
+                        </div>
                       </div>
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
@@ -2582,6 +2800,23 @@ export default function AdminDashboard({
                           className={`w-10 h-5 relative rounded-full transition-colors ${editingProduct.is_featured ? "bg-luxury-gold" : "bg-white/10"}`}
                         >
                           <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${editingProduct.is_featured ? "left-6" : "left-1"}`} />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between p-4 bg-[#111] border border-white/10 rounded-sm">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
+                            Envio Grátis?
+                          </label>
+                          <p className="text-[8px] text-white/40 uppercase tracking-widest">
+                            Se ativo, o cliente não pagará a taxa de 1,15€.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setEditingProduct({ ...editingProduct, free_shipping: !editingProduct.free_shipping })}
+                          className={`w-10 h-5 relative rounded-full transition-colors ${editingProduct.free_shipping ? "bg-blue-500" : "bg-white/10"}`}
+                        >
+                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${editingProduct.free_shipping ? "left-6" : "left-1"}`} />
                         </button>
                       </div>
 
@@ -2913,11 +3148,16 @@ export default function AdminDashboard({
                       <td className="px-8 py-6">
                         <div className="font-serif text-base flex items-center gap-2 truncate max-w-[150px] md:max-w-[250px]" title={order.product?.title}>
                           {order.product?.title || "Expurgado"}
-                          {order.product?.admin_link && (
-                            <a href={order.product.admin_link} target="_blank" rel="noopener noreferrer" className="text-luxury-gold hover:text-white transition-colors" title="Acessar link do produto (Fornecedor)">
-                              <ExternalLink size={14} />
+                          <div className="flex items-center gap-2 ml-2">
+                            {order.product?.admin_link && (
+                              <a href={order.product.admin_link} target="_blank" rel="noopener noreferrer" className="text-luxury-gold hover:text-white transition-colors" title="Acessar link do produto (Fornecedor)">
+                                <ExternalLink size={12} />
+                              </a>
+                            )}
+                            <a href={`/product/${order.product_id}`} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-white transition-colors" title="Ver produto na loja (Público)">
+                              <ShoppingBag size={12} />
                             </a>
-                          )}
+                          </div>
                         </div>
                         {order.selected_options &&
                           (order.selected_options.size ||
@@ -2960,7 +3200,7 @@ export default function AdminDashboard({
                           <span className="text-emerald-500 font-bold text-[9px] uppercase tracking-widest inline-block py-1">
                             Sem Logística (Digital)
                           </span>
-                        ) : (order.dropea_order_id || order.provider_order_id) ? (
+                        ) : (order.dropea_order_id || order.provider_order_id || (order.shipping_status && order.shipping_status !== 'pending') || order.shipping_status_metadata?.trackingNumber) ? (
                           <div className="flex flex-col gap-1">
                             <span className={`text-[10px] uppercase font-black ${
                               order.shipping_status === "delivered" ? "text-emerald-500" :
@@ -2982,11 +3222,11 @@ export default function AdminDashboard({
                                order.shipping_status === 'review' ? 'Com Erro e Revisão' :
                                order.shipping_status === 'lost' ? 'Extraviado' :
                                ['canceled', 'cancelled'].includes(order.status?.toLowerCase() || '') ? 'Cancelado' : 
-                               'Em Processamento'}
+                               (order.shipping_status_metadata?.manual_update ? 'Processado Manual' : 'Em Processamento')}
                             </span>
                             <span className="text-[8px] text-white/30 font-mono tracking-tighter">
-                               {order.provider_order_id || order.dropea_order_id} 
-                               {order.shipping_status_metadata?.trackingNumber && ` | ${order.shipping_status_metadata.trackingNumber}`}
+                               {order.provider_order_id || order.dropea_order_id || (order.shipping_status_metadata?.manual_update ? 'MANUAL' : '')} 
+                               {(order.shipping_status_metadata?.trackingNumber || order.shipping_tracking_code) && ` | ${order.shipping_status_metadata?.trackingNumber || order.shipping_tracking_code}`}
                             </span>
                           </div>
                         ) : (["paid", "pago", "completed", "succeeded"].includes(order.status?.toLowerCase() || "")) ? (
@@ -3011,13 +3251,41 @@ export default function AdminDashboard({
                                   Verificar
                                 </Button>
                                 {order.product?.aliexpress_id ? (
-                                  <Button 
-                                    size="sm"
-                                    onClick={() => handleAliExpressFulfill(order.id)}
-                                    className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
-                                  >
-                                    API AliExpress
-                                  </Button>
+                                  <div className="flex flex-col gap-1.5 flex-1 w-full">
+                                    {(order.shipping_status_metadata?.manual_update || order.provider_order_id) ? (
+                                      <div className="flex flex-col gap-1">
+                                        <span className="text-[9px] text-orange-500 font-black uppercase tracking-widest bg-orange-500/10 px-2 py-1 border border-orange-500/20 text-center">
+                                          {order.shipping_status_metadata?.lastExternalStatus || "Processado Manual"}
+                                        </span>
+                                        <Button 
+                                          size="sm"
+                                          onClick={() => handleSyncStatus(order.id)}
+                                          className="bg-orange-500/5 text-orange-500 hover:bg-orange-500 hover:text-white border border-orange-500/20 rounded-none text-[7px] uppercase tracking-widest font-bold h-6"
+                                        >
+                                          <RefreshCw size={8} className="mr-1" /> Sincronizar
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex gap-1 flex-1">
+                                        <Button 
+                                          size="sm"
+                                          onClick={() => handleManualFulfill(order.id)}
+                                          className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-2 flex-1"
+                                          title="Processar manualmente no AliExpress"
+                                        >
+                                          Manual
+                                        </Button>
+                                        <Button 
+                                          size="sm"
+                                          onClick={() => handleAliExpressFulfill(order.id)}
+                                          className="bg-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white border border-orange-500/30 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-2 flex-1"
+                                          title="Processar automaticamente via API AliExpress"
+                                        >
+                                          Auto-API
+                                        </Button>
+                                      </div>
+                                    )}
+                                  </div>
                                 ) : (
                                   <Button 
                                     size="sm"
@@ -3546,6 +3814,114 @@ export default function AdminDashboard({
             </div>
             
             <div className="space-y-6">
+              {/* Controlo Manual de Estado */}
+              <div className="p-4 bg-luxury-gold/5 border border-luxury-gold/20 rounded-none space-y-4">
+                <div className="flex items-center gap-2 text-luxury-gold text-[10px] font-bold uppercase tracking-widest mb-2">
+                  <Settings size={14} /> Controlo Administrativo Manual
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-white/40">Mudar Estado Geral</label>
+                    <select 
+                      value={manualStatus || viewingOrder.status}
+                      onChange={(e) => setManualStatus(e.target.value)}
+                      className="w-full bg-black/50 border border-white/10 p-2 text-[10px] uppercase text-white outline-none focus:border-luxury-gold"
+                    >
+                      <option value="pending">Pendente</option>
+                      <option value="paid">Pago (Confirmado)</option>
+                      <option value="processing_provider">Em Processamento no Fornecedor</option>
+                      <option value="completed">Concluído</option>
+                      <option value="refunded">Reembolsado</option>
+                      <option value="canceled">Cancelado</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-white/40">Mudar Estado Logístico</label>
+                    <select 
+                      value={manualShippingStatus || viewingOrder.shipping_status || "pending"}
+                      onChange={(e) => setManualShippingStatus(e.target.value)}
+                      className="w-full bg-black/50 border border-white/10 p-2 text-[10px] uppercase text-white outline-none focus:border-luxury-gold"
+                    >
+                      <option value="pending">Aguardando Envio</option>
+                      <option value="preparing">Em Preparação</option>
+                      <option value="ready">Pronto a Despachar</option>
+                      <option value="sent">Enviado / Em Trânsito</option>
+                      <option value="out_for_delivery">Em Rota de Entrega</option>
+                      <option value="delivered">Entregue</option>
+                      <option value="incident">Incidente / Problema</option>
+                      <option value="lost">Extraviado</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-white/40">Código de Rastreio</label>
+                    <input 
+                      type="text"
+                      value={manualTrackingCode}
+                      onChange={(e) => setManualTrackingCode(e.target.value)}
+                      placeholder={viewingOrder.shipping_tracking_code || "Ex: LB123456789HK"}
+                      className="w-full bg-black/50 border border-white/10 p-2 text-[10px] text-white outline-none focus:border-luxury-gold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-white/40">Link de Rastreio</label>
+                    <input 
+                      type="text"
+                      value={manualTrackingUrl}
+                      onChange={(e) => setManualTrackingUrl(e.target.value)}
+                      placeholder={viewingOrder.shipping_tracking_url || "Ex: https://17track.net/..."}
+                      className="w-full bg-black/50 border border-white/10 p-2 text-[10px] text-white outline-none focus:border-luxury-gold"
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-4 pt-2">
+                  <label className="flex items-center gap-2 cursor-pointer group">
+                    <div 
+                      onClick={() => setStripeCheckToggle(!stripeCheckToggle)}
+                      className={`w-10 h-5 rounded-full transition-all relative ${stripeCheckToggle ? 'bg-luxury-gold' : 'bg-white/10'}`}
+                    >
+                      <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all ${stripeCheckToggle ? 'left-6' : 'left-1'}`} />
+                    </div>
+                    <span className="text-[9px] uppercase tracking-widest text-white/60 group-hover:text-white transition-colors">Verificar Stripe antes de salvar</span>
+                  </label>
+                  
+                  <Button 
+                    size="sm"
+                    onClick={() => handleManualStatusUpdate(
+                      viewingOrder.id, 
+                      manualStatus || viewingOrder.status, 
+                      manualShippingStatus || viewingOrder.shipping_status, 
+                      stripeCheckToggle
+                    )}
+                    className="ml-auto bg-luxury-gold text-black hover:bg-white text-[9px] font-black uppercase tracking-widest h-8 px-6 rounded-none transition-all"
+                  >
+                    Confirmar Alteração
+                  </Button>
+                </div>
+              </div>
+
+              {viewingOrder.product?.admin_link && (
+                <div className="flex items-center gap-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-none">
+                  <div className="p-2 bg-blue-500/20 text-blue-400">
+                    <ExternalLink size={16} />
+                  </div>
+                  <div>
+                    <p className="text-[9px] uppercase tracking-widest text-blue-400 font-bold">Gestão Externa (AliExpress)</p>
+                    <a 
+                      href={viewingOrder.product.admin_link} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-white hover:text-luxury-gold transition-colors font-medium flex items-center gap-1"
+                    >
+                      Abrir link do produto no fornecedor <ExternalLink size={10} />
+                    </a>
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-4 items-start pb-4 border-b border-white/10">
                 {viewingOrder.product?.image_url && (
                   <div className="w-20 h-24 bg-white/5 border border-white/10 flex-shrink-0">
@@ -3659,27 +4035,51 @@ export default function AdminDashboard({
                   
                   {/* Utilidades de E-mail */}
                   <div className="py-3 mt-3 border-y border-white/5 space-y-3">
-                    <p className="text-[8px] uppercase tracking-[0.2em] text-luxury-gold font-bold">Resgate & Notificações</p>
+                    <p className="text-[8px] uppercase tracking-[0.2em] text-luxury-gold font-bold">Resgate & Notificações Manuais</p>
                     <div className="flex flex-wrap gap-2">
                        <Button 
                         size="sm"
                         variant="ghost"
                         onClick={() => handleRetriggerEmail(viewingOrder.id, 'payment')}
                         className="bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-emerald-500/20"
+                        title="Enviar e-mail de confirmação de pagamento"
                       >
-                        <Mail size={10} className="mr-2" /> Disparar Notif. Pagamento
+                        <Mail size={10} className="mr-2" /> Confirmação de Pagamento
+                        {viewingOrder.email_paid_sent && <Check size={10} className="ml-2 text-emerald-400" />}
                       </Button>
                       
-                      {viewingOrder.shipping_status === 'sent' && (
-                        <Button 
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleRetriggerEmail(viewingOrder.id, 'shipping')}
-                          className="bg-blue-500/5 hover:bg-blue-500/10 text-blue-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-blue-500/20"
-                        >
-                          <Truck size={10} className="mr-2" /> Disparar Notif. Envio
-                        </Button>
-                      )}
+                      <Button 
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleRetriggerEmail(viewingOrder.id, 'shipping')}
+                        className="bg-blue-500/5 hover:bg-blue-500/10 text-blue-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-blue-500/20"
+                        title="Enviar e-mail com código de rastreio"
+                      >
+                        <Truck size={10} className="mr-2" /> Notificação de Envio
+                        {viewingOrder.email_shipped_sent && <Check size={10} className="ml-2 text-blue-400" />}
+                      </Button>
+
+                      <Button 
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleRetriggerEmail(viewingOrder.id, 'canceled')}
+                        className="bg-red-500/5 hover:bg-red-500/10 text-red-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-red-500/20"
+                        title="Enviar e-mail de cancelamento"
+                      >
+                        <X size={10} className="mr-2" /> Cancelamento
+                        {viewingOrder.email_canceled_sent && <Check size={10} className="ml-2 text-red-400" />}
+                      </Button>
+
+                      <Button 
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleRetriggerEmail(viewingOrder.id, 'delivered')}
+                        className="bg-purple-500/5 hover:bg-purple-500/10 text-purple-500 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3 border border-purple-500/20"
+                        title="Enviar e-mail de confirmação de entrega"
+                      >
+                        <CheckCircle size={10} className="mr-2" /> Entrega Concluída
+                        {viewingOrder.email_delivered_sent && <Check size={10} className="ml-2 text-purple-400" />}
+                      </Button>
                     </div>
                   </div>
 
@@ -3696,10 +4096,12 @@ export default function AdminDashboard({
                               <div className="flex flex-col gap-1">
                                 <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status {providerLabel}</span>
                                 <div className="flex items-center gap-2">
-                                  {externalId ? (
+                                  {externalId || (viewingOrder.shipping_tracking_code || viewingOrder.shipping_status_metadata?.trackingNumber) ? (
                                     <>
-                                      <div className={`w-2 h-2 rounded-full ${isAli ? 'bg-orange-500' : 'bg-emerald-500'} animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.5)]`} />
-                                      <span className={`${isAli ? 'text-orange-500' : 'text-emerald-500'} font-bold tracking-widest text-[9px] uppercase font-mono`}>Sincronizado (#{externalId})</span>
+                                      <div className={`w-2 h-2 rounded-full ${externalId ? (isAli ? 'bg-orange-500' : 'bg-emerald-500') : 'bg-blue-500'} animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.5)]`} />
+                                      <span className={`${externalId ? (isAli ? 'text-orange-500' : 'text-emerald-500') : 'text-blue-500'} font-bold tracking-widest text-[9px] uppercase font-mono`}>
+                                        {externalId ? `Sincronizado (#${externalId})` : `Rastreio Manual (#${viewingOrder.shipping_tracking_code || viewingOrder.shipping_status_metadata?.trackingNumber})`}
+                                      </span>
                                     </>
                                   ) : (
                                     <>
@@ -3711,7 +4113,24 @@ export default function AdminDashboard({
                               </div>
 
                               <div className="flex gap-2">
-                                {!externalId && (viewingOrder.status === 'paid' || viewingOrder.status === "pago" || viewingOrder.status === 'completed') && (
+                                {(externalId || viewingOrder.shipping_tracking_code || viewingOrder.shipping_status_metadata?.trackingNumber) ? (
+                                  <div className="flex flex-col gap-2 flex-1">
+                                     <div className="bg-orange-500/10 border border-orange-500/20 p-3 flex flex-col items-center justify-center gap-1">
+                                       <p className="text-[8px] uppercase tracking-[0.2em] text-white/40 font-bold">Estado Logístico Real-Time</p>
+                                       <p className="text-sm text-orange-500 font-black uppercase tracking-widest">
+                                         {viewingOrder.shipping_status_metadata?.lastExternalStatus || viewingOrder.shipping_status || 'Processado'}
+                                       </p>
+                                     </div>
+                                     <Button 
+                                       size="sm"
+                                       variant="outline"
+                                       onClick={() => handleSyncStatus(viewingOrder.id)}
+                                       className="border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-4 flex-1"
+                                     >
+                                       <RefreshCw size={10} className="mr-2" /> Forçar Sincronização
+                                     </Button>
+                                  </div>
+                                ) : (viewingOrder.status === 'paid' || viewingOrder.status === "pago" || viewingOrder.status === 'completed') && (
                                   <>
                                     <Button 
                                       size="sm"
@@ -3724,13 +4143,22 @@ export default function AdminDashboard({
                                     </Button>
                                     
                                     {isAli ? (
-                                      <Button 
-                                        size="sm"
-                                        onClick={() => handleAliExpressFulfill(viewingOrder.id)}
-                                        className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20"
-                                      >
-                                        <Zap size={10} className="mr-2" /> Enviar p/ AliExpress
-                                      </Button>
+                                      <div className="flex gap-2">
+                                        <Button 
+                                          size="sm"
+                                          onClick={() => handleManualFulfill(viewingOrder.id)}
+                                          className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20 flex-1"
+                                        >
+                                          <Truck size={10} className="mr-2" /> Manual
+                                        </Button>
+                                        <Button 
+                                          size="sm"
+                                          onClick={() => handleAliExpressFulfill(viewingOrder.id)}
+                                          className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20 flex-1"
+                                        >
+                                          <Zap size={10} className="mr-2" /> Auto-API
+                                        </Button>
+                                      </div>
                                     ) : (
                                       <Button 
                                         size="sm"

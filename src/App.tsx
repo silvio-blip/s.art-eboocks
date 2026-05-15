@@ -367,6 +367,7 @@ interface Product {
   dropea_id?: string | number;
   supabase_id?: string;
   is_featured?: boolean;
+  free_shipping?: boolean;
 }
 
 interface Order {
@@ -2271,6 +2272,7 @@ export default function App() {
             category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
             is_active: supaProduct.is_active,
             is_featured: supaProduct.is_featured,
+            free_shipping: supaProduct.free_shipping,
             file_url: supaProduct.file_url,
             sizes_enabled: supaProduct.sizes_enabled,
             colors_enabled: supaProduct.colors_enabled,
@@ -3295,13 +3297,19 @@ export default function App() {
                       </div>
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Envio S.Art VIP</span>
-                        <span className="text-luxury-gold font-bold">
-                          Grátis
-                        </span>
+                        {selectedProduct.free_shipping ? (
+                          <span className="text-luxury-gold font-bold uppercase tracking-widest">
+                            Grátis
+                          </span>
+                        ) : (
+                          <span className="text-white/60">
+                            €1,15
+                          </span>
+                        )}
                       </div>
                       <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
-                        <span>€{selectedProduct.pvp}</span>
+                        <span>€{(Number(selectedProduct.pvp) + (selectedProduct.free_shipping ? 0 : 1.15)).toFixed(2)}</span>
                       </div>
                     </div>
 

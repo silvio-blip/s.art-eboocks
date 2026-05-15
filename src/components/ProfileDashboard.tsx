@@ -878,22 +878,32 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                 {selectedOrder.shipping_status === 'out_for_delivery' ? 'EM DISTRIBUIÇÃO' : 
                                  selectedOrder.shipping_status === 'sent' ? 'EM TRÂNSITO' :
                                  selectedOrder.shipping_status === 'delivered' ? 'ENTREGUE' :
+                                 ['confirmed', 'confirmed_order'].includes(selectedOrder.shipping_status || '') ? 'CONFIRMADO' :
+                                 ['preparing', 'ready'].includes(selectedOrder.shipping_status || '') ? 'EM PREPARAÇÃO' :
                                  selectedOrder.shipping_status || 'Aguardando Verificação'}
                               </p>
                            </div>
+                           {selectedOrder.shipping_status_metadata?.lastExternalStatus && (
+                             <div className="space-y-1">
+                                <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Status AliExpress</p>
+                                <p className="text-xs text-orange-500 font-black uppercase tracking-widest">
+                                  {selectedOrder.shipping_status_metadata.lastExternalStatus}
+                                </p>
+                             </div>
+                           )}
                            <div className="space-y-1">
                               <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">SLA Estimado</p>
                               <p className="text-xs text-luxury-gold font-black uppercase tracking-widest">Premium (4-7 Dias)</p>
                            </div>
                         </div>
                         
-                        {selectedOrder.shipping_status_metadata?.trackingNumber && (
+                        {(selectedOrder.shipping_status_metadata?.trackingNumber || selectedOrder.shipping_tracking_code) && (
                           <div className="pt-6 border-t border-white/10 space-y-4">
                              <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-black/40 p-4 rounded-sm border border-white/5 gap-4 overflow-hidden">
-                                <span className="font-mono text-sm md:text-base xl:text-lg text-white tracking-tighter break-all w-full">{selectedOrder.shipping_status_metadata.trackingNumber}</span>
-                                {selectedOrder.shipping_status_metadata.trackingUrl && (
+                                <span className="font-mono text-sm md:text-base xl:text-lg text-white tracking-tighter break-all w-full">{selectedOrder.shipping_status_metadata?.trackingNumber || selectedOrder.shipping_tracking_code}</span>
+                                {(selectedOrder.shipping_status_metadata?.trackingUrl || selectedOrder.shipping_tracking_url) && (
                                   <a 
-                                    href={selectedOrder.shipping_status_metadata.trackingUrl} 
+                                    href={selectedOrder.shipping_status_metadata?.trackingUrl || selectedOrder.shipping_tracking_url} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-2 text-luxury-gold text-[9px] uppercase tracking-widest font-black hover:text-white transition-colors whitespace-nowrap pt-2 xl:pt-0"
