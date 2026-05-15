@@ -2715,7 +2715,6 @@ export default function App() {
                 country: c.name, 
                 phone: c.prefix + " " 
               }));
-              toast.success(`Idioma e preçário ajustados para ${c.name}`);
             }}
           />
 
