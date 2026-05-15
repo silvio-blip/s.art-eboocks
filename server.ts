@@ -1381,9 +1381,11 @@ adminRouter.post('/orders/:id/manual-update', async (req, res) => {
     
     const trackingCode = req.body.tracking_code;
     const trackingUrl = req.body.tracking_url;
+    const providerOrderId = req.body.provider_order_id;
 
     if (trackingCode !== undefined) updateData.shipping_tracking_code = trackingCode;
     if (trackingUrl !== undefined) updateData.shipping_tracking_url = trackingUrl;
+    if (providerOrderId !== undefined) updateData.provider_order_id = providerOrderId;
 
     // Sync metadata for customer dashboard visibility
     const newMetadata = { ...currentMetadata };

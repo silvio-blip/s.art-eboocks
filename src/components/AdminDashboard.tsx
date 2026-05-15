@@ -194,6 +194,7 @@ export default function AdminDashboard({
   const [manualShippingStatus, setManualShippingStatus] = useState("");
   const [manualTrackingCode, setManualTrackingCode] = useState("");
   const [manualTrackingUrl, setManualTrackingUrl] = useState("");
+  const [manualProviderOrderId, setManualProviderOrderId] = useState("");
   
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -205,6 +206,7 @@ export default function AdminDashboard({
       setManualShippingStatus(viewingOrder.shipping_status || "pending");
       setManualTrackingCode(viewingOrder.shipping_tracking_code || "");
       setManualTrackingUrl(viewingOrder.shipping_tracking_url || "");
+      setManualProviderOrderId(viewingOrder.provider_order_id || "");
     }
   }, [viewingOrder]);
 
@@ -226,7 +228,8 @@ export default function AdminDashboard({
       // Search filter
       const titleMatches = (p.title || "").toLowerCase().includes(productSearch.toLowerCase());
       const categoryMatches = (p.category || "").toLowerCase().includes(productSearch.toLowerCase());
-      if (!titleMatches && !categoryMatches) return false;
+      const idMatches = (p.aliexpress_id || "").toString().toLowerCase().includes(productSearch.toLowerCase());
+      if (!titleMatches && !categoryMatches && !idMatches) return false;
 
       // Status filter (Featured/Standard)
       const isFeatured = !!p.is_featured;
@@ -1009,6 +1012,7 @@ export default function AdminDashboard({
       order.id.toLowerCase().includes(searchLower) ||
       formattedOrderId.toLowerCase().includes(searchLower) ||
       order.customer_email?.toLowerCase().includes(searchLower) ||
+      order.provider_order_id?.toLowerCase().includes(searchLower) ||
       (order.shipping_details?.fullName &&
         order.shipping_details.fullName.toLowerCase().includes(searchLower)) ||
       (order.shipping_details?.name &&
@@ -1314,7 +1318,8 @@ export default function AdminDashboard({
           shipping_status: newShippingStatus,
           verify_stripe: verifyWithStripe,
           tracking_code: manualTrackingCode,
-          tracking_url: manualTrackingUrl
+          tracking_url: manualTrackingUrl,
+          provider_order_id: manualProviderOrderId
         })
       });
 
@@ -1329,7 +1334,8 @@ export default function AdminDashboard({
           status: newStatus, 
           shipping_status: newShippingStatus || viewingOrder.shipping_status,
           shipping_tracking_code: manualTrackingCode,
-          shipping_tracking_url: manualTrackingUrl
+          shipping_tracking_url: manualTrackingUrl,
+          provider_order_id: manualProviderOrderId
         } as any);
       }
       
@@ -3600,9 +3606,19 @@ export default function AdminDashboard({
                 <div className="flex items-center gap-2 text-luxury-gold text-[10px] font-bold uppercase tracking-widest mb-2">
                   <Settings size={14} /> Controlo Administrativo Manual
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40">Mudar Estado Geral</label>
+                    <label className="text-[9px] uppercase tracking-widest text-white/40 font-bold text-luxury-gold">ID Exclusivo AliExpress</label>
+                    <input 
+                      type="text"
+                      value={manualProviderOrderId}
+                      onChange={(e) => setManualProviderOrderId(e.target.value)}
+                      placeholder={viewingOrder.provider_order_id || "Ex: 8151234567890"}
+                      className="w-full bg-black/50 border border-luxury-gold/30 p-2 text-[10px] text-white outline-none focus:border-luxury-gold"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-widest text-white/40">Estado Geral</label>
                     <select 
                       value={manualStatus || viewingOrder.status}
                       onChange={(e) => setManualStatus(e.target.value)}
@@ -3617,7 +3633,7 @@ export default function AdminDashboard({
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40">Mudar Estado Logístico</label>
+                    <label className="text-[9px] uppercase tracking-widest text-white/40">Estado Logístico</label>
                     <select 
                       value={manualShippingStatus || viewingOrder.shipping_status || "pending"}
                       onChange={(e) => setManualShippingStatus(e.target.value)}
