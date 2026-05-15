@@ -2953,8 +2953,16 @@ export default function AdminDashboard({
                                 `Cor: ${order.selected_options.color}`}
                             </div>
                           )}
-                        <div className="text-[9px] uppercase tracking-widest text-white/20 mt-1">
-                          Ref: {order.product_id?.slice(0, 8) || "N/A"}
+                        <div className="text-[9px] uppercase tracking-widest text-white/20 mt-1 flex items-center gap-2 flex-wrap">
+                          <span>Ref: {order.product_id?.slice(0, 8) || "N/A"}</span>
+                          {order.provider_order_id && (
+                            <>
+                              <span className="text-white/10">|</span>
+                              <span className="text-luxury-gold/70 font-bold bg-luxury-gold/5 px-1.5 py-0.5 rounded border border-luxury-gold/10">
+                                ALI: {order.provider_order_id}
+                              </span>
+                            </>
+                          )}
                         </div>
                       </td>
                       <td className="px-8 py-6 text-luxury-gold/80">
@@ -3608,14 +3616,19 @@ export default function AdminDashboard({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40 font-bold text-luxury-gold">ID Exclusivo AliExpress</label>
-                    <input 
-                      type="text"
-                      value={manualProviderOrderId}
-                      onChange={(e) => setManualProviderOrderId(e.target.value)}
-                      placeholder={viewingOrder.provider_order_id || "Ex: 8151234567890"}
-                      className="w-full bg-black/50 border border-luxury-gold/30 p-2 text-[10px] text-white outline-none focus:border-luxury-gold"
-                    />
+                    <label className="text-[9px] uppercase tracking-widest text-luxury-gold/60 font-bold">ID Exclusivo AliExpress</label>
+                    <div className="relative group">
+                      <input 
+                        type="text"
+                        value={manualProviderOrderId}
+                        onChange={(e) => setManualProviderOrderId(e.target.value)}
+                        placeholder={viewingOrder.provider_order_id || "Ex: 8151234567890"}
+                        className="w-full bg-black/40 border border-luxury-gold/20 p-2 text-[10px] text-white outline-none focus:border-luxury-gold focus:bg-black/60 transition-all group-hover:border-luxury-gold/40"
+                      />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[7px] text-luxury-gold/30 uppercase font-black tracking-tighter pointer-events-none group-focus-within:opacity-0 transition-opacity">
+                        REF MANUAL
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] uppercase tracking-widest text-white/40">Estado Geral</label>

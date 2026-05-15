@@ -2397,28 +2397,22 @@ async function syncOrderWithExternalSources(id: string) {
   let trackingNumber = "";
   let trackingUrl = "";
 
-  try {
-    console.log(`[ALIEXPRESS SYNC] Iniciando consulta para order_id: ${providerOrderId}`);
-    externalData = await getAliExpressOrderDetail(providerOrderId);
-    
-    if (externalData) {
-      console.log(`[ALIEXPRESS SYNC] Dados retornados com sucesso para ${providerOrderId}`);
-      externalStatus = String(externalData.order_status || "").toUpperCase();
-      
-      // Tentar extrair tracking se disponível
-      if (externalData.logistics_info_list && externalData.logistics_info_list.length > 0) {
-          trackingNumber = externalData.logistics_info_list[0].logistics_no;
-          console.log(`[ALIEXPRESS SYNC] Tracking encontrado: ${trackingNumber}`);
-      }
-    } else {
-      console.warn(`[ALIEXPRESS SYNC] Falha: Provedor não retornou dados para ID ${providerOrderId}`);
+  // AliExpress sync is now disabled for automated checks as the "provider_order_id" 
+  // is treated as a manual orientation reference by the administrator.
+  if (provider === 'aliexpress') {
+    console.log(`[SYNC INFO] AliExpress API sync bypassed for order ${id}. ID ${providerOrderId} is for manual reference only.`);
+  } else {
+    try {
+      // If we had other providers, we would call them here.
+      // For now, we only had AliExpress which we are bypassing.
+    } catch (err: any) {
+      console.error(`[SYNC API ERROR] Provider: ${provider}, ID: ${providerOrderId}:`, err.message);
+      return { success: false, error: 'ERRO_API_EXTERNA', message: err.message };
     }
-  } catch (err: any) {
-    console.error(`[SYNC API ERROR] Provider: ${provider}, ID: ${providerOrderId}:`, err.message);
-    return { success: false, error: 'ERRO_API_EXTERNA', message: err.message };
   }
 
-  if (!externalData) {
+  // Only throw error if it's NOT AliExpress and we expected data
+  if (provider !== 'aliexpress' && !externalData) {
     console.error(`[SYNC ERROR] ${providerLabel} não retornou dados para ID: ${providerOrderId}`);
     return { 
       success: false, 
@@ -3135,7 +3129,7 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
           (() => {
             const item: any = {
               product_count: order.quantity || 1,
-              product_id: parseInt(aliId, 10)
+              product_id: String(aliId)
             };
             if (order.selected_options?.sku_id) {
               item.sku_id = String(order.selected_options.sku_id);
@@ -3188,13 +3182,6 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
 
         console.log(`[ALIEXPRESS API] Consultando order_id: ${cleanOrderId} (Original: ${aliOrderId})`);
         
-        // Tentar Método 1: aliexpress.ds.trade.order.get (Padrão Dropshipping)
-        let result = await callAliExpressAPIInternal('aliexpress.ds.trade.order.get', {
-            single_order_query: {
-                order_id: Number(cleanOrderId) // Garantir tipo Number no JSON
-            }
-        });
-        
         const tryExtract = (res: any) => {
             if (!res) return null;
             const keys = [
@@ -3206,45 +3193,48 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
             for (const key of keys) {
                 if (res[key]) {
                     const resultObj = res[key].result || res[key].data || res[key];
-                    // Caso o result contenha um campo data (comum na DS API)
                     const finalData = (resultObj && resultObj.data) ? resultObj.data : resultObj;
-                    
                     if (finalData && (finalData.order_status || finalData.status || finalData.order_id)) {
                         return finalData;
                     }
                 }
             }
-            
-            // Busca genérica recursiva por status (fallback de última instância)
-            if (res.order_status || res.status) return res;
-            
+            if (res.order_status || res.status || res.order_id) return res;
             return null;
         };
 
-        let data = tryExtract(result);
+        // Ordem de tentativa baseada no sucesso comum da API
+        const methods = [
+            { name: 'aliexpress.ds.trade.order.get', params: { single_order_query: { order_id: cleanOrderId } } },
+            { name: 'aliexpress.trade.order.get', params: { order_id: cleanOrderId } },
+            { name: 'aliexpress.solution.order.get', params: { order_id: cleanOrderId, current_page: 1, page_size: 1 } }
+        ];
 
-        // Tentar Método 2: aliexpress.solution.order.get (Fallback comum)
-        if (!data) {
-            console.log(`[ALIEXPRESS SYNC] Fallback para aliexpress.solution.order.get...`);
-            result = await callAliExpressAPIInternal('aliexpress.solution.order.get', {
-                order_id: Number(cleanOrderId)
-            });
-            data = tryExtract(result);
+        let lastResult: any = null;
+        for (const m of methods) {
+            try {
+                console.log(`[ALIEXPRESS SYNC] Tentando método: ${m.name}`);
+                const result = await callAliExpressAPIInternal(m.name, m.params);
+                lastResult = result;
+                const data = tryExtract(result);
+                if (data) {
+                    console.log(`[ALIEXPRESS SYNC] Sucesso com ${m.name} para ${cleanOrderId}`);
+                    return data;
+                }
+            } catch (err: any) {
+                console.warn(`[ALIEXPRESS SYNC] Falha no método ${m.name}:`, err.message);
+                lastResult = lastResult || { error_response: { msg: err.message } };
+            }
         }
 
-        if (data) {
-            console.log(`[ALIEXPRESS SYNC] Sucesso ao obter detalhes para ${cleanOrderId}`);
-            return data;
-        }
-
-        if (result && result.error_response) {
-            console.error("[ALIEXPRESS API ERROR]", JSON.stringify(result.error_response));
+        if (lastResult && lastResult.error_response) {
+            console.error("[ALIEXPRESS API ERROR LAST ATTEMPT]", JSON.stringify(lastResult.error_response));
         }
 
         return null;
     } catch (error: any) {
         console.error(`[ALIEXPRESS SYNC FATAL] Order: ${aliOrderId}:`, error.message);
-        return null; // Silencioso para não quebrar o loop de sync
+        return null;
     }
 }
 
