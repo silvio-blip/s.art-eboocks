@@ -6,11 +6,7 @@
       "destination": "/api/index.ts"
     },
     {
-      "source": "/dropea-api(.*)",
-      "destination": "/api/index.ts"
-    },
-    {
-      "source": "/((?!api/|dropea-api).*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ]

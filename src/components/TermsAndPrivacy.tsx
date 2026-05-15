@@ -35,7 +35,7 @@ export default function TermsAndPrivacy() {
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">3. Política de Pagamentos e Preços</h2>
           <p>
-            Os pagamentos são processados de forma segura via Dropea.
+            Os pagamentos são processados de forma segura via Stripe.
           </p>
           <p>
             A S.Art não armazena dados de cartões de crédito nos seus servidores.

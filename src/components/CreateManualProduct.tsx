@@ -17,10 +17,9 @@ import { supabase } from "../lib/supabase";
 
 interface CreateManualProductProps {
   onSuccess?: () => void;
-  defaultProvider?: "aliexpress" | "dropea";
 }
 
-export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" }: CreateManualProductProps) {
+export function CreateManualProduct({ onSuccess }: CreateManualProductProps) {
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [formData, setFormData] = useState({
@@ -32,7 +31,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
     extra_images: "", // Added extra images
     external_id: "", 
     sku: "", 
-    provider: defaultProvider,
+    provider: 'aliexpress' as const,
     free_shipping: false
   });
 
@@ -70,8 +69,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
             category: formData.category, // Added category
             image_url: formData.image_url,
             extra_images: formData.extra_images,
-            aliexpress_id: formData.provider === 'aliexpress' ? (formData.external_id || null) : null,
-            dropea_id: formData.provider === 'dropea' ? (formData.external_id || null) : null,
+            aliexpress_id: formData.external_id || null,
             provider: formData.provider,
             sku: formData.sku || null,
             is_active: true,
@@ -82,7 +80,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
 
       if (error) throw error;
 
-      toast.success(`🎉 Produto ${formData.provider === 'aliexpress' ? 'Internacional' : 'Direto'} criado!`);
+      toast.success(`🎉 Produto Internacional criado!`);
       
       // Reset form
       setFormData({
@@ -94,7 +92,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
         extra_images: "",
         external_id: "",
         sku: "",
-        provider: defaultProvider,
+        provider: 'aliexpress',
         free_shipping: false
       });
 
@@ -115,16 +113,12 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
     >
       <div className="space-y-8">
         <div className="flex items-center gap-4">
-          <div className={`p-3 rounded-2xl ${formData.provider === 'aliexpress' ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
-            {formData.provider === 'aliexpress' ? (
-              <Zap className={`w-6 h-6 text-amber-500`} />
-            ) : (
-              <Truck className={`w-6 h-6 text-emerald-500`} />
-            )}
+          <div className="p-3 rounded-2xl bg-amber-500/10">
+            <Zap className="w-6 h-6 text-amber-500" />
           </div>
           <div>
             <h2 className="text-2xl font-light text-white tracking-tight">
-              Criar <span className="italic font-serif text-white/90">{formData.provider === 'aliexpress' ? 'Internacional' : 'Direto'}</span>
+              Criar <span className="italic font-serif text-white/90">Internacional</span>
             </h2>
             <p className="text-sm text-zinc-500 uppercase tracking-widest font-medium mt-1">Registo manual de ativo externo</p>
           </div>
@@ -226,10 +220,9 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
               </div>
             </div>
 
-            {/* ID do Fornecedor */}
             <div className="space-y-2">
               <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold ml-1">
-                Fornecedor ID: {formData.provider === 'aliexpress' ? 'International Code' : 'Local Code'}
+                Fornecedor ID: International Code
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-zinc-600 group-focus-within:text-amber-500 transition-colors">
@@ -240,7 +233,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
                   name="external_id"
                   value={formData.external_id}
                   onChange={handleChange}
-                  placeholder={formData.provider === 'aliexpress' ? "ID: 100500..." : "ID: INT-..."}
+                  placeholder="ID: 100500..."
                   className="w-full bg-zinc-950 border border-zinc-800/80 rounded-xl py-4 pl-12 pr-6 text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30 focus:border-amber-500/50 transition-all text-sm font-light"
                 />
               </div>

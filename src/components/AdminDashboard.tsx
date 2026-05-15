@@ -49,7 +49,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { supabase } from "../lib/supabase";
-import { DropeaService } from "../services/DropeaService";
 import { AliExpressService } from "../services/AliExpressService";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { CreateManualProduct } from "./CreateManualProduct";
@@ -85,10 +84,9 @@ interface Product {
   colors_enabled?: boolean;
   admin_link?: string;
   extra_images?: string; // Comma separated links
-  dropea_id?: string | number;
   aliexpress_id?: string | number;
   sku?: string;
-  provider?: "aliexpress" | "dropea";
+  provider?: "aliexpress";
   supabase_id?: string;
   price_markup?: number;
   last_aliexpress_sync?: string;
@@ -111,7 +109,6 @@ interface Order {
   email_canceled_sent?: boolean;
   email_refunded_sent?: boolean;
   email_delivered_sent?: boolean;
-  dropea_order_id?: string;
   provider_order_id?: string;
   shipping_tracking_code?: string;
   shipping_tracking_url?: string;
@@ -174,7 +171,6 @@ export default function AdminDashboard({
   >("all");
   const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
   const [userSearch, setUserSearch] = useState("");
-  const [importDropeaId, setImportDropeaId] = useState("");
   const [importAliExpressId, setImportAliExpressId] = useState("");
   const [importing, setImporting] = useState(false);
   const [isSyncingAllAliExpress, setIsSyncingAllAliExpress] = useState(false);
@@ -182,7 +178,7 @@ export default function AdminDashboard({
   const [productSearch, setProductSearch] = useState("");
   const [isTestEmailModalOpen, setIsTestEmailModalOpen] = useState(false);
   const [isProductCreateModalOpen, setIsProductCreateModalOpen] = useState(false);
-  const [creationSupplier, setCreationSupplier] = useState<"aliexpress" | "dropea" | null>(null);
+  const [creationSupplier, setCreationSupplier] = useState<"aliexpress" | null>(null);
   const [testEmailInput, setTestEmailInput] = useState("");
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [productFeaturedFilter, setProductFeaturedFilter] = useState<"all" | "featured" | "standard">("all");
@@ -578,7 +574,7 @@ export default function AdminDashboard({
     let successCount = 0;
     let changeCount = 0;
     
-    // Execução sequencial para respeitar limites da API Dropea
+    // Execução sequencial para respeitar limites de processamento
     for (const order of ordersToSync) {
       try {
         const res = await fetch(`/api/admin/orders/${order.id}/sync_payment`, {
@@ -699,71 +695,11 @@ export default function AdminDashboard({
     }
   };
 
-  const handleImportDropea = async () => {
-    if (!importDropeaId) {
-      toast.error("Insira um ID da Dropea.");
-      return;
-    }
-    
-    setImporting(true);
-    const impToast = toast.loading(`Importando produto ${importDropeaId} da Dropea...`);
-    
-    try {
-      const data = await DropeaService.importProduct(importDropeaId, user.id);
-      
-      toast.success(`PRODUTO EXTRAÍDO COM SUCESSO!\n"${data.title}"\nID Dropea: ${data.dropea_id}\nPVP: €${Number(data.price).toFixed(2)}`, { 
-        id: impToast, 
-        duration: 8000 
-      });
-      setImportDropeaId("");
-      await fetchProducts();
-      
-      // Normalizar para o editor que usa 'pvp'
-      setEditingProduct({
-        ...data,
-        pvp: data.price || 0
-      });
-
-      // Close creation modal if it was open
-      setIsProductCreateModalOpen(false);
-      setCreationSupplier(null);
-    } catch (e: any) {
-      toast.error(e.message, { id: impToast });
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const handleDropeaHandshake = async () => {
-    const syncToast = toast.loading("Iniciando Handshake de Sincronização Dropea...");
-    try {
-      const res = await fetch('/api/dropea/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(data.message, { id: syncToast });
-        fetchProducts(); // Refresh after sync
-      } else {
-        toast.error(data.error || "Erro no protocolo de sincronização", { id: syncToast });
-      }
-    } catch (err) {
-      toast.error("Erro crítico de rede ao contactar protocolo Dropea", { id: syncToast });
-    }
-  };
-
   const fetchProducts = async () => {
     try {
-      // 1. FETCH PARALELO: Supabase Admin API + Dropea API
-      const [dropeaProducts, dbRes] = await Promise.all([
-        DropeaService.getProducts(user.id),
-        fetch(`/api/admin/products?userId=${user.id}`, {
-          headers: { 'x-user-id': user.id }
-        })
-      ]);
+      const dbRes = await fetch(`/api/admin/products?userId=${user.id}`, {
+        headers: { 'x-user-id': user.id }
+      });
       
       if (!dbRes.ok) {
         const errorData = await dbRes.json().catch(() => ({}));
@@ -772,43 +708,8 @@ export default function AdminDashboard({
 
       const dbData = await dbRes.json();
       
-      // 2. MERGE BLINDADO: Mapeia Supabase e une com Dropea
       const merged = (dbData || []).map((supaProduct: any) => {
-        if (supaProduct.dropea_id) {
-          const dropProduct = dropeaProducts.find(
-            (dp: any) => String(dp.id) === String(supaProduct.dropea_id)
-          );
-
-          // Normalizar para o formato esperado pelo componente
-          const dropeaImages = dropProduct && Array.isArray(dropProduct.images) 
-            ? dropProduct.images.map((img: any) => typeof img === "string" ? img : (img.src || img.url || "")) 
-            : [];
-
-          return {
-            ...dropProduct,
-            id: supaProduct.id,
-            supabase_id: supaProduct.id,
-            dropea_id: String(supaProduct.dropea_id),
-            title: supaProduct.title || (dropProduct ? dropProduct.name : ""),
-            pvp: supaProduct.price || (dropProduct ? (dropProduct.pvp || 0) : 0),
-            price: supaProduct.price,
-            description: supaProduct.description || (dropProduct ? dropProduct.description : ""),
-            image_url: supaProduct.image_url || (dropeaImages[0] || ""),
-            extra_images: supaProduct.extra_images || dropeaImages.join(","),
-            product_type: supaProduct.product_type || "physical",
-            category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
-            is_active: supaProduct.is_active,
-            is_featured: supaProduct.is_featured || false,
-            free_shipping: supaProduct.free_shipping || false,
-            file_url: supaProduct.file_url,
-            sizes: supaProduct.sizes,
-            colors: supaProduct.colors,
-            sizes_enabled: supaProduct.sizes_enabled,
-            colors_enabled: supaProduct.colors_enabled,
-          };
-        }
-
-        // Produto digital/local
+        // Produto digital/local ou vindo de fornecedor já no Supabase
         return {
           ...supaProduct,
           supabase_id: supaProduct.id,
@@ -1137,7 +1038,7 @@ export default function AdminDashboard({
 
   const handleVerifyProduct = async (product: any) => {
     setVerifying(product.id);
-    const provider = product.provider || (product.dropea_id ? 'dropea' : 'aliexpress');
+    const provider = product.provider || 'aliexpress';
     const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
     const vToast = toast.loading(`Verificando integridade de ${product.title} no ${providerLabel}...`);
     try {
@@ -1160,7 +1061,7 @@ export default function AdminDashboard({
 
   const handleManualFulfill = async (orderId: string) => {
     try {
-      toast.loading("A enviar pedido manualmente para a Dropea...", { id: "fulfill" });
+      toast.loading("A enviar pedido manualmente...", { id: "fulfill" });
       const res = await fetch(`/api/admin/orders/${orderId}/fulfill`, {
         method: 'POST',
         headers: {
@@ -1172,7 +1073,7 @@ export default function AdminDashboard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao conectar com fornecedor");
       
-      const provider = viewingOrder?.provider || viewingOrder?.product?.provider || (viewingOrder?.product?.dropea_id ? 'dropea' : 'aliexpress');
+      const provider = viewingOrder?.provider || viewingOrder?.product?.provider || 'aliexpress';
       const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
       
       toast.success(`Pedido ENVIADO com sucesso para ${providerLabel}!`, { id: "fulfill" });
@@ -1182,7 +1083,7 @@ export default function AdminDashboard({
         setViewingOrder({
           ...viewingOrder,
           status: 'processing_at_supplier',
-          provider_order_id: data.order.provider_order_id || data.order.dropea_order_id,
+          provider_order_id: data.order.provider_order_id,
           provider: provider
         });
       }
@@ -1300,7 +1201,7 @@ export default function AdminDashboard({
     try {
       const order = orders.find(o => o.id === orderId);
       const product = order?.product;
-      const initialProvider = order?.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
+      const initialProvider = order?.provider || product?.provider || 'aliexpress';
       const initialLabel = initialProvider === 'aliexpress' ? 'Internacional' : 'Local';
       
       toast.loading(`Sincronizando com ${initialLabel} e Stripe...`, { id: "sync" });
@@ -1538,14 +1439,6 @@ export default function AdminDashboard({
               className={`border-black/10 dark:border-white/10 opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden md:flex ${theme === 'dark' ? 'text-white' : 'text-black'}`}
             >
               <FileText size={12} /> Testar E-mail
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleDropeaHandshake}
-              className="border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold hover:text-black gap-2 h-8 text-[10px] uppercase font-bold tracking-widest flex sm:flex"
-            >
-              <RefreshCw size={12} /> Sincronizar Catálogo
             </Button>
           </div>
         </div>
@@ -1995,14 +1888,14 @@ export default function AdminDashboard({
                                     toast.success(data.message || 'Sincronizado!');
                                     fetchDashboardData();
                                   } else {
-                                    toast.info(data.message || 'Sem alterações na Dropea.');
+                                    toast.info(data.message || 'Sem alterações.');
                                   }
                                 } catch (e) {
                                   toast.error('Erro de conexão.');
                                 }
                               }}
                               className="h-7 w-7 p-0 bg-white/5 border-white/10 hover:bg-luxury-gold hover:text-black rounded-none"
-                              title="Sincronizar com Dropea"
+                              title="Sincronizar"
                             >
                               <RefreshCw size={12} />
                             </Button>
@@ -2229,48 +2122,7 @@ export default function AdminDashboard({
               </div>
             )}
 
-            {/* Dropea ID Sync (Restored as requested) */}
-            <div className="bg-black/60 border border-emerald-500/10 p-8 rounded-[2rem] space-y-6 relative overflow-hidden group">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 blur-[80px] rounded-full -mr-32 -mt-32 group-hover:bg-emerald-500/10 transition-colors duration-700" />
-              
-              <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-                <div className="max-w-md space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-emerald-500/10 rounded-xl">
-                      <Truck className="w-5 h-5 text-emerald-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-serif text-white italic">Dropea Cloud Sync</h3>
-                      <p className="text-[10px] uppercase tracking-widest text-emerald-500/60 font-bold">Importação Instantânea via ID</p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-zinc-500 leading-relaxed">
-                    Sincronize ativos do catálogo Dropea introduzindo o identificador exclusivo. 
-                    Imagens, descrições e logística serão puxadas automaticamente.
-                  </p>
-                </div>
 
-                <div className="flex w-full md:w-auto gap-3 items-center min-w-[320px]">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-emerald-500/30" />
-                    <input
-                      type="text"
-                      placeholder="EX: INT-XXXX-XX..."
-                      value={importDropeaId}
-                      onChange={(e) => setImportDropeaId(e.target.value)}
-                      className="w-full h-14 bg-white/[0.03] border border-white/5 rounded-xl pl-12 pr-6 text-white font-mono text-[10px] uppercase tracking-widest outline-none focus:border-emerald-500/30 transition-all"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleImportDropea}
-                    disabled={importing || !importDropeaId}
-                    className="h-14 px-8 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold uppercase tracking-widest text-[10px] active:scale-95 transition-all shadow-lg shadow-emerald-900/20"
-                  >
-                    {importing ? <Loader2 className="w-4 h-4 animate-spin text-white" /> : "Extrair Ativo"}
-                  </Button>
-                </div>
-              </div>
-            </div>
 
             {/* Sincronização Cloud (Internacional) */}
             <div className="bg-black/60 border border-luxury-gold/10 p-8 rounded-[2rem] space-y-6 relative overflow-hidden group">
@@ -2335,95 +2187,47 @@ export default function AdminDashboard({
                       </button>
                     </div>
 
-                    {!creationSupplier ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <button 
-                          onClick={() => setCreationSupplier("aliexpress")}
-                          className="group bg-white/[0.02] border border-white/5 hover:border-luxury-gold/40 p-8 text-left transition-all duration-500 hover:bg-white/[0.04] rounded-2xl relative overflow-hidden"
-                        >
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-luxury-gold/5 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-luxury-gold/10 transition-colors" />
-                          <div className="relative z-10 space-y-4">
-                            <div className="p-3 bg-luxury-gold/10 w-fit rounded-xl">
-                              <Zap className="w-6 h-6 text-luxury-gold" />
-                            </div>
-                            <div>
-                              <h4 className="text-lg font-serif text-white italic">International Boutique</h4>
-                              <p className="text-[9px] uppercase tracking-widest text-white/40 mt-1">International Fulfillment</p>
-                            </div>
-                          </div>
-                        </button>
-
-                        <button 
-                          onClick={() => setCreationSupplier("dropea")}
-                          className="group bg-white/[0.02] border border-white/5 hover:border-emerald-500/40 p-8 text-left transition-all duration-500 hover:bg-white/[0.04] rounded-2xl relative overflow-hidden"
-                        >
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 blur-2xl rounded-full -mr-12 -mt-12 group-hover:bg-emerald-500/10 transition-colors" />
-                          <div className="relative z-10 space-y-4">
-                            <div className="p-3 bg-emerald-500/10 w-fit rounded-xl">
-                              <Truck className="w-6 h-6 text-emerald-500" />
-                            </div>
-                            <div>
-                              <h4 className="text-lg font-serif text-white italic">Dropea Curatorship</h4>
-                              <p className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Manual Dropea Node Sync</p>
-                            </div>
-                          </div>
-                        </button>
+                    <div className="space-y-10">
+                      <div className="flex items-center justify-between">
+                        <div className="px-4 py-1.5 rounded-full border text-[9px] uppercase tracking-[0.2em] font-black bg-luxury-gold/10 border-luxury-gold/30 text-luxury-gold">
+                          International Mode
+                        </div>
                       </div>
-                    ) : (
-                      <div className="space-y-10">
-                        <div className="flex items-center justify-between">
-                          <button 
-                            onClick={() => setCreationSupplier(null)}
-                            className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-white/40 hover:text-white transition-colors"
-                          >
-                            <ArrowLeft size={12} /> Alterar Fornecedor
-                          </button>
-                          <div className={`px-4 py-1.5 rounded-full border text-[9px] uppercase tracking-[0.2em] font-black ${
-                            creationSupplier === 'aliexpress' ? 'bg-luxury-gold/10 border-luxury-gold/30 text-luxury-gold' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                          }`}>
-                            {creationSupplier === 'aliexpress' ? 'International Mode' : 'Dropea Mode'}
-                          </div>
-                        </div>
 
-                        {/* Quick Sync inside the modal */}
-                        <div className="space-y-4">
-                          <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold ml-1">Sincronização Automática (Recomendado)</p>
-                          <div className="flex gap-2">
-                             <input
-                              type="text"
-                              placeholder={creationSupplier === 'aliexpress' ? "Link ou ID Internacional..." : "ID Dropea (Ex: INT-...)"}
-                              value={creationSupplier === 'aliexpress' ? importAliExpressId : importDropeaId}
-                              onChange={(e) => creationSupplier === 'aliexpress' ? setImportAliExpressId(e.target.value) : setImportDropeaId(e.target.value)}
-                              className="flex-1 h-14 bg-white/[0.03] border border-white/5 rounded-xl px-6 text-white font-mono text-[11px] outline-none focus:border-white/20 transition-all"
-                            />
-                            <Button
-                              onClick={creationSupplier === 'aliexpress' ? handleImportAliExpress : handleImportDropea}
-                              disabled={importing || (creationSupplier === 'aliexpress' ? !importAliExpressId : !importDropeaId)}
-                              className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all ${
-                                creationSupplier === 'aliexpress' ? 'bg-luxury-gold text-black hover:bg-luxury-gold/80' : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                              }`}
-                            >
-                              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Extrair"}
-                            </Button>
-                          </div>
-                        </div>
-
-                        <div className="relative h-px bg-white/5 flex items-center justify-center">
-                          <span className="bg-black px-4 text-[9px] uppercase tracking-[0.3em] text-white/20 font-bold">Ou Criar Manualmente</span>
-                        </div>
-
-                        <div className="max-h-[50vh] overflow-y-auto luxury-scrollbar pr-2 pt-2">
-                          <CreateManualProduct 
-                            defaultProvider={creationSupplier} 
-                            onSuccess={() => {
-                              fetchProducts();
-                              setIsProductCreateModalOpen(false);
-                              setCreationSupplier(null);
-                            }} 
+                      <div className="space-y-4">
+                        <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold ml-1">Sincronização Automática (Recomendado)</p>
+                        <div className="flex gap-2">
+                           <input
+                            type="text"
+                            placeholder="Link ou ID Internacional..."
+                            value={importAliExpressId}
+                            onChange={(e) => setImportAliExpressId(e.target.value)}
+                            className="flex-1 h-14 bg-white/[0.03] border border-white/5 rounded-xl px-6 text-white font-mono text-[11px] outline-none focus:border-white/20 transition-all"
                           />
+                          <Button
+                            onClick={handleImportAliExpress}
+                            disabled={importing || !importAliExpressId}
+                            className="h-14 px-8 rounded-xl font-black uppercase tracking-widest text-[10px] transition-all bg-luxury-gold text-black hover:bg-luxury-gold/80"
+                          >
+                            {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : "Extrair"}
+                          </Button>
                         </div>
                       </div>
-                    )}
+
+                      <div className="relative h-px bg-white/5 flex items-center justify-center">
+                        <span className="bg-black px-4 text-[9px] uppercase tracking-[0.3em] text-white/20 font-bold">Ou Criar Manualmente</span>
+                      </div>
+
+                      <div className="max-h-[50vh] overflow-y-auto luxury-scrollbar pr-2 pt-2">
+                        <CreateManualProduct 
+                          onSuccess={() => {
+                            fetchProducts();
+                            setIsProductCreateModalOpen(false);
+                            setCreationSupplier(null);
+                          }} 
+                        />
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               </div>
@@ -2435,7 +2239,7 @@ export default function AdminDashboard({
                   <ShoppingBag className="mx-auto text-white/10 mb-4" size={48} />
                   <p className="text-white/40 text-sm italic">Nenhum produto encontrado.</p>
                   <p className="text-white/20 text-[10px] uppercase tracking-widest mt-2">
-                    Ajuste os filtros ou sincronize da Dropea.
+                    Ajuste os filtros.
                   </p>
                 </div>
               ) : filteredProducts.map((p) => (
@@ -2450,26 +2254,7 @@ export default function AdminDashboard({
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                     />
-                    {p.dropea_id ? (
-                      <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 scale-90 origin-top-left">
-                        <div className="bg-emerald-500 text-white text-[9px] font-black px-2 py-1 uppercase tracking-tighter shadow-xl border border-white/20 flex items-center gap-1">
-                          <Check size={10} />
-                          DROPEA SYNCED
-                        </div>
-                        <div className="bg-black/90 text-luxury-gold text-[8px] px-2 py-0.5 font-bold border border-luxury-gold/30">
-                          ID: {p.dropea_id}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="absolute top-2 left-2 flex flex-col gap-1 z-10 scale-90 origin-top-left">
-                        <div className="bg-zinc-500/80 text-white text-[9px] font-black px-2 py-1 uppercase tracking-tighter shadow-xl border border-white/10">
-                          LOCAL ASSET
-                        </div>
-                        <div className="bg-black/90 text-white/50 text-[8px] px-2 py-0.5 font-bold">
-                          ID: {p.supabase_id?.substring(0, 8)}
-                        </div>
-                      </div>
-                    )}
+
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                        <Button
                         variant="outline"
@@ -2585,22 +2370,7 @@ export default function AdminDashboard({
                           placeholder="Ex: O Código da Elegância"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                          Fornecedor ID: Dropea Node Code
-                        </label>
-                        <input
-                          value={editingProduct.dropea_id || ""}
-                          onChange={(e) =>
-                            setEditingProduct({
-                              ...editingProduct,
-                              dropea_id: e.target.value,
-                            })
-                          }
-                          className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-xs md:text-sm outline-none focus:border-luxury-gold transition-colors font-mono"
-                          placeholder="ID original da Dropea"
-                        />
-                      </div>
+
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
                           Fornecedor ID: International Code
@@ -2643,7 +2413,7 @@ export default function AdminDashboard({
                           className="w-full bg-black/50 border border-white/10 p-2 text-xs md:text-sm uppercase text-white outline-none focus:border-luxury-gold"
                         >
                           <option value="aliexpress">Global (International)</option>
-                          <option value="dropea">Dropea</option>
+
                           <option value="none">Nenhum / Manual</option>
                         </select>
                       </div>
@@ -2910,7 +2680,7 @@ export default function AdminDashboard({
 
                           <div className="space-y-3 pt-2">
                              <label className="text-[9px] uppercase tracking-widest text-white/40 block">
-                               Link de Gestão Externa (Shopify/Dropea/etc)
+                               Link de Gestão Externa (Shopify/Externo/etc)
                              </label>
                              <div className="relative group">
                                <input
@@ -3200,7 +2970,7 @@ export default function AdminDashboard({
                           <span className="text-emerald-500 font-bold text-[9px] uppercase tracking-widest inline-block py-1">
                             Sem Logística (Digital)
                           </span>
-                        ) : (order.dropea_order_id || order.provider_order_id || (order.shipping_status && order.shipping_status !== 'pending') || order.shipping_status_metadata?.trackingNumber) ? (
+                        ) : (order.provider_order_id || (order.shipping_status && order.shipping_status !== 'pending') || order.shipping_status_metadata?.manual_update || order.shipping_status_metadata?.trackingNumber) ? (
                           <div className="flex flex-col gap-1">
                             <span className={`text-[10px] uppercase font-black ${
                               order.shipping_status === "delivered" ? "text-emerald-500" :
@@ -3225,13 +2995,13 @@ export default function AdminDashboard({
                                (order.shipping_status_metadata?.manual_update ? 'Processado Manual' : 'Em Processamento')}
                             </span>
                             <span className="text-[8px] text-white/30 font-mono tracking-tighter">
-                               {order.provider_order_id || order.dropea_order_id || (order.shipping_status_metadata?.manual_update ? 'MANUAL' : '')} 
+                               {order.provider_order_id || (order.shipping_status_metadata?.manual_update ? 'MANUAL' : '')} 
                                {(order.shipping_status_metadata?.trackingNumber || order.shipping_tracking_code) && ` | ${order.shipping_status_metadata?.trackingNumber || order.shipping_tracking_code}`}
                             </span>
                           </div>
                         ) : (["paid", "pago", "completed", "succeeded"].includes(order.status?.toLowerCase() || "")) ? (
                           <div className="flex items-center gap-1.5 min-w-[140px]">
-                            {(order.dropea_order_id || order.provider_order_id) ? (
+                            {(order.provider_order_id) ? (
                                <Button 
                                 size="sm"
                                 onClick={() => handleSyncStatus(order.id)}
@@ -3246,7 +3016,7 @@ export default function AdminDashboard({
                                   variant="outline"
                                   onClick={() => handleSyncStatus(order.id)}
                                   className="border-white/10 text-white/60 hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
-                                  title="Tentar encontrar vínculo na Dropea"
+                                  title="Sincronizar com Stripe"
                                 >
                                   Verificar
                                 </Button>
@@ -3362,7 +3132,7 @@ export default function AdminDashboard({
                                  }
                                }}
                                variant="outline"
-                               title="Sincronizar dados com Dropea/Stripe (Apenas leitura)"
+                               title="Sincronizar dados com Stripe (Apenas leitura)"
                                className="border-white/10 text-white/40 hover:text-luxury-gold hover:bg-white/5 h-8 px-3 text-[8px] uppercase tracking-widest font-bold whitespace-nowrap"
                              >
                                <RefreshCw size={10} className="mr-1" /> Sincronizar
@@ -3473,7 +3243,7 @@ export default function AdminDashboard({
                   Gestão de <span className="text-red-500 italic">Reembolsos</span>
                 </h2>
                 <p className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
-                  Controle as solicitações de devolução de membros. A aprovação administrativa inicia o processo de estorno seguro via Dropea.
+                  Controle as solicitações de devolução de membros. A aprovação administrativa inicia o processo de estorno seguro via Stripe.
                 </p>
               </div>
 
@@ -3592,7 +3362,7 @@ export default function AdminDashboard({
                                       }}
                                       variant="outline"
                                       className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none transition-all"
-                                      title="Sincronizar com Stripe/Dropea"
+                                      title="Sincronizar com Stripe"
                                     >
                                       <RefreshCw size={10} className="mr-1 sync-icon" />
                                       Sincronizar
@@ -3660,7 +3430,7 @@ export default function AdminDashboard({
                                     <div className="flex flex-col items-end gap-1 mt-2">
                                       <div className="text-[9px] text-blue-400 uppercase tracking-widest flex items-center gap-2 font-bold bg-blue-500/5 px-2 py-1 border border-blue-500/10">
                                         <Loader2 size={10} className="animate-spin" />
-                                        Processamento Dropea
+                                        Processamento Gateway
                                       </div>
                                       <div className="text-[7px] text-white/40 uppercase tracking-[0.1em] mt-1 text-right">
                                         Clique em Sincronizar se o estorno já foi concluído
@@ -4096,10 +3866,10 @@ export default function AdminDashboard({
                   <div className="pt-2 flex items-center justify-between gap-4">
                       {(() => {
                          const product = viewingOrder.product;
-                         const provider = viewingOrder.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
+                         const provider = viewingOrder.provider || product?.provider || 'aliexpress';
                          const isAli = provider === 'aliexpress';
                          const providerLabel = isAli ? 'Internacional' : 'Local';
-                         const externalId = (viewingOrder.provider_order_id || viewingOrder.dropea_order_id);
+                         const externalId = (viewingOrder.provider_order_id);
                          
                          return (
                            <>
@@ -4175,7 +3945,7 @@ export default function AdminDashboard({
                                         onClick={() => handleManualFulfill(viewingOrder.id)}
                                         className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
                                       >
-                                        Enviar p/ Dropea
+                                        Enviar Manualmente
                                       </Button>
                                     )}
                                   </>

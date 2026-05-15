@@ -251,7 +251,7 @@ serve(async (req) => {
             .eq("id", orderId);
         }
       } else {
-        // Not AliExpress or no ID - might be Dropea or manual
+        // Not AliExpress or no ID - might be manual fulfillment
         console.log(`[FULFILLMENT] Order ${orderId} skipped for Automation (Provider: ${order.product?.provider})`);
       }
     }

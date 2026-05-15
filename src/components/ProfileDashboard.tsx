@@ -47,7 +47,7 @@ interface Order {
     trackingUrl?: string;
     lastUpdate?: string;
   };
-  dropea_order_id?: string;
+  provider_order_id?: string;
   total_amount: number;
   created_at: string;
   product?: Product;

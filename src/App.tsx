@@ -48,7 +48,6 @@ import { supabase } from "./lib/supabase";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { Routes, Route, useLocation } from "react-router-dom";
 
-import { DropeaService } from "./services/DropeaService";
 import AdminDashboard from "./components/AdminDashboard";
 import TermsAndPrivacy from "./components/TermsAndPrivacy";
 import ProfileDashboard from "./components/ProfileDashboard";
@@ -442,7 +441,6 @@ interface Product {
   colors_enabled?: boolean;
   admin_link?: string;
   extra_images?: string;
-  dropea_id?: string | number;
   supabase_id?: string;
   is_featured?: boolean;
   free_shipping?: boolean;
@@ -2266,7 +2264,7 @@ export default function App() {
 
       setView("success");
       try {
-        console.log(`[S.ART DEBUG] Verifying Dropea session: ${sessionId}`);
+ 
         toast.info("A processar a sua compra... Por favor, aguarde um momento.", { id: "loading-order" });
         
         let attempts = 0;
@@ -2381,94 +2379,33 @@ export default function App() {
 
   const fetchProducts = async () => {
     try {
-      // 1. FETCH PARALELO: Busca os produtos da Dropea e os do Supabase simultaneamente
-      const [dropeaProducts, { data: dbProducts, error: dbError }] = await Promise.all([
-        DropeaService.getProducts(user?.id),
-        supabase.from("products").select("*")
-      ]);
+      const { data: dbProducts, error: dbError } = await supabase
+        .from("products")
+        .select("*")
+        .order('created_at', { ascending: false });
 
       if (dbError) {
-        console.error("Erro ao carregar produtos do banco local:", dbError);
+        console.error("Erro ao carregar produtos:", dbError);
+        toast.error("Erro ao carregar o catálogo.");
+        return;
       }
 
-      const productsFromDb = dbProducts || [];
+      const productsWithPvp = (dbProducts || []).map(p => ({
+        ...p,
+        pvp: p.price || 0,
+        supabase_id: p.id
+      }));
 
-      // 2. MERGE BLINDADO: Mapeia o array do SUPABASE (admin deicide o que vender)
-      const mergedProducts = productsFromDb.map((supaProduct: any) => {
-        // Se o produto tem um vínculo com a Dropea
-        if (supaProduct.dropea_id) {
-          // Procura a correspondência na Dropea usando String() para comparação segura
-          const dropProduct = dropeaProducts.find(
-            (dp: any) => String(dp.id) === String(supaProduct.dropea_id)
-          );
-
-          // Normalizar imagens da Dropea (GraphQL response handling)
-          const dropeaImages = dropProduct && Array.isArray(dropProduct.images) 
-            ? dropProduct.images.map((img: any) => typeof img === "string" ? img : (img.src || img.url || "")) 
-            : [];
-
-          // 3. ESTRUTURA DO OBJETO FINAL (Merge Supabase + Dropea)
-          return {
-            ...dropProduct, // Traz imagens, descrição original, variantes, id original da Dropea
-            id: supaProduct.id, // ID interno para referências
-            supabase_id: supaProduct.id,
-            dropea_id: String(supaProduct.dropea_id),
-            title: supaProduct.title || (dropProduct ? dropProduct.name : ""),
-            pvp: supaProduct.price || (dropProduct ? (dropProduct.pvp || 0) : 0),
-            price: supaProduct.price,
-            description: supaProduct.description || (dropProduct ? dropProduct.description : ""),
-            image_url: supaProduct.image_url || (dropeaImages[0] || ""),
-            extra_images: supaProduct.extra_images || dropeaImages.join(","),
-            product_type: supaProduct.product_type || "physical",
-            category: supaProduct.category || (dropProduct ? dropProduct.category : "Dropshipping"),
-            is_active: supaProduct.is_active,
-            is_featured: supaProduct.is_featured,
-            free_shipping: supaProduct.free_shipping,
-            file_url: supaProduct.file_url,
-            sizes_enabled: supaProduct.sizes_enabled,
-            colors_enabled: supaProduct.colors_enabled,
-            sizes: supaProduct.sizes,
-            colors: supaProduct.colors,
-          } as Product;
-        }
-
-        // Produto puramente local (ex: Info-produtos)
-        return {
-          ...supaProduct,
-          supabase_id: supaProduct.id,
-          pvp: supaProduct.price || 0,
-          is_featured: supaProduct.is_featured
-        } as Product;
-      }).filter((p): p is Product => p !== null);
-
-      if (mergedProducts.length > 0) {
-        setProducts(mergedProducts);
-      } else {
-        console.warn("Nenhum produto válido para exibição após o merge.");
-      }
+      setProducts(productsWithPvp);
     } catch (err) {
       console.error("Erro no fetchProducts:", err);
-      toast.error("Ocorreu um erro ao carregar o catálogo de obras.");
     } finally {
       setLoading(false);
     }
   };
 
   const fetchDashboardData = async (userId: string) => {
-    // console.log("[DEBUG] Fetching dashboard data for:", userId);
-
-    // 1. PRIMEIRO: Sincronizar com a Dropea o estado dos pedidos atuais
-    try {
-      await fetch('/api/orders/sync-statuses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
-      });
-    } catch (err) {
-      // Sincronização falhou silenciosamente para evitar poluir o console
-    }
-
-    // 2. BUSCAR ORDENS ATUALIZADAS
+    // 1. BUSCAR ORDENS ATUALIZADAS
     const { data: orders, error: ordersError } = await supabase
       .from("orders")
       .select("*")
