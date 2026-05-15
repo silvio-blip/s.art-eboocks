@@ -2613,7 +2613,8 @@ export default function App() {
           product: selectedProduct,
           customer: { ...customerData, userId: user.id },
           baseUrl: window.location.origin,
-          selectedOptions: selectedOptions
+          selectedOptions: selectedOptions,
+          couponCode: customerData.couponCode
         })
       });
 
