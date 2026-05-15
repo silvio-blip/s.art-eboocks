@@ -2904,18 +2904,16 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
             .select('id')
             .eq('coupon_id', coupon.id)
             .eq('user_id', customer.userId)
-            .eq('product_id', product.id)
             .maybeSingle();
         
         if (usage) {
-            return res.status(400).json({ error: "Este cupom já foi utilizado para este produto." });
+            return res.status(400).json({ error: "Este cupom já foi utilizado." });
         }
 
         // 3. Record Usage
         const { error: insertError } = await supabase.from('coupon_usage').insert({
             coupon_id: coupon.id,
-            user_id: customer.userId,
-            product_id: product.id
+            user_id: customer.userId
         });
         
         if (insertError) {

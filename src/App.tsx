@@ -1971,11 +1971,10 @@ export default function App() {
         .select('id')
         .eq('coupon_id', coupon.id)
         .eq('user_id', user.id)
-        .eq('product_id', selectedProduct.id)
         .maybeSingle();
     
     if (usage) {
-        toast.error("Este cupom já foi utilizado para este produto.");
+        toast.error("Este cupom já foi utilizado.");
         setCouponDiscount(0);
         return;
     }
