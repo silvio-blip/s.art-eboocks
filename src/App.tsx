@@ -1943,11 +1943,32 @@ export default function App() {
     identification: "",
   });
 
+  const applyCoupon = async () => {
+    if (!couponCode) return;
+    const { data, error } = await supabase
+        .from('coupons')
+        .select('percentage_discount')
+        .eq('code', couponCode.toUpperCase())
+        .eq('is_active', true)
+        .maybeSingle();
+
+    if (error || !data) {
+        toast.error("Cupom inválido ou inativo.");
+        setCouponDiscount(0);
+        return;
+    }
+
+    setCouponDiscount(data.percentage_discount);
+    toast.success(`${data.percentage_discount}% de desconto aplicado!`);
+  };
+
   const [quantity, setQuantity] = useState(1);
   const [globalCountry, setGlobalCountry] = useState(COUNTRIES[0]);
   const [currentLanguage, setCurrentLanguage] = useState('pt');
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponDiscount, setCouponDiscount] = useState(0);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -3409,6 +3430,23 @@ export default function App() {
                         </p>
                       </div>
                     )}
+
+                    {/* Coupon System */}
+                    <div className="space-y-2 md:col-span-2 mt-4">
+                        <label className="text-[9px] uppercase tracking-widest text-white/50 font-bold">
+                            Cupom de Desconto (Opcional)
+                        </label>
+                        <div className="flex gap-2">
+                             <input 
+                              type="text" 
+                              value={couponCode} 
+                              onChange={e => setCouponCode(e.target.value)}
+                              placeholder="Insira o código"
+                              className="flex-grow border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground"
+                             />
+                             <Button type="button" onClick={applyCoupon} className="bg-luxury-gold text-black rounded-none">Aplicar</Button>
+                        </div>
+                    </div>
                   </div>
                 </div>
 
@@ -3452,6 +3490,12 @@ export default function App() {
                         <span>Subtotal ({quantity}x)</span>
                         <span>€{(Number(selectedProduct.pvp) * quantity).toFixed(2)}</span>
                       </div>
+                      {couponDiscount > 0 && (
+                          <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-gold transition-colors">
+                            <span>Desconto ({couponDiscount}%)</span>
+                            <span>-€{((Number(selectedProduct.pvp) * quantity) * (couponDiscount / 100)).toFixed(2)}</span>
+                          </div>
+                      )}
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Envio S.Art VIP</span>
                         {selectedProduct.free_shipping ? (
@@ -3466,7 +3510,7 @@ export default function App() {
                       </div>
                       <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
-                        <span>€{(Number(selectedProduct.pvp) * quantity + (selectedProduct.free_shipping ? 0 : 1.15)).toFixed(2)}</span>
+                        <span>€{((Number(selectedProduct.pvp) * quantity) * (1 - couponDiscount / 100) + (selectedProduct.free_shipping ? 0 : 1.15)).toFixed(2)}</span>
                       </div>
                     </div>
 
@@ -3528,7 +3572,8 @@ export default function App() {
                           zip: shippingInfo.postalCode,
                           country: COUNTRIES.find(c => c.name === shippingInfo.country)?.code || shippingInfo.country,
                           identification: shippingInfo.identification,
-                          quantity: quantity
+                          quantity: quantity,
+                          couponCode: couponCode
                         });
                       }}
                       disabled={!!checkoutLoading}

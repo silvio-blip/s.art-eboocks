@@ -2872,12 +2872,29 @@ apiRouter.use((err: any, req: express.Request, res: express.Response, next: expr
 
 apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
-    const { product, customer, baseUrl, selectedOptions } = req.body;
+    const { product, customer, baseUrl, selectedOptions, couponCode } = req.body;
     const qty = Math.max(1, customer.quantity || 1);
     
     if (!stripe) {
       console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Por favor, configure a chave live nas definições.");
       return res.status(400).json({ error: "O sistema de pagamentos não está configurado." });
+    }
+
+    let unitAmount = Math.round((product.pvp || product.price) * 100);
+    
+    // Apply Coupon
+    if (couponCode) {
+        const supabase = getSupabase();
+        const { data: coupon, error } = await supabase
+            .from('coupons')
+            .select('percentage_discount')
+            .eq('code', couponCode.toUpperCase())
+            .eq('is_active', true)
+            .maybeSingle();
+            
+        if (!error && coupon) {
+            unitAmount = Math.round(unitAmount * (1 - coupon.percentage_discount / 100));
+        }
     }
 
     const lineItems: any[] = [{
@@ -2888,7 +2905,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
           description: (product.description && product.description.trim() !== "") ? product.description.substring(0, 120) : undefined,
           images: product.image_url ? [product.image_url] : [],
         },
-        unit_amount: Math.round((product.pvp || product.price) * 100),
+        unit_amount: unitAmount,
       },
       quantity: qty,
     }];
