@@ -1945,21 +1945,43 @@ export default function App() {
 
   const applyCoupon = async () => {
     if (!couponCode) return;
-    const { data, error } = await supabase
+    if (!user) {
+        toast.error("Você precisa estar logado para usar um cupom.");
+        return;
+    }
+    if (!selectedProduct) return;
+
+    // 1. Fetch Coupon
+    const { data: coupon, error: couponError } = await supabase
         .from('coupons')
-        .select('percentage_discount')
+        .select('id, percentage_discount')
         .eq('code', couponCode.toUpperCase())
         .eq('is_active', true)
         .maybeSingle();
 
-    if (error || !data) {
+    if (couponError || !coupon) {
         toast.error("Cupom inválido ou inativo.");
         setCouponDiscount(0);
         return;
     }
 
-    setCouponDiscount(data.percentage_discount);
-    toast.success(`${data.percentage_discount}% de desconto aplicado!`);
+    // 2. Check Usage
+    const { data: usage, error: usageError } = await supabase
+        .from('coupon_usage')
+        .select('id')
+        .eq('coupon_id', coupon.id)
+        .eq('user_id', user.id)
+        .eq('product_id', selectedProduct.id)
+        .maybeSingle();
+    
+    if (usage) {
+        toast.error("Este cupom já foi utilizado para este produto.");
+        setCouponDiscount(0);
+        return;
+    }
+
+    setCouponDiscount(coupon.percentage_discount);
+    toast.success(`${coupon.percentage_discount}% de desconto aplicado!`);
   };
 
   const [quantity, setQuantity] = useState(1);

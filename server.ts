@@ -2885,16 +2885,40 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     // Apply Coupon
     if (couponCode) {
         const supabase = getSupabase();
-        const { data: coupon, error } = await supabase
+        
+        // 1. Fetch Coupon
+        const { data: coupon, error: couponError } = await supabase
             .from('coupons')
-            .select('percentage_discount')
+            .select('id, percentage_discount')
             .eq('code', couponCode.toUpperCase())
             .eq('is_active', true)
             .maybeSingle();
             
-        if (!error && coupon) {
-            unitAmount = Math.round(unitAmount * (1 - coupon.percentage_discount / 100));
+        if (couponError || !coupon) {
+            return res.status(400).json({ error: "Cupom inválido ou inativo." });
         }
+
+        // 2. Check Usage
+        const { data: usage, error: usageError } = await supabase
+            .from('coupon_usage')
+            .select('id')
+            .eq('coupon_id', coupon.id)
+            .eq('user_id', customer.userId)
+            .eq('product_id', product.id)
+            .maybeSingle();
+        
+        if (usage) {
+            return res.status(400).json({ error: "Este cupom já foi utilizado para este produto." });
+        }
+
+        // 3. Record Usage
+        await supabase.from('coupon_usage').insert({
+            coupon_id: coupon.id,
+            user_id: customer.userId,
+            product_id: product.id
+        });
+
+        unitAmount = Math.round(unitAmount * (1 - coupon.percentage_discount / 100));
     }
 
     const lineItems: any[] = [{
