@@ -23,7 +23,7 @@ export class AliExpressService {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `AliExpress Request failed: ${response.status}`);
+        throw new Error(errData.error || `Provider Request failed: ${response.status}`);
       }
 
       const data = await response.json();
@@ -31,7 +31,7 @@ export class AliExpressService {
       // Check for API errors
       if (data.error_response) {
         console.error('AliExpress API Error:', data.error_response);
-        throw new Error(`AliExpress API Error: ${data.error_response.msg} (Code: ${data.error_response.code})`);
+        throw new Error(`Provider API Error: ${data.error_response.msg} (Code: ${data.error_response.code})`);
       }
 
       return data;
@@ -82,7 +82,7 @@ export class AliExpressService {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || 'Erro ao importar do AliExpress');
+      throw new Error(err.error || 'Erro ao importar do fornecedor');
     }
 
     return await response.json();

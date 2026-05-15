@@ -339,29 +339,27 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       const internalProductId = metadata.product_id;
       const userId = customerData.userId;
 
-      // 2. CRIAR PEDIDOS (UM REGISTO POR ITEM)
+      // 2. CRIAR PEDIDO
       const quantity = session.line_items?.data?.[0]?.quantity || 1;
-      const ordersToInsert = [];
-
-      for (let i = 0; i < quantity; i++) {
-        ordersToInsert.push({
-          user_id: userId,
-          product_id: internalProductId,
-          status: 'paid',
-          payment_status: 'paid',
-          shipping_status: 'pending',
-          total_amount: (session.amount_total ? session.amount_total / 100 : 0) / quantity,
-          stripe_session_id: session.id,
-          stripe_payment_intent: session.payment_intent as string,
-          shipping_details: customerDataRaw,
-          selected_options: metadata.selected_options ? JSON.parse(metadata.selected_options) : {},
-          customer_email: session.customer_details?.email || customerData?.email || metadata?.email
-        });
-      }
+      
+      const orderData = {
+        user_id: userId,
+        product_id: internalProductId,
+        status: 'paid',
+        payment_status: 'paid',
+        shipping_status: 'pending',
+        total_amount: session.amount_total ? session.amount_total / 100 : 0,
+        stripe_session_id: session.id,
+        stripe_payment_intent: session.payment_intent as string,
+        shipping_details: customerDataRaw,
+        selected_options: metadata.selected_options ? JSON.parse(metadata.selected_options) : {},
+        customer_email: session.customer_details?.email || customerData?.email || metadata?.email,
+        quantity: quantity
+      };
 
       const { data: createdOrders, error: orderError } = await supabase
         .from('orders')
-        .insert(ordersToInsert)
+        .insert([orderData])
         .select();
 
       if (orderError) throw orderError;
@@ -636,7 +634,7 @@ async function fetchAliExpressProduct(productId: string) {
   const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
 
   if (!appKey || !appSecret) {
-    throw new Error('Credenciais do AliExpress ausentes no servidor.');
+    throw new Error('Credenciais de integração ausentes no servidor.');
   }
 
   const currentTimestamp = getAliExpressTimestamp();
@@ -684,11 +682,11 @@ async function fetchAliExpressProduct(productId: string) {
   const data = aliRes.data[responseKey]?.result || aliRes.data[responseKey];
   
   if (aliRes.data.error_response) {
-    throw new Error(`Erro AliExpress: ${aliRes.data.error_response.msg}`);
+    throw new Error(`Erro no Provedor: ${aliRes.data.error_response.msg}`);
   }
 
   if (!data) {
-    throw new Error('Produto não encontrado no AliExpress.');
+    throw new Error('Produto não encontrado no fornecedor.');
   }
 
   return data;
@@ -746,7 +744,7 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
     console.log("🔍 Token lido do ENV:", accessToken ? `${accessToken.substring(0, 10)}... (protegido)` : "NÃO DEFINIDO");
 
     if (!appKey || !appSecret) {
-      return res.status(500).json({ error: 'AliExpress API credentials are missing on server (VITE_ALIEXPRESS_APP_KEY/SECRET).' });
+      return res.status(500).json({ error: 'Integração não configurada no servidor (CREDENTIALS_MISSING).' });
     }
 
     const currentTimestamp = getAliExpressTimestamp();
@@ -2938,7 +2936,7 @@ adminRouter.post('/products/import-dropea', async (req, res) => {
 // Helper: Robust AliExpress product parser
 // Helper: Robust AliExpress product parser
 function parseAliExpressProduct(aliexpressData: any) {
-  if (!aliexpressData) throw new Error("Dados do produto AliExpress vazios.");
+  if (!aliexpressData) throw new Error("Dados do produto importado vazios.");
 
   // Safely navigate through deep structure with fallbacks
   const base = aliexpressData?.ae_item_base_info_dto || {};
@@ -3043,10 +3041,10 @@ function parseAliExpressProduct(aliexpressData: any) {
 adminRouter.post('/products/import-aliexpress', async (req, res) => {
   try {
     const { productId, markup } = req.body;
-    if (!productId) return res.status(400).json({ error: 'ID do AliExpress é obrigatório.' });
+    if (!productId) return res.status(400).json({ error: 'ID de importação é obrigatório.' });
 
     const priceMarkup = parseFloat(String(markup || 0));
-    console.log(`[ADMIN] Importando produto AliExpress ID: ${productId} com Margem: ${priceMarkup}`);
+    console.log(`[ADMIN] Importando produto internacional ID: ${productId} com Margem: ${priceMarkup}`);
     
     const data = await fetchAliExpressProduct(productId);
     const parsed = parseAliExpressProduct(data);
@@ -3106,7 +3104,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     } else {
       const { data: inserted, error: insertError } = await supabase
         .from('products')
-        .insert([{ ...commonData, product_type: 'physical', category: 'Importado AliExpress', is_active: true }])
+        .insert([{ ...commonData, product_type: 'physical', category: 'Importados', is_active: true }])
         .select().single();
       if (insertError) throw insertError;
       result_data = inserted;
@@ -3123,7 +3121,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
 adminRouter.post('/products/sync-aliexpress-all', async (req, res) => {
   try {
     const supabase = getSupabase();
-    console.log('[ADMIN] Iniciando sincronização massiva do AliExpress...');
+    console.log('[ADMIN] Iniciando sincronização massiva internacional...');
     
     const { data: products, error: fetchErr } = await supabase
       .from('products')
@@ -3597,7 +3595,7 @@ adminRouter.post('/products/:id/verify', async (req, res) => {
     if (error || !product) return res.status(404).json({ error: 'Produto não encontrado' });
     
     const provider = product.provider || (product.dropea_id ? 'dropea' : 'aliexpress');
-    const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+    const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
     let exists = false;
     let stock = 0;
     let message = "";
@@ -3619,9 +3617,9 @@ adminRouter.post('/products/:id/verify', async (req, res) => {
       if (aliProduct) {
         exists = true;
         // aliexpress_ds_product_get_response gives status in result
-        message = "Link AliExpress ativo.";
+        message = "Link de fornecedor ativo.";
       } else {
-        message = "Link AliExpress inativo ou erro na API.";
+        message = "Link de fornecedor inativo ou erro na API.";
       }
     }
     
@@ -3915,6 +3913,7 @@ apiRouter.use((err: any, req: express.Request, res: express.Response, next: expr
 apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
     const { product, customer, baseUrl, selectedOptions } = req.body;
+    const qty = Math.max(1, customer.quantity || 1);
     
     if (!stripe) {
       console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Por favor, configure a chave live nas definições.");
@@ -3931,7 +3930,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
         },
         unit_amount: Math.round((product.pvp || product.price) * 100),
       },
-      quantity: 1,
+      quantity: qty,
     }];
 
     // Add shipping fee if not free shipping
@@ -3945,7 +3944,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
           },
           unit_amount: 115, // 1.15€ in cents
         },
-        quantity: 1,
+        quantity: qty, // Shipping often scales with quantity in dropshipping
       });
     }
 
@@ -4059,7 +4058,7 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
       else if (productInDb?.aliexpress_id) provider = 'aliexpress';
       else provider = 'aliexpress';
     }
-    const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+    const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
     console.log(`[FULFILLMENT LOG] Provedor Identificado: ${providerLabel} (Baseado em: order.provider=${currentOrder.provider}, product.provider=${productInDb?.provider}, dropea_id=${productInDb?.dropea_id}, ali_id=${productInDb?.aliexpress_id})`);
 
     // Normalizar shipping_details
@@ -4094,11 +4093,11 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
             selected_options: selectedOptions
         });
     } else {
-        console.log(`[FULFILLMENT] AliExpress order ${currentOrder.id} detected. Skipping automatic API purchase as requested.`);
+        console.log(`[FULFILLMENT] International order ${currentOrder.id} detected. Skipping automatic API purchase as requested.`);
         await supabase.from('orders').update({
             status: 'paid',
             shipping_status: 'pending',
-            notes: (currentOrder.notes || '') + '\n[INFO] Envio para AliExpress deve ser feito manualmente pelo administrador.'
+            notes: (currentOrder.notes || '') + '\n[INFO] Envio deve ser feito manualmente pelo administrador no portal do parceiro.'
         }).eq('id', currentOrder.id);
         
         // Notificar que está em processamento manual
@@ -4182,7 +4181,7 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
     if (result && result[responseKey]) {
         const resObj = result[responseKey];
         if (resObj.result && resObj.result.is_success === false) {
-             throw new Error("AliExpress recusou: " + (resObj.result.error_code || "Erro desconhecido"));
+        throw new Error("Erro na API do fornecedor: " + (resObj.result.error_code || "Erro desconhecido"));
         }
         
         const platformResult = resObj.result;
@@ -4199,12 +4198,12 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
     }
     
     if (result && result.error_response) {
-        throw new Error(`AliExpress API Error: ${result.error_response.msg} (Code: ${result.error_response.code})`);
+        throw new Error(`Erro na API do fornecedor: ${result.error_response.msg} (Code: ${result.error_response.code})`);
     }
 
     // Se chegou aqui, logar o objeto para depuração mas lançar erro claro
     console.error(`[ALIEXPRESS FULFILL FAIL] Resposta sem ID:`, JSON.stringify(result));
-    throw new Error("AliExpress não retornou order_id nem order_id_list. Verifique se o produto está em stock ou se há restrições de envio.");
+    throw new Error("O fornecedor não retornou ID do pedido. Verifique se o produto está em stock ou se há restrições de envio.");
 }
 
 async function getAliExpressOrderDetail(aliOrderId: string) {
@@ -4303,7 +4302,7 @@ async function callAliExpressAPIInternal(method: string, params: any) {
 
     if (!appKey || !appSecret) {
         console.error("[ALIEXPRESS API] ERRO: Credenciais ausentes no environment (APP_KEY ou SECRET)");
-        throw new Error("Credenciais AliExpress Ausentes");
+        throw new Error("Credenciais de Fornecedor Ausentes");
     }
 
     const currentTimestamp = getAliExpressTimestamp();

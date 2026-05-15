@@ -608,7 +608,7 @@ export default function AdminDashboard({
 
   const handleSyncAllAliExpress = async () => {
     setIsSyncingAllAliExpress(true);
-    const syncToast = toast.loading("Sincronizando todos os produtos com AliExpress...");
+    const syncToast = toast.loading("Sincronizando todos os produtos com Logística Global...");
     try {
       const res = await fetch("/api/admin/products/sync-aliexpress-all", {
         method: "POST",
@@ -622,7 +622,7 @@ export default function AdminDashboard({
         toast.error("Erro na sincronização massiva.");
       }
     } catch (err) {
-      toast.error("Erro de rede ao sincronizar AliExpress.");
+      toast.error("Erro de rede ao sincronizar Logística Global.");
     } finally {
       setIsSyncingAllAliExpress(false);
     }
@@ -630,7 +630,7 @@ export default function AdminDashboard({
 
   const handleImportAliExpress = async () => {
     if (!importAliExpressId) {
-      toast.error("Insira um Link ou ID do AliExpress.");
+      toast.error("Insira um Link ou ID válido.");
       return;
     }
 
@@ -645,7 +645,7 @@ export default function AdminDashboard({
     }
     
     setImporting(true);
-    const impToast = toast.loading(`Importando produto ${productId} do AliExpress para a base de dados...`);
+    const impToast = toast.loading(`Importando produto ${productId} para a base de dados...`);
     
     try {
       // Use the markup from the current editing session if it exists, or 0
@@ -664,7 +664,7 @@ export default function AdminDashboard({
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Erro ao importar do AliExpress');
+        throw new Error(data.error || 'Erro ao importar do fornecedor');
       }
       
       if (data._isUpdate) {
@@ -693,7 +693,7 @@ export default function AdminDashboard({
       setCreationSupplier(null);
 
     } catch (e: any) {
-      toast.error(e.message || "Erro ao conectar com AliExpress API", { id: impToast });
+      toast.error(e.message || "Erro ao conectar com API Internacional", { id: impToast });
     } finally {
       setImporting(false);
     }
@@ -1138,7 +1138,7 @@ export default function AdminDashboard({
   const handleVerifyProduct = async (product: any) => {
     setVerifying(product.id);
     const provider = product.provider || (product.dropea_id ? 'dropea' : 'aliexpress');
-    const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+    const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
     const vToast = toast.loading(`Verificando integridade de ${product.title} no ${providerLabel}...`);
     try {
       const res = await fetch(`/api/admin/products/${product.id}/verify`, { 
@@ -1173,7 +1173,7 @@ export default function AdminDashboard({
       if (!res.ok) throw new Error(data.error || "Erro ao conectar com fornecedor");
       
       const provider = viewingOrder?.provider || viewingOrder?.product?.provider || (viewingOrder?.product?.dropea_id ? 'dropea' : 'aliexpress');
-      const providerLabel = provider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+      const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
       
       toast.success(`Pedido ENVIADO com sucesso para ${providerLabel}!`, { id: "fulfill" });
       
@@ -1195,8 +1195,8 @@ export default function AdminDashboard({
     }
   };
 
-  const handleAliExpressFulfill = async (orderId: string) => {
-    const loadingToast = toast.loading('Sincronizando com AliExpress...');
+  const handleInternationalFulfill = async (orderId: string) => {
+    const loadingToast = toast.loading('Sincronizando com Logística Global...');
     try {
       const order = orders.find(o => o.id === orderId);
       if (!order) throw new Error("Ordem não encontrada.");
@@ -1227,10 +1227,10 @@ export default function AdminDashboard({
         const err = response.error_response;
         // Code 27 is IllegalAccessToken, but also check for msg
         if (err.code === 27 || err.msg?.toLowerCase().includes('token') || err.msg?.toLowerCase().includes('permission')) {
-           toast.error("API Pendente: Por favor, faça a encomenda manualmente no AliExpress usando a morada do cliente.", { id: loadingToast, duration: 6000 });
+           toast.error("API Pendente: Por favor, faça a encomenda manualmente no portal do parceiro usando a morada do cliente.", { id: loadingToast, duration: 6000 });
            return;
         }
-        throw new Error(err.msg || "Erro na API AliExpress");
+        throw new Error(err.msg || "Erro na API Global");
       }
 
       // Extrair Order ID retornado pelo AliExpress com fallbacks robustos
@@ -1278,7 +1278,7 @@ export default function AdminDashboard({
 
       if (updateError) throw updateError;
 
-      toast.success("🎉 Pedido enviado para AliExpress com sucesso!", { id: loadingToast });
+      toast.success("🎉 Pedido enviado para logística global com sucesso!", { id: loadingToast });
       
       // Update local state if viewing
       if (viewingOrder && viewingOrder.id === orderId) {
@@ -1301,7 +1301,7 @@ export default function AdminDashboard({
       const order = orders.find(o => o.id === orderId);
       const product = order?.product;
       const initialProvider = order?.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
-      const initialLabel = initialProvider === 'aliexpress' ? 'AliExpress' : 'Dropea';
+      const initialLabel = initialProvider === 'aliexpress' ? 'Internacional' : 'Local';
       
       toast.loading(`Sincronizando com ${initialLabel} e Stripe...`, { id: "sync" });
       const res = await fetch(`/api/orders/${orderId}/sync`, {
@@ -1368,7 +1368,7 @@ export default function AdminDashboard({
       const msg = err.message || "";
       if (msg.includes('não vinculado') || msg.includes('PEDIDO_NAO_ENCONTRADO')) {
          const ord = orders.find(o => o.id === orderId);
-         const provider = viewingOrder?.provider || ord?.provider || "AliExpress";
+         const provider = viewingOrder?.provider || ord?.provider || "Global";
          toast.info(`Atenção: Este pedido ainda não está vinculado ao fornecedor ${provider}. Tente "Enviar para ${provider}" primeiro ou verifique o estado do pedido no painel do fornecedor.`, { id: "sync", duration: 8000 });
       } else {
          toast.error(`Falha na Verificação: ${msg}`, { id: "sync", duration: 6000 });
@@ -2068,7 +2068,7 @@ export default function AdminDashboard({
                   ) : (
                     <RefreshCw size={14} />
                   )}
-                  Sincronizar AliExpress
+                  Sincronizar Global
                 </Button>
                 
                 <Button
@@ -2272,7 +2272,7 @@ export default function AdminDashboard({
               </div>
             </div>
 
-            {/* AliExpress Cloud Sync (Added for parity) */}
+            {/* Sincronização Cloud (Internacional) */}
             <div className="bg-black/60 border border-luxury-gold/10 p-8 rounded-[2rem] space-y-6 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-64 h-64 bg-luxury-gold/5 blur-[80px] rounded-full -mr-32 -mt-32 group-hover:bg-luxury-gold/10 transition-colors duration-700" />
               
@@ -2283,12 +2283,12 @@ export default function AdminDashboard({
                       <Zap className="w-5 h-5 text-luxury-gold" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-serif text-white italic">AliExpress Boutique Sync</h3>
+                      <h3 className="text-lg font-serif text-white italic">International Boutique Sync</h3>
                       <p className="text-[10px] uppercase tracking-widest text-luxury-gold/60 font-bold">Importação via Link ou ID</p>
                     </div>
                   </div>
                   <p className="text-xs text-zinc-500 leading-relaxed">
-                    Importe produtos diretamente do AliExpress. Cole o link do produto ou apenas o ID numérico.
+                    Importe produtos diretamente de estoques internacionais. Cole o link do produto ou apenas o ID numérico.
                     O sistema extrairá automaticamente a descrição, galeria de imagens e preços base.
                   </p>
                 </div>
@@ -2347,8 +2347,8 @@ export default function AdminDashboard({
                               <Zap className="w-6 h-6 text-luxury-gold" />
                             </div>
                             <div>
-                              <h4 className="text-lg font-serif text-white italic">AliExpress Boutique</h4>
-                              <p className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Manual AliExpress Fulfillment</p>
+                              <h4 className="text-lg font-serif text-white italic">International Boutique</h4>
+                              <p className="text-[9px] uppercase tracking-widest text-white/40 mt-1">International Fulfillment</p>
                             </div>
                           </div>
                         </button>
@@ -2381,7 +2381,7 @@ export default function AdminDashboard({
                           <div className={`px-4 py-1.5 rounded-full border text-[9px] uppercase tracking-[0.2em] font-black ${
                             creationSupplier === 'aliexpress' ? 'bg-luxury-gold/10 border-luxury-gold/30 text-luxury-gold' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
                           }`}>
-                            {creationSupplier === 'aliexpress' ? 'AliExpress Mode' : 'Dropea Mode'}
+                            {creationSupplier === 'aliexpress' ? 'International Mode' : 'Dropea Mode'}
                           </div>
                         </div>
 
@@ -2391,7 +2391,7 @@ export default function AdminDashboard({
                           <div className="flex gap-2">
                              <input
                               type="text"
-                              placeholder={creationSupplier === 'aliexpress' ? "Link ou ID AliExpress..." : "ID Dropea (Ex: INT-...)"}
+                              placeholder={creationSupplier === 'aliexpress' ? "Link ou ID Internacional..." : "ID Dropea (Ex: INT-...)"}
                               value={creationSupplier === 'aliexpress' ? importAliExpressId : importDropeaId}
                               onChange={(e) => creationSupplier === 'aliexpress' ? setImportAliExpressId(e.target.value) : setImportDropeaId(e.target.value)}
                               className="flex-1 h-14 bg-white/[0.03] border border-white/5 rounded-xl px-6 text-white font-mono text-[11px] outline-none focus:border-white/20 transition-all"
@@ -2603,7 +2603,7 @@ export default function AdminDashboard({
                       </div>
                       <div className="space-y-2">
                         <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                          Fornecedor ID: AliExpress Code
+                          Fornecedor ID: International Code
                         </label>
                         <input
                           value={editingProduct.aliexpress_id || ""}
@@ -2614,7 +2614,7 @@ export default function AdminDashboard({
                             })
                           }
                           className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-xs md:text-sm outline-none focus:border-luxury-gold transition-colors font-mono"
-                          placeholder="ID original do AliExpress"
+                          placeholder="ID original do produto"
                         />
                       </div>
                       <div className="space-y-2">
@@ -2642,7 +2642,7 @@ export default function AdminDashboard({
                           onChange={(e) => setEditingProduct({ ...editingProduct, provider: e.target.value })}
                           className="w-full bg-black/50 border border-white/10 p-2 text-xs md:text-sm uppercase text-white outline-none focus:border-luxury-gold"
                         >
-                          <option value="aliexpress">AliExpress</option>
+                          <option value="aliexpress">Global (International)</option>
                           <option value="dropea">Dropea</option>
                           <option value="none">Nenhum / Manual</option>
                         </select>
@@ -2684,7 +2684,7 @@ export default function AdminDashboard({
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
                             <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                              Markup AliExpress (€)
+                              Margem Global (€)
                             </label>
                             <div className="flex items-center gap-2">
                                {editingProduct.metadata?.base_price && (
@@ -2728,7 +2728,7 @@ export default function AdminDashboard({
                             placeholder="Valor a somar ao preço base"
                           />
                           <p className="text-[8px] text-white/20 uppercase tracking-widest leading-relaxed">
-                            Este valor será somado ao preço original do AliExpress durante a sincronização automática.
+                            Este valor será somado ao preço original de importação durante a sincronização automática.
                           </p>
                         </div>
                       </div>
@@ -3271,15 +3271,15 @@ export default function AdminDashboard({
                                           size="sm"
                                           onClick={() => handleManualFulfill(order.id)}
                                           className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-2 flex-1"
-                                          title="Processar manualmente no AliExpress"
+                                          title="Processar manualmente"
                                         >
                                           Manual
                                         </Button>
                                         <Button 
                                           size="sm"
-                                          onClick={() => handleAliExpressFulfill(order.id)}
+                                          onClick={() => handleInternationalFulfill(order.id)}
                                           className="bg-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white border border-orange-500/30 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-2 flex-1"
-                                          title="Processar automaticamente via API AliExpress"
+                                          title="Processar via Logística Auto"
                                         >
                                           Auto-API
                                         </Button>
@@ -3909,7 +3909,7 @@ export default function AdminDashboard({
                     <ExternalLink size={16} />
                   </div>
                   <div>
-                    <p className="text-[9px] uppercase tracking-widest text-blue-400 font-bold">Gestão Externa (AliExpress)</p>
+                    <p className="text-[9px] uppercase tracking-widest text-blue-400 font-bold">Gestão Externa</p>
                     <a 
                       href={viewingOrder.product.admin_link} 
                       target="_blank" 
@@ -3936,7 +3936,12 @@ export default function AdminDashboard({
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Produto Adquirido</p>
                   <div className="flex justify-between items-start">
-                    <h4 className="font-serif text-lg text-white">{viewingOrder.product?.title || "Produto Removido"}</h4>
+                    <h4 className="font-serif text-lg text-white">
+                      {viewingOrder.product?.title || "Produto Removido"} 
+                      {viewingOrder.quantity > 1 && (
+                        <span className="text-luxury-gold ml-2">x{viewingOrder.quantity}</span>
+                      )}
+                    </h4>
                     <div className="text-xl font-mono font-black text-white ml-4">
                       €{Number(viewingOrder.total_amount).toFixed(2)}
                     </div>
@@ -3969,6 +3974,11 @@ export default function AdminDashboard({
                     <p><span className="text-white/40">Localidade:</span> {shippingData.city || "N/A"}</p>
                     <p><span className="text-white/40">País:</span> {shippingData.country || "N/A"}</p>
                     <p><span className="text-white/40">Telemóvel:</span> {shippingData.phone || "N/A"}</p>
+                    {shippingData.identification && (
+                      <p className="bg-luxury-gold/10 p-2 mt-2 border border-luxury-gold/30">
+                        <span className="text-luxury-gold font-bold">Identificação (CPF/NIF/ID):</span> {shippingData.identification}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -4088,7 +4098,7 @@ export default function AdminDashboard({
                          const product = viewingOrder.product;
                          const provider = viewingOrder.provider || product?.provider || (product?.dropea_id ? 'dropea' : (product?.aliexpress_id ? 'aliexpress' : 'aliexpress'));
                          const isAli = provider === 'aliexpress';
-                         const providerLabel = isAli ? 'AliExpress' : 'Dropea';
+                         const providerLabel = isAli ? 'Internacional' : 'Local';
                          const externalId = (viewingOrder.provider_order_id || viewingOrder.dropea_order_id);
                          
                          return (
@@ -4153,7 +4163,7 @@ export default function AdminDashboard({
                                         </Button>
                                         <Button 
                                           size="sm"
-                                          onClick={() => handleAliExpressFulfill(viewingOrder.id)}
+                                          onClick={() => handleInternationalFulfill(viewingOrder.id)}
                                           className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20 flex-1"
                                         >
                                           <Zap size={10} className="mr-2" /> Auto-API

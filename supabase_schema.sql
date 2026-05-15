@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS orders (
   provider_order_id TEXT, -- ID from the external provider
   fulfillment_error TEXT, -- Last error message from provider
   shipping_status_metadata JSONB DEFAULT '{}'::jsonb, -- Tracking info, etc.
+  quantity INTEGER DEFAULT 1,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );

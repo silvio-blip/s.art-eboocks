@@ -82,7 +82,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
 
       if (error) throw error;
 
-      toast.success(`🎉 Produto ${formData.provider === 'aliexpress' ? 'AliExpress' : 'Dropea'} criado!`);
+      toast.success(`🎉 Produto ${formData.provider === 'aliexpress' ? 'Internacional' : 'Direto'} criado!`);
       
       // Reset form
       setFormData({
@@ -124,7 +124,7 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
           </div>
           <div>
             <h2 className="text-2xl font-light text-white tracking-tight">
-              Criar <span className="italic font-serif text-white/90">{formData.provider === 'aliexpress' ? 'AliExpress' : 'Dropea'}</span>
+              Criar <span className="italic font-serif text-white/90">{formData.provider === 'aliexpress' ? 'Internacional' : 'Direto'}</span>
             </h2>
             <p className="text-sm text-zinc-500 uppercase tracking-widest font-medium mt-1">Registo manual de ativo externo</p>
           </div>
@@ -226,10 +226,10 @@ export function CreateManualProduct({ onSuccess, defaultProvider = "aliexpress" 
               </div>
             </div>
 
-            {/* AliExpress/Dropea ID */}
+            {/* ID do Fornecedor */}
             <div className="space-y-2">
               <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold ml-1">
-                Fornecedor ID: {formData.provider === 'aliexpress' ? 'AliExpress Code' : 'Dropea Code'}
+                Fornecedor ID: {formData.provider === 'aliexpress' ? 'International Code' : 'Local Code'}
               </label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-zinc-600 group-focus-within:text-amber-500 transition-colors">

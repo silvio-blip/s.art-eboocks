@@ -138,7 +138,7 @@ serve(async (req) => {
 
       // 100% Automated Fulfillment Strategy
       if (order.product?.provider === "aliexpress" && order.product?.aliexpress_id) {
-        console.log(`[AUTOMATION] Starting AliExpress fulfillment for Order ${orderId}`);
+        console.log(`[AUTOMATION] Starting International fulfillment for Order ${orderId}`);
 
         try {
           // Parse Shipping Details
@@ -154,7 +154,7 @@ serve(async (req) => {
           const accessToken = (Deno.env.get("ALIEXPRESS_ACCESS_TOKEN") || "").trim();
 
           if (!appKey || !appSecret || !accessToken) {
-            throw new Error("AliExpress API credentials missing");
+            throw new Error("International API credentials missing");
           }
 
           const method = "aliexpress.trade.buy.placeorder";
@@ -226,7 +226,7 @@ serve(async (req) => {
               })
               .eq("id", orderId);
               
-            return new Response("AliExpress API Error handled", { status: 200 });
+            return new Response("Supplier API Error handled", { status: 200 });
           }
 
           // SUCCESS: Update order status to supplier processing
@@ -239,7 +239,7 @@ serve(async (req) => {
             })
             .eq("id", orderId);
 
-          console.log(`[AUTOMATION] Order ${orderId} successfully sent to AliExpress`);
+          console.log(`[AUTOMATION] Order ${orderId} successfully sent to international supplier`);
         } catch (fulfillErr) {
           console.error("[FULLFILLMENT_FATAL_ERROR]", fulfillErr);
           await supabase
@@ -252,7 +252,7 @@ serve(async (req) => {
         }
       } else {
         // Not AliExpress or no ID - might be Dropea or manual
-        console.log(`[FULFILLMENT] Order ${orderId} skipped for AliExpress automation (Provider: ${order.product?.provider})`);
+        console.log(`[FULFILLMENT] Order ${orderId} skipped for Automation (Provider: ${order.product?.provider})`);
       }
     }
 

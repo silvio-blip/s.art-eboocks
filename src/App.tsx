@@ -34,6 +34,9 @@ import {
   Eye,
   EyeOff,
   Search,
+  Minus,
+  Globe,
+  Truck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -74,6 +77,81 @@ const getImageUrl = (url: string) => {
 const wrap = (min: number, max: number, v: number) => {
   const rangeSize = max - min;
   return ((((v - min) % rangeSize) + rangeSize) % rangeSize) + min;
+};
+
+const QuantitySelector = ({ value, onChange, label = "Quantidade" }: { value: number; onChange: (v: number) => void; label?: string }) => (
+  <div className="space-y-4">
+    <label className="text-[9px] uppercase tracking-[0.3em] text-luxury-foreground/40 font-bold block transition-colors">
+      {label}
+    </label>
+    <div className="flex items-center gap-4 bg-luxury-bg/30 border border-luxury-border w-fit p-1 group hover:border-luxury-gold/50 transition-all">
+      <button 
+        onClick={() => onChange(Math.max(1, value - 1))}
+        className="w-10 h-10 flex items-center justify-center text-luxury-foreground hover:bg-white/5 transition-colors"
+      >
+        <Minus size={14} />
+      </button>
+      <span className="w-8 text-center text-sm font-mono text-luxury-foreground">{value}</span>
+      <button 
+        onClick={() => onChange(value + 1)}
+        className="w-10 h-10 flex items-center justify-center text-luxury-foreground hover:bg-white/5 transition-colors"
+      >
+        <Plus size={14} />
+      </button>
+    </div>
+  </div>
+);
+
+const CountryDropdown = ({ value, onChange }: { value: any; onChange: (c: any) => void }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 hover:border-luxury-gold/40 transition-all rounded-sm group overflow-hidden"
+      >
+        <span className="text-lg leading-none">{value.flag}</span>
+        <span className="text-[9px] uppercase tracking-widest text-white/50 group-hover:text-white font-bold transition-colors">{value.name}</span>
+        <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-500 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
+            <motion.div 
+              initial={{ opacity: 0, y: 5, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 5, scale: 0.95 }}
+              className="absolute top-full right-0 mt-2 w-56 bg-[#0a0a0a] border border-white/10 shadow-2xl z-[101] overflow-hidden rounded-sm"
+            >
+              <div className="max-h-72 overflow-y-auto luxury-scrollbar p-1">
+                {COUNTRIES.map(country => (
+                  <button 
+                    key={country.code}
+                    onClick={() => {
+                      onChange(country);
+                      setIsOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5 group ${value.code === country.code ? 'bg-luxury-gold/10' : ''}`}
+                  >
+                    <span className="text-xl">{country.flag}</span>
+                    <div className="flex flex-col">
+                      <span className={`text-[10px] uppercase tracking-widest font-bold ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
+                        {country.name}
+                      </span>
+                      <span className="text-[8px] text-white/30 uppercase tracking-tighter">Entrega S.Art VIP</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 };
 
 const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
@@ -377,9 +455,54 @@ interface Order {
   shipping_status: string;
   payment_status?: string;
   total_amount: number;
+  quantity?: number;
   created_at: string;
   product?: Product;
 }
+
+const COUNTRIES = [
+  { code: 'PT', name: 'Portugal', prefix: '+351', flag: '🇵🇹' },
+  { code: 'BR', name: 'Brasil', prefix: '+55', flag: '🇧🇷', requiresIdentification: "CPF" },
+  { code: 'ES', name: 'Espanha', prefix: '+34', flag: '🇪🇸', requiresIdentification: "DNI/NIE" },
+  { code: 'US', name: 'Estados Unidos', prefix: '+1', flag: '🇺🇸' },
+  { code: 'FR', name: 'França', prefix: '+33', flag: '🇫🇷' },
+  { code: 'DE', name: 'Alemanha', prefix: '+49', flag: '🇩🇪' },
+  { code: 'IT', name: 'Itália', prefix: '+39', flag: '🇮🇹', requiresIdentification: "Codice Fiscale" },
+  { code: 'GB', name: 'Reino Unido', prefix: '+44', flag: '🇬🇧' },
+  { code: 'CA', name: 'Canadá', prefix: '+1', flag: '🇨🇦' },
+  { code: 'AU', name: 'Austrália', prefix: '+61', flag: '🇦🇺' },
+  { code: 'JP', name: 'Japão', prefix: '+81', flag: '🇯🇵' },
+  { code: 'KR', name: 'Coreia do Sul', prefix: '+82', flag: '🇰🇷', requiresIdentification: "PCCC" },
+  { code: 'CL', name: 'Chile', prefix: '+56', flag: '🇨🇱', requiresIdentification: "RUT" },
+  { code: 'MX', name: 'México', prefix: '+52', flag: '🇲🇽', requiresIdentification: "RFC" },
+  { code: 'NL', name: 'Holanda', prefix: '+31', flag: '🇳🇱' },
+  { code: 'BE', name: 'Bélgica', prefix: '+32', flag: '🇧🇪' },
+  { code: 'CH', name: 'Suíça', prefix: '+41', flag: '🇨🇭' },
+  { code: 'SE', name: 'Suécia', prefix: '+46', flag: '🇸🇪' },
+  { code: 'NO', name: 'Noruega', prefix: '+47', flag: '🇳🇴' },
+  { code: 'FI', name: 'Finlândia', prefix: '+358', flag: '🇫🇮' },
+  { code: 'DK', name: 'Dinamarca', prefix: '+45', flag: '🇩🇰' },
+  { code: 'IE', name: 'Irlanda', prefix: '+353', flag: '🇮🇪' },
+  { code: 'AT', name: 'Áustria', prefix: '+43', flag: '🇦Ｔ' },
+  { code: 'GR', name: 'Grécia', prefix: '+30', flag: '🇬🇷' },
+];
+
+const isValidCPF = (cpf: string) => {
+  if (typeof cpf !== 'string') return false;
+  cpf = cpf.replace(/[^\d]+/g, '');
+  if (cpf.length !== 11 || !!cpf.match(/(\d)\1{10}/)) return false;
+  let add = 0;
+  for (let i = 0; i < 9; i++) add += parseInt(cpf.charAt(i)) * (10 - i);
+  let rev = 11 - (add % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cpf.charAt(9))) return false;
+  add = 0;
+  for (let i = 0; i < 10; i++) add += parseInt(cpf.charAt(i)) * (11 - i);
+  rev = 11 - (add % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cpf.charAt(10))) return false;
+  return true;
+};
 
 // --- Components ---
 
@@ -483,6 +606,8 @@ const Navbar = ({
   onSearch,
   onCartClick,
   searchQuery,
+  selectedCountry,
+  onCountryChange,
 }: {
   user: any;
   profile: any;
@@ -493,6 +618,8 @@ const Navbar = ({
   onSearch: (q: string) => void;
   onCartClick: () => void;
   searchQuery: string;
+  selectedCountry: any;
+  onCountryChange: (c: any) => void;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -529,6 +656,9 @@ const Navbar = ({
         </button>
 
         <div className="flex items-center gap-3 md:gap-6">
+          <div className="hidden sm:block">
+            <CountryDropdown value={selectedCountry} onChange={onCountryChange} />
+          </div>
           {/* Superior Luxury Search */}
           <div className="relative flex items-center">
             <AnimatePresence>
@@ -1372,14 +1502,19 @@ const ProductDetailsPage = ({
   onBack,
   onConfirm,
   isProcessing,
+  quantity,
+  setQuantity,
 }: {
   product: Product;
   onBack: () => void;
   onConfirm: (
     product: Product,
     options: { size: string; color: string },
+    quantity: number
   ) => void;
   isProcessing?: boolean;
+  quantity: number;
+  setQuantity: (q: number) => void;
 }) => {
   const [selectedSize, setSelectedSize] = useState("");
   const [selectedColor, setSelectedColor] = useState("");
@@ -1560,6 +1695,18 @@ const ProductDetailsPage = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+              <QuantitySelector value={quantity} onChange={setQuantity} />
+              
+              <div className="space-y-4 opacity-40 grayscale pointer-events-none">
+                <label className="text-[9px] uppercase tracking-[0.3em] text-black/40 dark:text-white/40 font-bold block">
+                  Envio Internacional
+                </label>
+                <div className="flex items-center gap-2 text-[10px] text-luxury-foreground">
+                  <Truck size={14} className="text-luxury-gold" />
+                  <span>Seguro e Rastreável S.Art</span>
+                </div>
+              </div>
+
               {product.sizes_enabled && sizes.length > 0 && (
                 <div className="space-y-4">
                   <label className="text-[9px] uppercase tracking-[0.3em] text-black/40 dark:text-white/40 font-bold block">
@@ -1603,7 +1750,7 @@ const ProductDetailsPage = ({
           <div className="pt-10 space-y-6">
             <Button
               onClick={() =>
-                onConfirm(product, { size: selectedSize, color: selectedColor })
+                onConfirm(product, { size: selectedSize, color: selectedColor }, quantity)
               }
               disabled={
                 (!selectedSize && product.sizes_enabled) ||
@@ -1761,9 +1908,13 @@ export default function App() {
     address: "",
     city: "",
     postalCode: "",
-    country: "",
-    phone: "",
+    country: "Portugal",
+    phone: "+351 ",
+    identification: "",
   });
+
+  const [quantity, setQuantity] = useState(1);
+  const [globalCountry, setGlobalCountry] = useState(COUNTRIES[0]);
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
@@ -2420,9 +2571,11 @@ export default function App() {
   const handleDetailConfirm = (
     product: Product,
     options: { size: string; color: string },
+    qty: number
   ) => {
     setSelectedProduct(product);
     setSelectedOptions(options);
+    setQuantity(qty);
     setDetailLoading(true);
 
     // Pequeno atraso para feedback visual
@@ -2538,6 +2691,16 @@ export default function App() {
             onSearch={handleSearch}
             searchQuery={searchQuery}
             onCartClick={() => {}}
+            selectedCountry={globalCountry}
+            onCountryChange={(c) => {
+              setGlobalCountry(c);
+              setShippingInfo(prev => ({ 
+                ...prev, 
+                country: c.name, 
+                phone: c.prefix + " " 
+              }));
+              toast.success(`Idioma e preçário ajustados para ${c.name}`);
+            }}
           />
 
       <Dialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
@@ -3098,6 +3261,8 @@ export default function App() {
               onBack={() => setView("home")}
               onConfirm={handleDetailConfirm}
               isProcessing={detailLoading}
+              quantity={quantity}
+              setQuantity={setQuantity}
             />
           )}
 
@@ -3199,25 +3364,26 @@ export default function App() {
                         value={shippingInfo.country}
                         required
                         onChange={(e) => {
-                          const newCountry = e.target.value;
-                          const newPrefix = newCountry === 'Portugal' ? '+351 ' : (newCountry === 'Espanha' ? '+34 ' : '');
+                          const newCountryName = e.target.value;
+                          const countryObj = COUNTRIES.find(c => c.name === newCountryName) || COUNTRIES[0];
                           setShippingInfo({
                             ...shippingInfo,
-                            country: newCountry,
-                            phone: newPrefix
+                            country: newCountryName,
+                            phone: countryObj.prefix + " "
                           });
                         }}
                         className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground appearance-none cursor-pointer"
                       >
                         <option value="" className="bg-luxury-bg">Selecione o País</option>
-                        <option value="Portugal" className="bg-luxury-bg">Portugal</option>
-                        <option value="Espanha" className="bg-luxury-bg">Espanha</option>
+                        {COUNTRIES.map(c => (
+                          <option key={c.code} value={c.name} className="bg-luxury-bg">{c.flag} {c.name}</option>
+                        ))}
                       </select>
                     </div>
 
                     <div className="space-y-2">
                       <label className="text-[9px] uppercase tracking-widest text-luxury-foreground/50 font-bold">
-                        Contacto Telefónico (PT/ES) *
+                        Contacto Telefónico *
                       </label>
                       <input
                         type="tel"
@@ -3225,23 +3391,17 @@ export default function App() {
                         value={shippingInfo.phone}
                         onChange={(e) => {
                           const input = e.target.value;
-                          const country = shippingInfo.country;
-                          const prefix = country === 'Portugal' ? '+351 ' : (country === 'Espanha' ? '+34 ' : '');
+                          const countryObj = COUNTRIES.find(c => c.name === shippingInfo.country);
+                          const prefix = countryObj ? countryObj.prefix + " " : "";
                           
-                          // Se tentar apagar o prefixo, não deixa
                           if (input.length < prefix.length) {
                             setShippingInfo({ ...shippingInfo, phone: prefix });
                             return;
                           }
-
                           if (!input.startsWith(prefix)) return;
 
-                          // Só permite dígitos após o prefixo
-                          const suffix = input.slice(prefix.length).replace(/\D/g, '');
-                          
-                          // Limite estrito de 9 dígitos para PT/ES
-                          const limit = 9;
-                          if (suffix.length <= limit) {
+                          const suffix = input.slice(prefix.length).replace(/[^\d]/g, '');
+                          if (suffix.length <= 15) { // Global phone limit approx
                             setShippingInfo({
                               ...shippingInfo,
                               phone: prefix + suffix
@@ -3249,9 +3409,33 @@ export default function App() {
                           }
                         }}
                         className="w-full border-b border-luxury-border bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground font-mono"
-                        placeholder={shippingInfo.country === 'Portugal' ? '+351 9xx xxx xxx' : (shippingInfo.country === 'Espanha' ? '+34 6xx xxx xxx' : 'Seleccione o país primeiro')}
+                        placeholder={shippingInfo.phone || "Número de telefone"}
                       />
                     </div>
+
+                    {COUNTRIES.find(c => c.name === shippingInfo.country)?.requiresIdentification && (
+                      <div className="space-y-2 md:col-span-2 animate-in slide-in-from-top-2 duration-500">
+                        <label className="text-[9px] uppercase tracking-widest text-luxury-gold font-bold">
+                          {COUNTRIES.find(c => c.name === shippingInfo.country)?.requiresIdentification} (Obrigatório para Alfândega) *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={shippingInfo.identification}
+                          onChange={(e) =>
+                            setShippingInfo({
+                              ...shippingInfo,
+                              identification: e.target.value.toUpperCase(),
+                            })
+                          }
+                          className="w-full border-b border-luxury-gold bg-transparent py-3 text-sm outline-none focus:border-luxury-gold transition-colors text-luxury-foreground font-mono"
+                          placeholder={`Introduza o seu ${COUNTRIES.find(c => c.name === shippingInfo.country)?.requiresIdentification}`}
+                        />
+                        <p className="text-[8px] text-white/30 uppercase tracking-tighter">
+                          Este dado é necessário para que a encomenda não fique retida na alfândega do seu país.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -3292,8 +3476,8 @@ export default function App() {
 
                     <div className="space-y-3">
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
-                        <span>Subtotal</span>
-                        <span>€{selectedProduct.pvp}</span>
+                        <span>Subtotal ({quantity}x)</span>
+                        <span>€{(Number(selectedProduct.pvp) * quantity).toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Envio S.Art VIP</span>
@@ -3303,13 +3487,13 @@ export default function App() {
                           </span>
                         ) : (
                           <span className="text-white/60">
-                            €1,15
+                            €{(1.15 * quantity).toFixed(2)}
                           </span>
                         )}
                       </div>
                       <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
-                        <span>€{(Number(selectedProduct.pvp) + (selectedProduct.free_shipping ? 0 : 1.15)).toFixed(2)}</span>
+                        <span>€{((Number(selectedProduct.pvp) + (selectedProduct.free_shipping ? 0 : 1.15)) * quantity).toFixed(2)}</span>
                       </div>
                     </div>
 
@@ -3345,7 +3529,18 @@ export default function App() {
                         }
 
                         if (!country) {
-                          toast.error("Por favor, selecione um país para validar o contacto.");
+                          toast.error("Por favor, selecione um país.");
+                          return;
+                        }
+
+                        const reqId = COUNTRIES.find(c => c.name === shippingInfo.country)?.requiresIdentification;
+                        if (reqId && !shippingInfo.identification) {
+                          toast.error(`Por favor, preencha o campo ${reqId}.`);
+                          return;
+                        }
+
+                        if (shippingInfo.country === 'Brasil' && !isValidCPF(shippingInfo.identification)) {
+                          toast.error("CPF Inválido. Por favor, verifique.");
                           return;
                         }
                         
@@ -3358,7 +3553,9 @@ export default function App() {
                           address: shippingInfo.address,
                           city: shippingInfo.city,
                           zip: shippingInfo.postalCode,
-                          country: shippingInfo.country === 'Portugal' ? 'PT' : (shippingInfo.country === 'Espanha' ? 'ES' : shippingInfo.country)
+                          country: COUNTRIES.find(c => c.name === shippingInfo.country)?.code || shippingInfo.country,
+                          identification: shippingInfo.identification,
+                          quantity: quantity
                         });
                       }}
                       disabled={!!checkoutLoading}

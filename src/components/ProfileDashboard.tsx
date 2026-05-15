@@ -885,7 +885,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                            </div>
                            {selectedOrder.shipping_status_metadata?.lastExternalStatus && (
                              <div className="space-y-1">
-                                <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Status AliExpress</p>
+                                <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Status Logística</p>
                                 <p className="text-xs text-orange-500 font-black uppercase tracking-widest">
                                   {selectedOrder.shipping_status_metadata.lastExternalStatus}
                                 </p>
