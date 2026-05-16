@@ -3005,7 +3005,7 @@ if (process.env.NODE_ENV !== 'production') {
   
   // CUSTOM MIDDLEWARE TO INJECT PRODUCT META TAGS IN DEV
   app.use(async (req, res, next) => {
-    let productId = req.query.product as string;
+    let productId = (req.query.product || req.query.id) as string;
     
     // Check path for /product/:id or /produto/:id patterns
     if (!productId) {
@@ -3014,20 +3014,21 @@ if (process.env.NODE_ENV !== 'production') {
     }
 
     // Only process for GET requests that are likely for HTML
-    // We remove the strict Accept header check to support bots/crawlers better
     const isGet = req.method === 'GET';
-    const hasHtmlAccept = (req.headers.accept || '').includes('text/html') || (req.headers.accept || '') === '*/*';
     const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
 
     if (productId && isGet && !isAsset) {
       try {
         const product = await getProductForMeta(productId);
         if (product) {
-          console.log(`[META DEV] Injecting meta for product: ${productId} (${product.title || product.name})`);
+          const userAgent = req.headers['user-agent'] || '';
+          console.log(`[META DEV] Injecting meta for product: ${productId} | UA: ${userAgent}`);
+          
           const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
           const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
-          const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+          const fullUrl = `https://sart-full.pt${req.originalUrl}`; // Example domain
           const hydratedHtml = await getHydratedHtml(transformedHtml, product, fullUrl);
+          
           return res.status(200).set({ 'Content-Type': 'text/html' }).end(hydratedHtml);
         }
       } catch (err) {
@@ -3055,6 +3056,7 @@ if (process.env.NODE_ENV !== 'production') {
       const indexPath = path.join(distPath, 'index.html');
       
       if (!fs.existsSync(indexPath)) {
+        console.error('[PROD] Index not found at:', indexPath);
         return res.status(404).send('Index not found');
       }
 
@@ -3062,23 +3064,35 @@ if (process.env.NODE_ENV !== 'production') {
 
       if (productId) {
         const userAgent = req.headers['user-agent'] || '';
-        const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|slurp|ia_archiver/i.test(userAgent);
+        // Broad bot detection including common social debuggers
+        const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|slurp|ia_archiver|meta-externalfetcher/i.test(userAgent);
         
         try {
           const product = await getProductForMeta(productId);
           if (product) {
-            if (isBot) console.log(`[META PROD] Bot detected: ${userAgent}. Injecting for: ${productId}`);
-            const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+            if (isBot) console.log(`[META PROD] Social Bot detected: ${userAgent}. Injecting for: ${productId}`);
+            else console.log(`[META PROD] Injecting meta for user: ${productId}`);
+
+            const host = req.get('host') || 'sart-full.pt';
+            const protocol = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https' ? 'https' : 'http';
+            const fullUrl = `${protocol}://${host}${req.originalUrl}`;
+            
             html = await getHydratedHtml(html, product, fullUrl);
           } else {
-            if (productId.length > 5) console.log(`[META PROD] Product not found for meta injection: ${productId}`);
+            console.log(`[META PROD] Product not found in DB for injection: ${productId}`);
           }
         } catch (err) {
           console.error('[PROD META INJECT ERROR]', err);
         }
       }
       
-      res.status(200).set({ 'Content-Type': 'text/html' }).send(html);
+      // Explicitly set headers to avoid 403 or caching issues with bots
+      res.status(200)
+        .header('Content-Type', 'text/html; charset=utf-8')
+        .header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        .header('Vary', 'User-Agent')
+        .header('X-Meta-Injected', productId ? 'true' : 'false')
+        .send(html);
     });
   }
 }
