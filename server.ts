@@ -3044,6 +3044,16 @@ if (process.env.NODE_ENV !== 'production') {
   if (fs.existsSync(distPath)) {
     app.use(express.static(distPath, { index: false })); // Disable default index serving to handle it manually
     
+    // Explicitly allow robots.txt to prevent any redirection or 403
+    app.get('/robots.txt', (req, res) => {
+      const robotsPath = path.join(distPath, 'robots.txt');
+      if (fs.existsSync(robotsPath)) {
+        res.status(200).sendFile(robotsPath);
+      } else {
+        res.status(404).send('Not found');
+      }
+    });
+
     app.get('*', async (req, res) => {
       let productId = (req.query.product || req.query.id) as string;
       
