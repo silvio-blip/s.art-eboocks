@@ -12,6 +12,15 @@
   ],
   "headers": [
     {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Accept-Ranges",
+          "value": "none"
+        }
+      ]
+    },
+    {
       "source": "/robots.txt",
       "headers": [
         {

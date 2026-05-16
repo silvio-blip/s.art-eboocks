@@ -1,7 +1,7 @@
 // Vercel Edge Middleware - Standard Web APIs
 export const config = {
   // Capture the root and any sub-path, excluding static assets and API
-  matcher: ['/((?!api|assets|_next|favicon.ico|robots.txt).*)'],
+  matcher: ['/((?!api|assets|_next|favicon.ico|robots.txt|.*\\..*).*)'],
 };
 
 const BOT_AGENTS = [
@@ -12,7 +12,9 @@ const BOT_AGENTS = [
   'telegrambot',
   'facebot',
   'slurp',
-  'ia_archiver'
+  'ia_archiver',
+  'bingbot',
+  'linkedinbot'
 ];
 
 export async function middleware(req: Request) {
@@ -23,11 +25,14 @@ export async function middleware(req: Request) {
   const productId = url.searchParams.get('product');
 
   if (isBot && productId) {
+    console.log(`[OG BOT DETECTED] Agent: ${userAgent} | Product: ${productId}`);
+    
     try {
       const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
       const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        console.error('[OG ERROR] Missing Supabase Config');
         return undefined; 
       }
 
@@ -42,7 +47,10 @@ export async function middleware(req: Request) {
         }
       );
 
-      if (!res.ok) return undefined;
+      if (!res.ok) {
+        console.error('[OG DB FETCH FAILED]', await res.text());
+        return undefined;
+      }
 
       const products = await res.json();
       const product = Array.isArray(products) && products.length > 0 ? products[0] : null;
@@ -74,13 +82,19 @@ export async function middleware(req: Request) {
 </head>
 <body>
     <p>A carregar: ${title}...</p>
+    <script>window.location.href = "${absoluteUrl}";</script>
 </body>
 </html>`;
 
+        console.log(`[OG SUCCESS] Meta injected for product: ${productId}`);
+
         return new Response(html, {
+          status: 200,
           headers: { 
             'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'public, s-maxage=3600'
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
           },
         });
       }
@@ -91,4 +105,5 @@ export async function middleware(req: Request) {
 
   return undefined; 
 }
+
 
