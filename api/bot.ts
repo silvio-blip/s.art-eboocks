@@ -12,12 +12,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const protocol = (req.headers['x-forwarded-proto'] as string) || 'https';
   const absoluteUrl = `${protocol}://${host}${req.url}`;
 
-  if (productId) {
-    try {
-      const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-      const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
-      if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  if (productId) {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      title = "DEBUG: Falta a variável ENV do Supabase";
+    } else {
+      try {
         const fetchUrl = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/products?id=eq.${productId}&select=title,description,image_url`;
         const dbRes = await fetch(fetchUrl, {
           headers: {
@@ -34,11 +36,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             title = (productData.title || title).replace(/"/g, '&quot;');
             description = (productData.description || description).replace(/"/g, '&quot;').replace(/\n/g, ' ').substring(0, 200);
             image = productData.image_url || image;
+          } else {
+            title = "DEBUG: Produto ID não encontrado na BD";
           }
+        } else {
+          title = `DEBUG: Erro de Fetch ao Supabase (Status ${dbRes.status})`;
         }
+      } catch (err) {
+        console.error("[BOT-FUNCTION-ERROR]", err);
+        title = "DEBUG: Erro fatal no Middleware";
       }
-    } catch (err) {
-      console.error("[BOT-FUNCTION-ERROR]", err);
     }
   }
 

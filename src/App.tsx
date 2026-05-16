@@ -1982,6 +1982,7 @@ export default function App() {
   >("home");
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [isNavigatingByHistory, setIsNavigatingByHistory] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const homeScrollPosRef = useRef(0);
 
   // Helper to handle view changes with scroll persistence
@@ -1995,7 +1996,7 @@ export default function App() {
 
   // Sync state to URL and save for refresh
   useEffect(() => {
-    if (isNavigatingByHistory) return;
+    if (!isInitialized || isNavigatingByHistory) return;
 
     const params = new URLSearchParams(window.location.search);
     params.set("v", view);
@@ -2012,7 +2013,7 @@ export default function App() {
     
     // Persist to localStorage for refresh reliability
     localStorage.setItem("sart_navigation_state", JSON.stringify({ view, productId: detailProduct?.id, scroll: homeScrollPosRef.current }));
-  }, [view, detailProduct, isNavigatingByHistory]);
+  }, [view, detailProduct, isNavigatingByHistory, isInitialized]);
 
   // UseEffect for Popstate (Browser Back/Forward)
   useEffect(() => {
@@ -2065,7 +2066,9 @@ export default function App() {
     } else if (targetView) {
       setView(targetView as any);
     }
-  }, [products.length, loading]);
+    
+    setIsInitialized(true);
+  }, [products.length, loading, isInitialized]);
 
   const handleBack = () => {
     if (window.history.length > 1) {
