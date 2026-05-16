@@ -24,7 +24,7 @@ export async function middleware(req: Request) {
 
   // A PARTIR DAQUI: É BOT E TEM PRODUTO. NÃO HÁ VOLTA ATRÁS.
   let title = "S.art | Boutique Premium";
-  let description = "Curadoria de Luxo - Descubra esta peça exclusiva.";
+  let description = "Curadoria de Luxo - Descubra esta peça exclusiva na S.art.";
   let image = 'https://sart-full.pt/og-default.jpg';
   let status = 'default';
 
@@ -47,7 +47,7 @@ export async function middleware(req: Request) {
 
       if (dbRes.ok) {
         const products = await dbRes.json();
-        const product = products[0];
+        const product = Array.isArray(products) ? products[0] : null;
         if (product) {
           title = (product.title || title).replace(/"/g, '&quot;');
           description = (product.description || description).replace(/"/g, '&quot;').replace(/\n/g, ' ').substring(0, 200);
@@ -88,7 +88,7 @@ export async function middleware(req: Request) {
     <meta name="twitter:image" content="${image}">
     <meta http-equiv="refresh" content="0;url=${absoluteUrl}">
 </head>
-<body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+<body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;margin:0;">
     <div style="text-align:center;">
         <p>A carregar: ${title}...</p>
         <script>window.location.href = "${absoluteUrl}";</script>
