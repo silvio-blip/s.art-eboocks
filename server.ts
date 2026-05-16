@@ -3013,10 +3013,17 @@ if (process.env.NODE_ENV !== 'production') {
       if (match) productId = match[1];
     }
 
-    if (productId && (req.headers.accept || '').includes('text/html')) {
+    // Only process for GET requests that are likely for HTML
+    // We remove the strict Accept header check to support bots/crawlers better
+    const isGet = req.method === 'GET';
+    const hasHtmlAccept = (req.headers.accept || '').includes('text/html') || (req.headers.accept || '') === '*/*';
+    const isAsset = req.path.includes('.') && !req.path.endsWith('.html');
+
+    if (productId && isGet && !isAsset) {
       try {
         const product = await getProductForMeta(productId);
         if (product) {
+          console.log(`[META DEV] Injecting meta for product: ${productId} (${product.title || product.name})`);
           const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
           const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
           const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
@@ -3037,7 +3044,7 @@ if (process.env.NODE_ENV !== 'production') {
     app.use(express.static(distPath, { index: false })); // Disable default index serving to handle it manually
     
     app.get('*', async (req, res) => {
-      let productId = req.query.product as string;
+      let productId = (req.query.product || req.query.id) as string;
       
       // Check path for /product/:id or /produto/:id patterns
       if (!productId) {
@@ -3054,11 +3061,17 @@ if (process.env.NODE_ENV !== 'production') {
       let html = fs.readFileSync(indexPath, 'utf-8');
 
       if (productId) {
+        const userAgent = req.headers['user-agent'] || '';
+        const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|slurp|ia_archiver/i.test(userAgent);
+        
         try {
           const product = await getProductForMeta(productId);
           if (product) {
+            if (isBot) console.log(`[META PROD] Bot detected: ${userAgent}. Injecting for: ${productId}`);
             const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
             html = await getHydratedHtml(html, product, fullUrl);
+          } else {
+            if (productId.length > 5) console.log(`[META PROD] Product not found for meta injection: ${productId}`);
           }
         } catch (err) {
           console.error('[PROD META INJECT ERROR]', err);
@@ -3072,16 +3085,35 @@ if (process.env.NODE_ENV !== 'production') {
 
 // HELPERS FOR DYNAMIC META TAGS
 async function getProductForMeta(productId: string) {
+  if (!productId || productId.length < 5) return null;
+  
   try {
     const supabase = getSupabase();
-    // Support searching by ID or possibly other identifiers
-    const { data: product } = await supabase
+    
+    // Check if it looks like a UUID
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+    
+    let query = supabase
       .from('products')
-      .select('id, title, name, description, image_url, extra_images')
-      .eq('id', productId)
-      .maybeSingle();
+      .select('id, title, name, description, image_url, extra_images');
+      
+    if (isUUID) {
+      query = query.eq('id', productId);
+    } else {
+      // Fallback for custom slugs/ids if they exist, or just try id anyway
+      query = query.eq('id', productId);
+    }
+
+    const { data: product, error } = await query.maybeSingle();
+    
+    if (error) {
+      console.warn(`[META] DB error fetching product ${productId}:`, error.message);
+      return null;
+    }
+    
     return product;
   } catch (e) {
+    console.error(`[META] Fatal error in getProductForMeta for ${productId}:`, e);
     return null;
   }
 }
@@ -3099,7 +3131,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   if (!product) return html;
   
   const title = (product.title || product.name || "S.art | Boutique Premium").replace(/"/g, '&quot;');
-  const description = (product.description || "Curadoria de Luxo - Descubra esta peça exclusiva.").replace(/"/g, '&quot;');
+  const description = (product.description || "Curadoria de Luxo - Descubra esta peça exclusiva.").replace(/"/g, '&quot;').replace(/\n/g, ' ');
   
   // Resolve image - handle different fields
   let image = product.image_url || product.image || product.thumbnail;
@@ -3135,13 +3167,15 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
 
   metaMappings.forEach(meta => {
     const attr = meta.isProperty ? 'property' : 'name';
-    // Matches patterns like <meta property="og:image" content="..." /> or <meta name="description" content="..." />
-    const regex = new RegExp(`<meta ${attr}="${meta.property}" content=".*?"\\s*\/?>`, 'g');
     
-    if (hydrated.includes(`${attr}="${meta.property}"`)) {
+    // Improved regex to find meta tag with either order of attributes and handle single/double quotes
+    // and handle optional space before closing slash
+    const regex = new RegExp(`<meta\\s+[^>]*${attr}="${meta.property}"[^>]*content=".*?"[^>]*\/?>|<meta\\s+[^>]*content=".*?"[^>]*${attr}="${meta.property}"[^>]*\/?>`, 'g');
+    
+    if (hydrated.match(regex)) {
       hydrated = hydrated.replace(regex, `<meta ${attr}="${meta.property}" content="${meta.content}" />`);
     } else {
-      // Append to head if not found
+      // Append to head if not found, just before </head>
       hydrated = hydrated.replace('</head>', `<meta ${attr}="${meta.property}" content="${meta.content}" />\n</head>`);
     }
   });
