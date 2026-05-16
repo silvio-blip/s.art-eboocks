@@ -6,20 +6,11 @@
       "destination": "/api/index.ts"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/((?!api/|robots\\.txt|sitemap\\.xml|assets/|favicon\\.ico|.*\\..*).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        {
-          "key": "Accept-Ranges",
-          "value": "none"
-        }
-      ]
-    },
     {
       "source": "/robots.txt",
       "headers": [
