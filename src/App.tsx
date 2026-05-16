@@ -1682,10 +1682,10 @@ const ProductDetailsPage = ({
               await copyToClipboard();
             }
           }}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all overflow-hidden"
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all text-black/60 dark:text-white/60"
           title="Partilhar"
         >
-          <img src="https://i.imgur.com/LdaKiWv.png" alt="S.Art" className="w-5 h-5 object-contain" />
+          <Share2 size={18} />
         </motion.button>
       </div>
 
