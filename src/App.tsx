@@ -856,12 +856,12 @@ function ProductCard({
         }
       }}
     >
-      <div className="absolute inset-0 z-0 overflow-hidden">
+      <div className="relative z-0 overflow-hidden bg-[#050505]/20">
         <motion.img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-[2500ms] ease-out group-hover:scale-110"
+          className="w-full h-auto object-contain transition-transform duration-[2500ms] ease-out group-hover:scale-105"
         />
         <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-700" />
         
@@ -2985,12 +2985,12 @@ export default function App() {
                               setDetailProduct(featuredProduct);
                               setView("product-detail");
                             }}
-                            className="relative aspect-[16/10] overflow-hidden border border-white/5 shadow-2xl group cursor-pointer rounded-[0.85rem]"
+                            className="relative overflow-hidden border border-white/5 shadow-2xl group cursor-pointer rounded-[0.85rem] bg-black/20"
                           >
                             <img 
                               src={getImageUrl(featuredProduct.image_url || "")} 
                               alt={featuredProduct.title}
-                              className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-[4s] ease-out"
+                              className="w-full h-auto object-contain transform group-hover:scale-102 transition-transform duration-[4s] ease-out"
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent dark:from-black/90 dark:via-black/20 dark:to-transparent"></div>
                             
@@ -3222,10 +3222,6 @@ export default function App() {
                         return matchesCategory && matchesPrice && matchesSearch;
                       })
                       .map((product, idx) => {
-                        // More balanced patterns: Wide cards for highlights, limited tall cards
-                        const isWide = idx % 5 === 0;
-                        const isHigh = idx === 3 || idx === 8;
-                        
                         return (
                           <ProductCard
                             key={product.id}
@@ -3236,7 +3232,7 @@ export default function App() {
                             isOwned={purchasedProducts.some(
                               (p) => p.product_id === product.id && ['paid', 'completed', 'pago', 'delivered', 'succeeded'].includes(p.status?.toLowerCase()),
                             )}
-                            className={`${isWide ? "md:col-span-2" : ""} ${isHigh ? "md:row-span-2" : ""}`}
+                            className=""
                             isProcessing={checkoutLoading === product.id}
                           />
                         );
