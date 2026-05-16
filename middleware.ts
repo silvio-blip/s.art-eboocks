@@ -32,12 +32,13 @@ export async function middleware(req: Request) {
     let description = "Curadoria de Luxo - Descubra esta peça exclusiva na S.art.";
     let image = 'https://sart-full.pt/og-default.jpg';
 
-    let status = 'default';
     try {
       const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
       const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
-      if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        title = "DEBUG: Falta a variável ENV do Supabase";
+      } else {
         const dbRes = await fetch(
           `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/products?id=eq.${productId}&select=title,description,image_url`,
           {
@@ -57,20 +58,19 @@ export async function middleware(req: Request) {
             title = (product.title || title).replace(/"/g, '&quot;');
             description = (product.description || description).replace(/"/g, '&quot;').replace(/\n/g, ' ').substring(0, 200);
             image = product.image_url || image;
-            status = 'success';
           } else {
-            status = 'not-found';
+            title = "DEBUG: Produto ID não encontrado na BD";
           }
         } else {
-          status = 'db-error';
+          title = `DEBUG: Erro de Fetch ao Supabase (Status ${dbRes.status})`;
         }
       }
     } catch (err) {
+      title = "DEBUG: Erro fatal no Middleware";
       console.error("[EDGE-FETCH-ERROR]", err);
-      status = 'error';
     }
 
-    console.log(`[EDGE-GATE] Bot: ${isBot} | Product: ${productId} | Status: ${status}`);
+    console.log(`[EDGE-GATE] Bot: ${isBot} | Product: ${productId} | Final Title: ${title}`);
 
     const host = req.headers.get('host') || 'sart-full.pt';
     const protocol = req.headers.get('x-forwarded-proto') || 'https';
@@ -111,9 +111,9 @@ export async function middleware(req: Request) {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
         'Pragma': 'no-cache',
         'Expires': '0',
-        'Vary': 'User-Agent',
+        'Vary': '*', // Força o Edge Cache a ignorar este objeto
         'X-Robots-Tag': 'noarchive',
-        'X-Edge-Served': 'true',
+        'X-Edge-Debug': 'active',
         'Accept-Ranges': 'none'
       },
     });
