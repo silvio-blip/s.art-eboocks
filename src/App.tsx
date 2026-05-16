@@ -1111,7 +1111,7 @@ const AuthDialog = ({
           </DialogTitle>
           <div className="text-[10px] uppercase tracking-[0.2em] text-luxury-foreground/40">
             {mode === "login"
-              ? "Entrar na Boutique Digital"
+              ? "Entrar na Boutique Premium"
               : mode === "register"
                 ? "Criar Conta Exclusiva"
                 : mode === "forgot"
@@ -1636,7 +1636,7 @@ const ProductDetailsPage = ({
             const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
             
             const shareData: any = {
-              title: `S.art | Boutique Digital`,
+              title: `S.art | Boutique Premium`,
               text: `Curadoria de Luxo - Descubra esta peça exclusiva: ${product.title}`,
               url: url
             };
@@ -1661,12 +1661,8 @@ const ProductDetailsPage = ({
 
             if (navigator.share) {
               try {
-                // Try to include product image in share if supported
                 if (allImages[0] && navigator.canShare && navigator.canShare({ files: [] })) {
                   try {
-                    const response = await fetch(allImages[0], { mode: 'no-cors' });
-                    // no-cors will return an opaque response, which we can't get blob from
-                    // so we try regular fetch first
                     const corsResponse = await fetch(allImages[0]);
                     const blob = await corsResponse.blob();
                     const file = new File([blob], 'product.jpg', { type: blob.type });
@@ -1966,7 +1962,7 @@ export default function App() {
         }
       };
       // Use a cache-buster to ensure we get a fresh version for canvas
-      img.src = 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070' + '&v=' + new Date().getTime();
+      img.src = 'https://i.imgur.com/LdaKiWv.png' + '?v=' + new Date().getTime();
     };
     roundFavicon();
   }, []);
@@ -2065,10 +2061,6 @@ export default function App() {
       if (prod) {
         setDetailProduct(prod);
         setView("product-detail");
-        // User requirements: If shared link and no account, prompt account
-        if (!user && !loading && urlProduct) {
-          setTimeout(() => setIsAuthOpen(true), 1500);
-        }
       }
     } else if (targetView) {
       setView(targetView as any);

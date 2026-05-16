@@ -1,6 +1,6 @@
 {
-  "name": "S.art | Boutique Digital",
-  "description": "S.art | Boutique Digital - Onde a exclusividade encontra a arte. Curadoria premium de peças de luxo e design de autor para colecionadores exigentes.",
+  "name": "S.art | Boutique Premium",
+  "description": "S.art | Boutique Premium - Onde a exclusividade encontra a arte. Curadoria premium de peças de luxo e design de autor para colecionadores exigentes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
