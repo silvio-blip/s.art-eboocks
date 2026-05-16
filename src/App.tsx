@@ -685,7 +685,7 @@ const Navbar = ({
         >
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full overflow-hidden border border-luxury-gold/30 shadow-2xl">
             <img 
-              src="https://i.imgur.com/LdaKiWv.png" 
+              src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070" 
               alt="S.art Logo" 
               className="w-full h-full object-cover scale-110"
               referrerPolicy="no-referrer"
@@ -1644,8 +1644,8 @@ const ProductDetailsPage = ({
             const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
             
             const shareData: any = {
-              title: `S.art | ${product.title}`,
-              text: `Confira este produto exclusivo: ${product.title}`,
+              title: `S.art | Boutique Digital`,
+              text: `Curadoria de Luxo - Descubra esta peça exclusiva: ${product.title}`,
               url: url
             };
 
@@ -1654,7 +1654,7 @@ const ProductDetailsPage = ({
                 window.focus();
                 await navigator.clipboard.writeText(url);
                 toast.success("Link copiado!", {
-                  icon: <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30"><img src="https://i.imgur.com/LdaKiWv.png" className="w-full h-full object-cover" /></div>
+                  icon: <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30"><img src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070" className="w-full h-full object-cover" /></div>
                 });
               } catch (err) {
                 const textArea = document.createElement("textarea");
@@ -1664,7 +1664,7 @@ const ProductDetailsPage = ({
                 try {
                   document.execCommand('copy');
                   toast.success("Link copiado!", {
-                    icon: <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30"><img src="https://i.imgur.com/LdaKiWv.png" className="w-full h-full object-cover" /></div>
+                    icon: <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30"><img src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070" className="w-full h-full object-cover" /></div>
                   });
                 } catch (e) {}
                 document.body.removeChild(textArea);
@@ -1704,7 +1704,7 @@ const ProductDetailsPage = ({
           title="Partilhar"
         >
           <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30 flex-shrink-0">
-            <img src="https://i.imgur.com/LdaKiWv.png" className="w-full h-full object-cover" alt="" />
+            <img src="https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070" className="w-full h-full object-cover" alt="" />
           </div>
           <Share2 size={16} />
         </motion.button>
