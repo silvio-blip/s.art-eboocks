@@ -2035,7 +2035,7 @@ export default function App() {
 
   // Initialize from URL or LocalStorage
   useEffect(() => {
-    if (products.length === 0) return;
+    if (products.length === 0 || isInitialized) return;
 
     const params = new URLSearchParams(window.location.search);
     const urlProduct = params.get("product");
