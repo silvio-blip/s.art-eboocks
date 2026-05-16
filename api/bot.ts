@@ -53,8 +53,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     <meta charset="UTF-8">
     <title>${title}</title>
     <meta name="description" content="${description}">
+    <meta property="fb:app_id" content="966242223397117">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="${absoluteUrl}">
+    <meta property="og:url" content="${protocol}://${host}/?v=product-detail&product=${productId || ''}">
     <meta property="og:title" content="${title}">
     <meta property="og:description" content="${description}">
     <meta property="og:image" content="${image}">
