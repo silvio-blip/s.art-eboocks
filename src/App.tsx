@@ -1970,6 +1970,15 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const getInitialView = () => {
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const v = params.get("v");
+    if (v && ["home", "dashboard", "success", "admin", "reset-password", "terms", "product-detail", "shipping"].includes(v)) {
+      return v as any;
+    }
+    return "home";
+  };
+
   const [view, setView] = useState<
     | "home"
     | "dashboard"
@@ -1979,7 +1988,7 @@ export default function App() {
     | "terms"
     | "product-detail"
     | "shipping"
-  >("home");
+  >(getInitialView());
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [isNavigatingByHistory, setIsNavigatingByHistory] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -2062,6 +2071,9 @@ export default function App() {
       if (prod) {
         setDetailProduct(prod);
         setView("product-detail");
+      } else {
+        // Se o produto não for encontrado após o carregamento, volta para a home para não ficar preso
+        setView("home");
       }
     } else if (targetView) {
       setView(targetView as any);
