@@ -25,7 +25,7 @@ const ProductReview = () => {
       
       const { data, error } = await supabase
         .from('orders')
-        .select('*, products(id, title, images, category)')
+        .select('*, products(id, title, image_url, category)')
         .eq('id', orderId)
         .single();
         
@@ -122,8 +122,8 @@ const ProductReview = () => {
           {/* Product Preview */}
           <div className="space-y-6">
             <div className="aspect-square bg-white dark:bg-zinc-900 border border-black/5 dark:border-white/5 overflow-hidden">
-               {product.images && product.images[0] ? (
-                 <img src={product.images[0]} alt={product.title} className="w-full h-full object-cover" />
+               {product.image_url ? (
+                 <img src={product.image_url.startsWith('http') ? product.image_url : supabase.storage.from('assets').getPublicUrl(product.image_url).data.publicUrl} alt={product.title} className="w-full h-full object-cover" />
                ) : (
                  <div className="w-full h-full flex items-center justify-center opacity-20">
                    <Package size={48} />

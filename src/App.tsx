@@ -1592,8 +1592,8 @@ const ProductDetailsPage = ({
     const previousOgTitle = ogTitle?.getAttribute("content");
 
     document.title = `S.Art | ${product.title}`;
-    if (ogImage) ogImage.setAttribute("content", product.images[0]);
-    if (twitterImage) twitterImage.setAttribute("content", product.images[0]);
+    if (ogImage && allImages[0]) ogImage.setAttribute("content", allImages[0]);
+    if (twitterImage && allImages[0]) twitterImage.setAttribute("content", allImages[0]);
     if (ogTitle) ogTitle.setAttribute("content", product.title);
 
     return () => {
@@ -1871,7 +1871,7 @@ const ProductDetailsPage = ({
                 </span>
               ) : (
                 <>
-                  Adquirir Obra de Arte <CreditCard size={16} />
+                  Finalizar a compra <CreditCard size={16} />
                 </>
               )}
             </Button>
