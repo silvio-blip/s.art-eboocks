@@ -2,22 +2,6 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/",
-      "has": [
-        {
-          "type": "query",
-          "key": "product",
-          "value": "(?<product>.*)"
-        },
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": ".*(facebook|whatsapp|twitterbot|discordbot|telegrambot|facebot|slurp|ia_archiver).*"
-        }
-      ],
-      "destination": "/api/og?product=:product"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/index.ts"
     },
