@@ -1603,7 +1603,7 @@ const ProductDetailsPage = ({
         <motion.button
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
-          onClick={() => {
+          onClick={async () => {
             const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
             const shareData = {
               title: `S.Art | ${product.title}`,
@@ -1611,14 +1611,37 @@ const ProductDetailsPage = ({
               url: url
             };
 
-            if (navigator.share) {
-              navigator.share(shareData).catch(() => {
-                navigator.clipboard.writeText(url);
+            const copyToClipboard = async () => {
+              try {
+                // Try to focus window first to ensure clipboard works
+                window.focus();
+                await navigator.clipboard.writeText(url);
                 toast.success("Link copiado!");
-              });
+              } catch (err) {
+                console.error("Clipboard failed:", err);
+                // Last resort fallback if focus still missing
+                const textArea = document.createElement("textarea");
+                textArea.value = url;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                  document.execCommand('copy');
+                  toast.success("Link copiado!");
+                } catch (e) {}
+                document.body.removeChild(textArea);
+              }
+            };
+
+            if (navigator.share) {
+              try {
+                await navigator.share(shareData);
+              } catch (shareErr) {
+                if (shareErr instanceof Error && shareErr.name !== 'AbortError') {
+                  await copyToClipboard();
+                }
+              }
             } else {
-              navigator.clipboard.writeText(url);
-              toast.success("Link copiado!");
+              await copyToClipboard();
             }
           }}
           className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all text-black/60 dark:text-white/60"
@@ -1884,7 +1907,16 @@ export default function App() {
   >("home");
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [isNavigatingByHistory, setIsNavigatingByHistory] = useState(false);
-  const [homeScrollPos, setHomeScrollPos] = useState(0);
+  const homeScrollPosRef = useRef(0);
+
+  // Helper to handle view changes with scroll persistence
+  const navigateTo = (newView: typeof view, product: Product | null = null) => {
+    if (view === "home" && newView !== "home") {
+      homeScrollPosRef.current = window.scrollY;
+    }
+    if (product) setDetailProduct(product);
+    setView(newView);
+  };
 
   // Sync state to URL and save for refresh
   useEffect(() => {
@@ -1904,7 +1936,7 @@ export default function App() {
     }
     
     // Persist to localStorage for refresh reliability
-    localStorage.setItem("sart_navigation_state", JSON.stringify({ view, productId: detailProduct?.id }));
+    localStorage.setItem("sart_navigation_state", JSON.stringify({ view, productId: detailProduct?.id, scroll: homeScrollPosRef.current }));
   }, [view, detailProduct, isNavigatingByHistory]);
 
   // UseEffect for Popstate (Browser Back/Forward)
@@ -1918,7 +1950,7 @@ export default function App() {
           if (prod) setDetailProduct(prod);
         }
         setView(savedView || "home");
-        setTimeout(() => setIsNavigatingByHistory(false), 100);
+        setTimeout(() => setIsNavigatingByHistory(false), 200);
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -1944,6 +1976,7 @@ export default function App() {
           const parsed = JSON.parse(persisted);
           targetView = parsed.view;
           targetProductId = parsed.productId;
+          homeScrollPosRef.current = parsed.scroll || 0;
         } catch (e) {}
       }
     }
@@ -1967,7 +2000,7 @@ export default function App() {
     if (window.history.length > 1) {
       window.history.back();
     } else {
-      setView("home");
+      navigateTo("home");
     }
   };
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
@@ -2115,18 +2148,16 @@ export default function App() {
       if (isNavigatingByHistory) {
         // Use a slightly longer delay to ensure products are fully loaded and layout is stable
         const timer = setTimeout(() => {
-          window.scrollTo({ top: homeScrollPos, behavior: "instant" });
-        }, 50);
+          window.scrollTo({ top: homeScrollPosRef.current, behavior: "instant" });
+        }, 150); // Increased delay for better stability
         return () => clearTimeout(timer);
       } else {
         window.scrollTo({ top: 0, behavior: "instant" });
       }
-    } else if (!isNavigatingByHistory) {
-      // Save scroll when leaving home to any other view
-      setHomeScrollPos(window.scrollY);
+    } else {
       window.scrollTo({ top: 0, behavior: "instant" });
     }
-  }, [view, selectedProduct, isNavigatingByHistory, homeScrollPos]);
+  }, [view]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<{
     size: string;
@@ -2702,13 +2733,10 @@ export default function App() {
     }
 
     if (product.product_type === "physical") {
-      setDetailProduct(product);
-      setView("product-detail");
-      window.scrollTo(0, 0);
+      navigateTo("product-detail", product);
     } else {
       setSelectedProduct(product);
-      setView("shipping");
-      window.scrollTo(0, 0);
+      navigateTo("shipping");
     }
   };
 
@@ -2726,21 +2754,21 @@ export default function App() {
     setTimeout(() => {
       setDetailLoading(false);
       setDetailProduct(null);
-      setView("shipping");
+      navigateTo("shipping");
     }, 500);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsLogoutOpen(false);
-    setView("home");
+    navigateTo("home");
     toast.success("Até breve.");
   };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     if (view !== "home" && query.trim() !== "") {
-      setView("home");
+      navigateTo("home");
     }
   };
 
