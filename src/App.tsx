@@ -410,30 +410,30 @@ interface Order {
 }
 
 const COUNTRIES = [
-  { code: 'PT', name: 'Portugal', prefix: '+351', flag: '🇵🇹' },
-  { code: 'BR', name: 'Brasil', prefix: '+55', flag: '🇧🇷', requiresIdentification: "CPF" },
-  { code: 'ES', name: 'Espanha', prefix: '+34', flag: '🇪🇸', requiresIdentification: "DNI/NIE" },
-  { code: 'US', name: 'Estados Unidos', prefix: '+1', flag: '🇺🇸' },
-  { code: 'FR', name: 'França', prefix: '+33', flag: '🇫🇷' },
-  { code: 'DE', name: 'Alemanha', prefix: '+49', flag: '🇩🇪' },
-  { code: 'IT', name: 'Itália', prefix: '+39', flag: '🇮🇹', requiresIdentification: "Codice Fiscale" },
-  { code: 'GB', name: 'Reino Unido', prefix: '+44', flag: '🇬🇧' },
-  { code: 'CA', name: 'Canadá', prefix: '+1', flag: '🇨🇦' },
-  { code: 'AU', name: 'Austrália', prefix: '+61', flag: '🇦🇺' },
-  { code: 'JP', name: 'Japão', prefix: '+81', flag: '🇯🇵' },
-  { code: 'KR', name: 'Coreia do Sul', prefix: '+82', flag: '🇰🇷', requiresIdentification: "PCCC" },
-  { code: 'CL', name: 'Chile', prefix: '+56', flag: '🇨🇱', requiresIdentification: "RUT" },
-  { code: 'MX', name: 'México', prefix: '+52', flag: '🇲🇽', requiresIdentification: "RFC" },
-  { code: 'NL', name: 'Holanda', prefix: '+31', flag: '🇳🇱' },
-  { code: 'BE', name: 'Bélgica', prefix: '+32', flag: '🇧🇪' },
-  { code: 'CH', name: 'Suíça', prefix: '+41', flag: '🇨🇭' },
-  { code: 'SE', name: 'Suécia', prefix: '+46', flag: '🇸🇪' },
-  { code: 'NO', name: 'Noruega', prefix: '+47', flag: '🇳🇴' },
-  { code: 'FI', name: 'Finlândia', prefix: '+358', flag: '🇫🇮' },
-  { code: 'DK', name: 'Dinamarca', prefix: '+45', flag: '🇩🇰' },
-  { code: 'IE', name: 'Irlanda', prefix: '+353', flag: '🇮🇪' },
-  { code: 'AT', name: 'Áustria', prefix: '+43', flag: '🇦Ｔ' },
-  { code: 'GR', name: 'Grécia', prefix: '+30', flag: '🇬🇷' },
+  { code: 'PT', name: 'Portugal', prefix: '+351', flag: '🇵🇹', currency: 'EUR' },
+  { code: 'BR', name: 'Brasil', prefix: '+55', flag: '🇧🇷', requiresIdentification: "CPF", currency: 'BRL' },
+  { code: 'ES', name: 'Espanha', prefix: '+34', flag: '🇪🇸', requiresIdentification: "DNI/NIE", currency: 'EUR' },
+  { code: 'US', name: 'Estados Unidos', prefix: '+1', flag: '🇺🇸', currency: 'USD' },
+  { code: 'FR', name: 'França', prefix: '+33', flag: '🇫🇷', currency: 'EUR' },
+  { code: 'DE', name: 'Alemanha', prefix: '+49', flag: '🇩🇪', currency: 'EUR' },
+  { code: 'IT', name: 'Itália', prefix: '+39', flag: '🇮🇹', requiresIdentification: "Codice Fiscale", currency: 'EUR' },
+  { code: 'GB', name: 'Reino Unido', prefix: '+44', flag: '🇬🇧', currency: 'GBP' },
+  { code: 'CA', name: 'Canadá', prefix: '+1', flag: '🇨🇦', currency: 'CAD' },
+  { code: 'AU', name: 'Austrália', prefix: '+61', flag: '🇦🇺', currency: 'AUD' },
+  { code: 'JP', name: 'Japão', prefix: '+81', flag: '🇯🇵', currency: 'JPY' },
+  { code: 'KR', name: 'Coreia do Sul', prefix: '+82', flag: '🇰🇷', requiresIdentification: "PCCC", currency: 'KRW' },
+  { code: 'CL', name: 'Chile', prefix: '+56', flag: '🇨🇱', requiresIdentification: "RUT", currency: 'CLP' },
+  { code: 'MX', name: 'México', prefix: '+52', flag: '🇲🇽', requiresIdentification: "RFC", currency: 'MXN' },
+  { code: 'NL', name: 'Holanda', prefix: '+31', flag: '🇳🇱', currency: 'EUR' },
+  { code: 'BE', name: 'Bélgica', prefix: '+32', flag: '🇧🇪', currency: 'EUR' },
+  { code: 'CH', name: 'Suíça', prefix: '+41', flag: '🇨🇭', currency: 'CHF' },
+  { code: 'SE', name: 'Suécia', prefix: '+46', flag: '🇸🇪', currency: 'SEK' },
+  { code: 'NO', name: 'Noruega', prefix: '+47', flag: '🇳🇴', currency: 'NOK' },
+  { code: 'FI', name: 'Finlândia', prefix: '+358', flag: '🇫🇮', currency: 'EUR' },
+  { code: 'DK', name: 'Dinamarca', prefix: '+45', flag: '🇩🇰', currency: 'DKK' },
+  { code: 'IE', name: 'Irlanda', prefix: '+353', flag: '🇮🇪', currency: 'EUR' },
+  { code: 'AT', name: 'Áustria', prefix: '+43', flag: '🇦Ｔ', currency: 'EUR' },
+  { code: 'GR', name: 'Grécia', prefix: '+30', flag: '🇬🇷', currency: 'EUR' },
 ];
 
 const isValidCPF = (cpf: string) => {
@@ -812,6 +812,7 @@ interface ProductCardProps {
   isOwned?: boolean;
   isProcessing?: boolean;
   className?: string;
+  formatPrice?: (p: number) => string;
 }
 
 function ProductCard({
@@ -822,6 +823,7 @@ function ProductCard({
   isProcessing,
   className = "",
   index = 0,
+  formatPrice,
 }: ProductCardProps & { index?: number }) {
   const isEven = index % 2 === 0;
   const comesFromTop = Math.floor(index / 2) % 2 === 0;
@@ -898,7 +900,7 @@ function ProductCard({
               {product.title}
             </h4>
             <span className="text-xl md:text-2xl font-serif text-white font-light tracking-tight drop-shadow-lg">
-              €{product.pvp}
+              {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
             </span>
           </div>
         </div>
@@ -1541,6 +1543,7 @@ const ProductDetailsPage = ({
   isProcessing,
   quantity,
   setQuantity,
+  formatPrice,
 }: {
   product: Product;
   onBack: () => void;
@@ -1552,6 +1555,7 @@ const ProductDetailsPage = ({
   isProcessing?: boolean;
   quantity: number;
   setQuantity: (q: number) => void;
+  formatPrice: (p: number) => string;
 }) => {
   const [selectedSize, setSelectedSize] = useState("");
   const [selectedColor, setSelectedColor] = useState("");
@@ -1792,7 +1796,7 @@ const ProductDetailsPage = ({
                 {product.title}
               </h1>
               <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
-                €{product.pvp}
+                {formatPrice(product.pvp)}
               </p>
             </div>
           </div>
@@ -2223,6 +2227,35 @@ export default function App() {
 
   const [quantity, setQuantity] = useState(1);
   const [globalCountry, setGlobalCountry] = useState(COUNTRIES[0]);
+  const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    fetch('https://api.exchangerate-api.com/v4/latest/EUR')
+      .then(res => res.json())
+      .then(data => setExchangeRates(data.rates))
+      .catch(err => console.error("Error fetching rates:", err));
+  }, []);
+
+  const formatPrice = (amountInEur: number) => {
+    const currencyCode = (globalCountry as any).currency || 'EUR';
+    const rate = exchangeRates[currencyCode] || 1;
+    const converted = amountInEur * rate;
+    
+    // Determine locale based on country
+    let locale = 'en-US';
+    if (globalCountry.code === 'PT') locale = 'pt-PT';
+    else if (globalCountry.code === 'BR') locale = 'pt-BR';
+    else if (globalCountry.code === 'ES') locale = 'es-ES';
+    else if (globalCountry.code === 'FR') locale = 'fr-FR';
+    else if (globalCountry.code === 'DE') locale = 'de-DE';
+    else if (globalCountry.code === 'IT') locale = 'it-IT';
+    else if (globalCountry.code === 'GB') locale = 'en-GB';
+
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: currencyCode,
+    }).format(converted);
+  };
   const [currentLanguage, setCurrentLanguage] = useState('pt');
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -2873,6 +2906,8 @@ export default function App() {
         timestamp: Date.now()
       }));
 
+      const currencyCode = (globalCountry as any).currency || 'EUR';
+
       const res = await fetch('/api/create-payment-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2881,7 +2916,8 @@ export default function App() {
           customer: { ...customerData, userId: user.id },
           baseUrl: window.location.origin,
           selectedOptions: selectedOptions,
-          couponCode: customerData.couponCode
+          couponCode: customerData.couponCode,
+          currency: currencyCode
         })
       });
 
@@ -3030,6 +3066,7 @@ export default function App() {
                   setView("home");
                   fetchProducts();
                 }}
+                formatPrice={formatPrice}
               />
             </motion.div>
           )}
@@ -3262,7 +3299,7 @@ export default function App() {
                               <div className="flex flex-col">
                                 <span className="text-luxury-foreground/20 text-[8px] uppercase tracking-widest mb-1 font-bold">Valor Premium</span>
                                 <div className="flex items-baseline gap-2">
-                                  <span className="text-luxury-gold text-2xl md:text-3xl font-serif">€{featuredProduct.pvp}</span>
+                                  <span className="text-luxury-gold text-2xl md:text-3xl font-serif">{formatPrice(featuredProduct.pvp)}</span>
                                 </div>
                               </div>
                               
@@ -3368,21 +3405,21 @@ export default function App() {
                                 <div className="p-4 bg-white/5 border-t border-white/5 space-y-4">
                                   <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-1">
-                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Mínimo (€)</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Mínimo ({(globalCountry as any).currency || 'EUR'})</label>
                                       <input 
                                         type="number"
-                                        value={minPrice}
-                                        onChange={(e) => setMinPrice(Number(e.target.value))}
+                                        value={Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
+                                        onChange={(e) => setMinPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
                                         className="w-full bg-black/40 border border-white/10 text-white p-2 text-[10px] outline-none focus:border-luxury-gold transition-all"
                                         placeholder="0"
                                       />
                                     </div>
                                     <div className="space-y-1">
-                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Máximo (€)</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Máximo ({(globalCountry as any).currency || 'EUR'})</label>
                                       <input 
                                         type="number"
-                                        value={maxPrice}
-                                        onChange={(e) => setMaxPrice(Number(e.target.value))}
+                                        value={Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
+                                        onChange={(e) => setMaxPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
                                         className="w-full bg-black/40 border border-white/10 text-white p-2 text-[10px] outline-none focus:border-luxury-gold transition-all"
                                         placeholder="10000"
                                       />
@@ -3417,22 +3454,22 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-4 pb-1">
                     <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 md:p-3 relative group">
                       <div className="flex flex-col gap-1">
-                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Min €</label>
+                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Min {(globalCountry as any).currency || 'EUR'}</label>
                         <input 
                           type="number"
-                          value={minPrice}
-                          onChange={(e) => setMinPrice(Number(e.target.value))}
+                          value={Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
+                          onChange={(e) => setMinPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
                           className="bg-transparent text-white text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest"
                           placeholder="MIN"
                         />
                       </div>
                       <div className="w-[1px] h-6 bg-white/10" />
                       <div className="flex flex-col gap-1">
-                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Max €</label>
+                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Max {(globalCountry as any).currency || 'EUR'}</label>
                         <input 
                           type="number"
-                          value={maxPrice}
-                          onChange={(e) => setMaxPrice(Number(e.target.value))}
+                          value={Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
+                          onChange={(e) => setMaxPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
                           className="bg-transparent text-white text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest"
                           placeholder="MAX"
                         />
@@ -3480,6 +3517,7 @@ export default function App() {
                             )}
                             className=""
                             isProcessing={checkoutLoading === product.id}
+                            formatPrice={formatPrice}
                           />
                         );
                       })}
@@ -3520,6 +3558,7 @@ export default function App() {
               isProcessing={detailLoading}
               quantity={quantity}
               setQuantity={setQuantity}
+              formatPrice={formatPrice}
             />
           )}
 
@@ -3741,7 +3780,7 @@ export default function App() {
                             </div>
                           )}
                         <div className="text-xs font-bold text-luxury-foreground/60 transition-colors">
-                          €{selectedProduct.pvp}
+                          {formatPrice(Number(selectedProduct.pvp))}
                         </div>
                       </div>
                     </div>
@@ -3751,12 +3790,12 @@ export default function App() {
                     <div className="space-y-3">
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Subtotal ({quantity}x)</span>
-                        <span>€{(Number(selectedProduct.pvp) * quantity).toFixed(2)}</span>
+                        <span>{formatPrice(Number(selectedProduct.pvp) * quantity)}</span>
                       </div>
                       {couponDiscount > 0 && (
                           <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-gold transition-colors">
                             <span>Desconto ({couponDiscount}%)</span>
-                            <span>-€{((Number(selectedProduct.pvp) * quantity) * (couponDiscount / 100)).toFixed(2)}</span>
+                            <span>-{formatPrice((Number(selectedProduct.pvp) * quantity) * (couponDiscount / 100))}</span>
                           </div>
                       )}
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
@@ -3767,13 +3806,13 @@ export default function App() {
                           </span>
                         ) : (
                           <span className="text-white/60">
-                            €1.15
+                            {formatPrice(1.15)}
                           </span>
                         )}
                       </div>
                       <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
-                        <span>€{((Number(selectedProduct.pvp) * quantity) * (1 - couponDiscount / 100) + (selectedProduct.free_shipping ? 0 : 1.15)).toFixed(2)}</span>
+                        <span>{formatPrice((Number(selectedProduct.pvp) * quantity) * (1 - couponDiscount / 100) + (selectedProduct.free_shipping ? 0 : 1.15))}</span>
                       </div>
                     </div>
 
@@ -3867,6 +3906,7 @@ export default function App() {
             <ProfileDashboard
               user={user}
               purchasedProducts={purchasedProducts}
+              formatPrice={formatPrice}
               onProfileUpdate={(data) => {
                 setProfile(prev => prev ? { ...prev, ...data } : data as any);
                 if (typeof data.custom_cursor_enabled !== 'undefined') {

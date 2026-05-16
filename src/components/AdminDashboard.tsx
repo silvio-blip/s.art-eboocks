@@ -145,10 +145,13 @@ interface Profile {
 export default function AdminDashboard({
   user,
   onBack,
+  formatPrice,
 }: {
   user: SupabaseUser;
   onBack: () => void;
+  formatPrice?: (price: number) => string;
 }) {
+  const renderPrice = (val: number) => formatPrice ? formatPrice(val) : `€${Number(val).toFixed(2)}`;
   const theme = "dark";
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -1507,10 +1510,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="flex items-end justify-between">
                   <h3 className="text-3xl md:text-5xl font-serif text-luxury-gold drop-shadow-[0_0_15px_rgba(212,175,55,0.3)]">
-                    €
-                    {totalGrossRevenue.toLocaleString("pt-PT", {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatPrice ? formatPrice(totalGrossRevenue) : `€${totalGrossRevenue.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}`}
                   </h3>
                   <div className="p-2 md:p-3 bg-luxury-gold/10 text-luxury-gold rounded-full border border-luxury-gold/20">
                     <TrendingUp size={18} />
@@ -1526,10 +1526,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="flex items-end justify-between">
                   <h3 className="text-3xl md:text-5xl font-serif text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-                    €
-                    {totalRefunded.toLocaleString("pt-PT", {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatPrice ? formatPrice(totalRefunded) : `€${totalRefunded.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}`}
                   </h3>
                   <div className="p-2 md:p-3 bg-red-500/10 text-red-500 rounded-full border border-red-500/20">
                     <XCircle size={18} />
@@ -1545,10 +1542,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="flex items-end justify-between">
                   <h3 className="text-3xl md:text-5xl font-serif text-emerald-500 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]">
-                    €
-                    {netProfit.toLocaleString("pt-PT", {
-                      minimumFractionDigits: 2,
-                    })}
+                    {formatPrice ? formatPrice(netProfit) : `€${netProfit.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}`}
                   </h3>
                   <div className="p-2 md:p-3 bg-emerald-500/10 text-emerald-500 rounded-full border border-emerald-500/20">
                     <ShieldCheck size={18} />
@@ -1671,7 +1665,7 @@ export default function AdminDashboard({
                             textTransform: "uppercase",
                             letterSpacing: "0.2em",
                           }}
-                          formatter={(value: number) => [`€ ${value.toLocaleString("pt-PT", { minimumFractionDigits: 2 })}`, "Faturamento"]}
+                          formatter={(value: number) => [renderPrice(value), "Faturamento"]}
                         />
                         <Area
                           type="monotone"
@@ -1847,7 +1841,7 @@ export default function AdminDashboard({
                         </td>
 
                         <td className="px-6 py-4 font-medium">
-                          €{Number(order.total_amount).toFixed(2)}
+                          {renderPrice(Number(order.total_amount))}
                         </td>
                         <td className="px-6 py-4">
                           <span
@@ -2242,7 +2236,7 @@ export default function AdminDashboard({
                           </Button>
                         </div>
                         <p className="text-[8px] text-luxury-gold/40 uppercase tracking-[0.2em] ml-1 font-bold">
-                          Dica: A margem de €{importMarkup.toFixed(2)} será somada automaticamente ao preço base do AliExpress.
+                          Dica: A margem de {renderPrice(importMarkup)} será somada automaticamente ao preço base do AliExpress.
                         </p>
                       </div>
 
@@ -2324,11 +2318,11 @@ export default function AdminDashboard({
                     </div>
                     <div className="flex flex-col">
                       <div className="flex justify-between items-center">
-                        <div className="text-luxury-gold text-xs font-bold">€{Number(p.pvp || 0).toFixed(2)}</div>
+                        <div className="text-luxury-gold text-xs font-bold">{renderPrice(Number(p.pvp || 0))}</div>
                         <div className="flex items-center gap-1">
                           {p.metadata?.base_price && (
                             <span className="text-[7px] text-white/20 uppercase font-medium">
-                              Base: €{Number(p.metadata.base_price).toFixed(2)}
+                              Base: {renderPrice(Number(p.metadata.base_price))}
                             </span>
                           )}
                           {p.admin_link && (
@@ -2345,7 +2339,7 @@ export default function AdminDashboard({
                       </div>
                       {p.price_markup > 0 && (
                         <div className="text-[7px] text-orange-500/60 uppercase font-medium mt-0.5">
-                          Markup: +€{Number(p.price_markup).toFixed(2)}
+                          Markup: +{renderPrice(Number(p.price_markup))}
                         </div>
                       )}
                       {p.free_shipping ? (
@@ -2354,7 +2348,7 @@ export default function AdminDashboard({
                         </div>
                       ) : (
                         <div className="text-[7px] text-white/20 uppercase font-medium mt-1 tracking-widest">
-                          +1,15€ Envio
+                          +{renderPrice(1.15)} Envio
                         </div>
                       )}
                     </div>
@@ -2453,11 +2447,11 @@ export default function AdminDashboard({
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
                             <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                              Preço de Venda (€)
+                              Preço de Venda
                             </label>
                             {editingProduct.metadata?.base_price && (
                               <span className="text-[8px] text-white/40 uppercase font-bold">
-                                Fornecedor: €{Number(editingProduct.metadata.base_price).toFixed(2)}
+                                Fornecedor: {renderPrice(Number(editingProduct.metadata.base_price))}
                               </span>
                             )}
                           </div>
@@ -2486,7 +2480,7 @@ export default function AdminDashboard({
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
                             <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
-                              Margem Global (€)
+                              Margem Global
                             </label>
                             <div className="flex items-center gap-2">
                                {editingProduct.metadata?.base_price && (
@@ -2500,7 +2494,7 @@ export default function AdminDashboard({
                                        pvp: suggested,
                                        price: suggested
                                      });
-                                     toast.success(`Preço sugerido aplicado: €${suggested.toFixed(2)}`);
+                                     toast.success(`Preço sugerido aplicado: ${renderPrice(suggested)}`);
                                    }}
                                    className="text-[8px] bg-luxury-gold/10 hover:bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30 px-2 py-0.5 uppercase font-bold transition-all"
                                  >
@@ -2618,7 +2612,7 @@ export default function AdminDashboard({
                             Envio Grátis?
                           </label>
                           <p className="text-[8px] text-white/40 uppercase tracking-widest">
-                            Se ativo, o cliente não pagará a taxa de 1,15€.
+                            Se ativo, o cliente não pagará a taxa de {renderPrice(1.15)}.
                           </p>
                         </div>
                         <button
@@ -3010,7 +3004,7 @@ export default function AdminDashboard({
                       </td>
 
                       <td className="px-8 py-6 font-medium text-lg">
-                        €{Number(order.total_amount).toFixed(2)}
+                        {renderPrice(Number(order.total_amount))}
                       </td>
                       <td className="px-8 py-6">
                         {order.product?.product_type === "digital" ? (
@@ -3247,7 +3241,7 @@ export default function AdminDashboard({
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-white/40 uppercase tracking-widest">Valor</span>
-                    <span className="text-white font-bold">€{Number(orderToRefund.total_amount).toFixed(2)}</span>
+                    <span className="text-white font-bold">{renderPrice(Number(orderToRefund.total_amount))}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-white/40 uppercase tracking-widest">Cliente</span>
@@ -3781,7 +3775,7 @@ export default function AdminDashboard({
                       )}
                     </h4>
                     <div className="text-xl font-mono font-black text-white ml-4">
-                      €{Number(viewingOrder.total_amount).toFixed(2)}
+                      {renderPrice(Number(viewingOrder.total_amount))}
                     </div>
                   </div>
                   {viewingOrder.selected_options && (

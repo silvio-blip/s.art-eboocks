@@ -146,7 +146,7 @@ export function CreateManualProduct({ onSuccess }: CreateManualProductProps) {
 
             {/* Price */}
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold ml-1">Preço de Venda (€)</label>
+              <label className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold ml-1">Preço de Venda</label>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-zinc-600 group-focus-within:text-amber-500 transition-colors">
                   <DollarSign className="w-4 h-4" />

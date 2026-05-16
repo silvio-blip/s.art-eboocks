@@ -177,6 +177,10 @@ const initDB = async () => {
               ALTER TABLE orders ADD COLUMN provider_order_id TEXT;
             END IF;
 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'currency') THEN
+              ALTER TABLE orders ADD COLUMN currency TEXT DEFAULT 'EUR';
+            END IF;
+
             -- Update status constraint if exists to include manual_fulfillment_required
             -- (Assuming status is check constrained or just a text field)
 
@@ -312,7 +316,8 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
         shipping_details: customerDataRaw,
         selected_options: metadata.selected_options ? JSON.parse(metadata.selected_options) : {},
         customer_email: session.customer_details?.email || customerData?.email || metadata?.email,
-        quantity: quantity
+        quantity: quantity,
+        currency: metadata.currency || session.currency?.toUpperCase() || 'EUR'
       };
 
       const { data: createdOrders, error: orderError } = await supabase
@@ -962,6 +967,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     const customerName = profile?.full_name || (typeof order.shipping_details === 'string' ? JSON.parse(order.shipping_details).name : order.shipping_details?.name) || 'Cliente S.art';
     const productName = product?.name || product?.title || 'Obra de Arte';
     const formattedId = `Sart-${order.id.split('-')[0].toUpperCase()}`;
+    const currencySym = order.currency === 'BRL' ? 'R$' : (order.currency === 'USD' ? '$' : (order.currency === 'GBP' ? '£' : '€'));
 
     // Priority: Refunded > Canceled > Delivered > Out for Delivery > Shipped > Paid
     if (['refunded', 'reembolsado'].includes(lowerS) || order.payment_status === 'refunded') {
@@ -971,7 +977,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee;">
           <h2 style="color: #6366f1;">Reembolso Concluído</h2>
           <p>Olá, ${customerName}. É com prazer que informamos que o reembolso relativo ao pedido <strong>${formattedId}</strong> foi executado com sucesso.</p>
-          <p>O valor total de <strong>€${order.total_amount}</strong> já saiu do nosso sistema e está a ser processado pelo seu banco/operadora.</p>
+          <p>O valor total de <strong>${currencySym}${order.total_amount}</strong> já saiu do nosso sistema e está a ser processado pelo seu banco/operadora.</p>
           <p>O crédito deverá aparecer no seu extrato nos próximos dias úteis.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
           <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
@@ -1064,7 +1070,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           <p>Temos ótimas notícias: o seu pagamento para o pedido <strong>${formattedId}</strong> foi processado com sucesso.</p>
           <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
-            <p style="margin: 5px 0 0 0;"><strong>Valor:</strong> €${order.total_amount}</p>
+            <p style="margin: 5px 0 0 0;"><strong>Valor:</strong> ${currencySym}${order.total_amount}</p>
           </div>
           <p>O seu produto já está a ser preparado para envio. Assim que for despachado, enviaremos um novo e-mail com os detalhes do rastreio.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
@@ -2884,7 +2890,7 @@ apiRouter.use((err: any, req: express.Request, res: express.Response, next: expr
 
 apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
-    const { product, customer, baseUrl, selectedOptions, couponCode } = req.body;
+    const { product, customer, baseUrl, selectedOptions, couponCode, currency } = req.body;
     const qty = Math.max(1, customer.quantity || 1);
     
     if (!stripe) {
@@ -2892,7 +2898,17 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
       return res.status(400).json({ error: "O sistema de pagamentos não está configurado." });
     }
 
-    let unitAmount = Math.round((product.pvp || product.price) * 100);
+    let basePrice = product.pvp || product.price;
+    let unitAmount = Math.round(basePrice * 100);
+    let shippingFee = 115; // 1.15 EUR in cents
+
+    if (currency && currency.toUpperCase() !== 'EUR') {
+      const rateResponse = await fetch(`https://api.exchangerate-api.com/v4/latest/EUR`);
+      const ratesData = await rateResponse.json();
+      const rate = ratesData.rates[currency.toUpperCase()] || 1;
+      unitAmount = Math.round(unitAmount * rate);
+      shippingFee = Math.round(shippingFee * rate);
+    }
     
     // Apply Coupon
     if (couponCode) {
@@ -2938,7 +2954,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
 
     const lineItems: any[] = [{
       price_data: {
-        currency: 'eur',
+        currency: (currency || 'eur').toLowerCase(),
         product_data: {
           name: product.title,
           description: (product.description && product.description.trim() !== "") ? product.description.substring(0, 120) : undefined,
@@ -2953,12 +2969,12 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     if (!product.free_shipping) {
       lineItems.push({
         price_data: {
-          currency: 'eur',
+          currency: (currency || 'eur').toLowerCase(),
           product_data: {
             name: 'Taxa de Envio',
             description: 'Envio Internacional Seguro',
           },
-          unit_amount: 115, // 1.15€ in cents
+          unit_amount: shippingFee,
         },
         quantity: 1,
       });
@@ -2974,7 +2990,8 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
         customer_data: JSON.stringify(customer),
         product_id: String(product.id),
         quantity: String(qty),
-        selected_options: JSON.stringify(selectedOptions || {})
+        selected_options: JSON.stringify(selectedOptions || {}),
+        currency: currency || 'EUR'
       }
     });
 

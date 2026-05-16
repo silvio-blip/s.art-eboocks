@@ -73,6 +73,7 @@ interface ProfileDashboardProps {
   onProfileUpdate: (data: { full_name?: string, avatar_url?: string, custom_cursor_enabled?: boolean }) => void;
   onRefundRequest: (order: Order) => void;
   onLogout: () => void;
+  formatPrice?: (price: number) => string;
 }
 
 const getImageUrl = (url: string) => {
@@ -87,7 +88,7 @@ const getImageUrl = (url: string) => {
   }
 };
 
-export default function ProfileDashboard({ user, purchasedProducts, onProfileUpdate, onRefundRequest, onLogout }: ProfileDashboardProps) {
+export default function ProfileDashboard({ user, purchasedProducts, onProfileUpdate, onRefundRequest, onLogout, formatPrice }: ProfileDashboardProps) {
   const [activeTab, setActiveTab] = useState<'general' | 'orders'>('general');
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -413,7 +414,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                      </div>
                      <div>
                        <p className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Total Gastos</p>
-                       <p className="text-xl font-serif text-white">€{purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0).toFixed(2)}</p>
+                       <p className="text-xl font-serif text-white">{formatPrice ? formatPrice(purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0)) : `€${purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0).toFixed(2)}`}</p>
                      </div>
                    </div>
                 </div>
@@ -656,7 +657,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                           </h4>
                           <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold mb-4 md:mb-0">
                             <div className="flex items-center gap-2"><Calendar size={12} className="text-luxury-gold" /> {new Date(order.created_at).toLocaleDateString()}</div>
-                            <div className="flex items-center gap-2 font-mono font-black text-white">€{order.total_amount.toFixed(2)}</div>
+                            <div className="flex items-center gap-2 font-mono font-black text-white">{formatPrice ? formatPrice(order.total_amount) : `€${order.total_amount.toFixed(2)}`}</div>
                           </div>
                         </div>
 
@@ -929,7 +930,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                          <span className="text-[10px] uppercase tracking-[0.4em] font-black">INVESTIMENTO</span>
                       </div>
                       <div className="space-y-1">
-                         <p className="text-5xl font-serif font-black tracking-tighter">€{selectedOrder.total_amount.toFixed(2)}</p>
+                         <p className="text-5xl font-serif font-black tracking-tighter">{formatPrice ? formatPrice(selectedOrder.total_amount) : `€${selectedOrder.total_amount.toFixed(2)}`}</p>
                          <p className="text-[9px] uppercase tracking-widest font-black">Total Transacionado</p>
                       </div>
                       <div className="pt-6 border-t border-black/10 flex flex-col gap-4">
