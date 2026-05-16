@@ -1,6 +1,6 @@
 // Vercel Edge Middleware - Standard Web APIs
 export const config = {
-  matcher: ['/'],
+  matcher: ['/((?!api|_next|assets|favicon.ico).*)'],
 };
 
 const BOT_AGENTS = [
@@ -40,10 +40,11 @@ export async function middleware(req: Request) {
       return undefined;
     }
 
-    // Tenta buscar o produto
+    // Tenta buscar o produto com no-store
     const res = await fetch(
       `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/products?id=eq.${productId}&select=title,description,image_url`,
       {
+        cache: 'no-store',
         headers: {
           'apikey': SUPABASE_ANON_KEY,
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
@@ -81,13 +82,14 @@ export async function middleware(req: Request) {
     <meta property="og:title" content="${title}">
     <meta property="og:description" content="${description}">
     <meta property="og:image" content="${image}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
     <meta property="og:site_name" content="S.art">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="${image}">
     <meta http-equiv="refresh" content="0;url=${absoluteUrl}">
 </head>
 <body>
-    <p>A carregar: ${title}...</p>
     <script>window.location.href = "${absoluteUrl}";</script>
 </body>
 </html>`;
@@ -96,9 +98,11 @@ export async function middleware(req: Request) {
       status: 200,
       headers: { 
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, s-maxage=0, must-revalidate',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
         'Vary': 'User-Agent',
-        'X-OG-Status': res.ok ? 'success' : 'db-error'
+        'X-OG-Edge': 'hit'
       },
     });
 
