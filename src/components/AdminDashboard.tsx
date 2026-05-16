@@ -1008,7 +1008,7 @@ export default function AdminDashboard({
 
   const filteredOrders = orders.filter((order) => {
     const searchLower = orderSearch.toLowerCase();
-    const formattedOrderId = `SART-${order.id.split("-")[0].toUpperCase()}`;
+    const formattedOrderId = `Sart-${order.id.split("-")[0].toUpperCase()}`;
     const matchSearch =
       order.id.toLowerCase().includes(searchLower) ||
       formattedOrderId.toLowerCase().includes(searchLower) ||
@@ -1376,9 +1376,11 @@ export default function AdminDashboard({
             >
               <ArrowLeft size={20} />
             </button>
-            <h1 className="text-lg md:text-xl font-serif tracking-tight">
-              S.Art <span className="text-luxury-gold italic">Admin</span>
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg md:text-xl font-serif tracking-tight">
+                S.art <span className="text-luxury-gold italic">Admin</span>
+              </h1>
+            </div>
           </div>
 
           <div className={`hidden sm:flex rounded-full p-1 border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
@@ -2379,7 +2381,7 @@ export default function AdminDashboard({
                   </div>
 
                   <div className="flex bg-[#111] p-4 border border-white/20 self-start">
-                    <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Logística Física (S.Art Curatorship)</p>
+                    <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Logística Física (S.art Curatorship)</p>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
@@ -3241,7 +3243,7 @@ export default function AdminDashboard({
                 <div className="bg-white/5 border border-white/5 p-4 mb-6 space-y-3">
                   <div className="flex justify-between text-xs">
                     <span className="text-white/40 uppercase tracking-widest">Pedido</span>
-                    <span className="text-white font-mono">SART-{orderToRefund.id.split('-')[0].toUpperCase()}</span>
+                    <span className="text-white font-mono">Sart-{orderToRefund.id.split('-')[0].toUpperCase()}</span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-white/40 uppercase tracking-widest">Valor</span>
@@ -3337,7 +3339,7 @@ export default function AdminDashboard({
                                       {order.product?.title || 'Produto Indisponível'}
                                     </div>
                                     <div className="text-[9px] text-white/30 mt-1 uppercase tracking-widest font-mono">
-                                      SART-{order.id.split('-')[0].toUpperCase()}
+                                      Sart-{order.id.split('-')[0].toUpperCase()}
                                     </div>
                                   </div>
                                 </div>
@@ -3565,7 +3567,7 @@ export default function AdminDashboard({
                           <div>
                             <p className="text-sm text-white font-medium">{profile.full_name || "Sem Nome"}</p>
                             <div className="flex items-center gap-2">
-                              <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `SART-${profile.id.substring(0, 4).toUpperCase()}`}</p>
+                              <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `Sart-${profile.id.substring(0, 4).toUpperCase()}`}</p>
                               <span className="text-white/10">|</span>
                               <p className="text-[8px] text-white/20 font-mono tracking-tighter truncate max-w-[100px]">{profile.id}</p>
                             </div>
@@ -3867,7 +3869,7 @@ export default function AdminDashboard({
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Identificadores do Sistema</p>
                 <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-3">
-                  <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> SART-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
+                  <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> Sart-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
                   <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
                   
                   {viewingOrder.fulfillment_error && (

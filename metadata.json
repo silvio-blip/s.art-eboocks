@@ -1,6 +1,6 @@
 {
-  "name": "S.Art | Loja Online",
-  "description": "Encontre os melhores produtos e novidades exclusivas. Artigos de qualidade e exclusivos disponíveis para todo o país.",
+  "name": "S.art | Boutique Digital",
+  "description": "Boutique digital S.art - Curadoria exclusiva de artigos de luxo, arte e design.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

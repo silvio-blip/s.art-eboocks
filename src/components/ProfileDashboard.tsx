@@ -141,7 +141,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         full_name: data.full_name || '',
         avatar_url: data.avatar_url || '',
         description: data.description || '',
-        custom_id: data.custom_id || `SART-${data.id.substring(0, 4).toUpperCase()}`,
+        custom_id: data.custom_id || `Sart-${data.id.substring(0, 4).toUpperCase()}`,
         notification_email: data.notification_email || user.email || '',
       };
 
@@ -321,6 +321,9 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+      {/* Profile Visual Header - Removed Logo */}
+      <div className="pt-8"></div>
+
       {/* Premium Tab Navigation */}
       <div className="flex flex-col items-center gap-8 border-b border-white/5 pb-8 relative overflow-hidden">
         <div className="flex p-1 bg-white/5 backdrop-blur-xl border border-white/10 rounded-full">
@@ -646,7 +649,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'REEMBOLSADO' :
                                'EM PROCESSAMENTO'}
                             </span>
-                            <p className="text-[7px] font-mono text-white/20 uppercase tracking-widest whitespace-nowrap">ID: SART-{order.id.split('-')[0].toUpperCase()}</p>
+                            <p className="text-[7px] font-mono text-white/20 uppercase tracking-widest whitespace-nowrap">ID: Sart-{order.id.split('-')[0].toUpperCase()}</p>
                           </div>
                           <h4 className="text-lg md:text-xl font-serif text-white truncate max-w-[200px] lg:max-w-xs group-hover:text-luxury-gold transition-colors duration-500">
                             {order.product?.title?.length > 50 ? `${order.product.title.slice(0, 47)}...` : (order.product?.title || 'Manifestação Sem Nome')}
@@ -953,7 +956,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="space-y-4 text-[10px] font-mono text-white/40 leading-relaxed max-w-full overflow-hidden">
                          <div className="grid grid-cols-2 gap-4">
                             <span className="uppercase tracking-widest">REFERÊNCIA</span>
-                            <span className="text-white select-all text-right break-all">SART-{selectedOrder.id.toUpperCase()}</span>
+                            <span className="text-white select-all text-right break-all">Sart-{selectedOrder.id.toUpperCase()}</span>
                          </div>
                          <div className="grid grid-cols-2 gap-4">
                             <span className="uppercase tracking-widest">HORÁRIO</span>
@@ -993,7 +996,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
 
               {/* Modal Footer Controls */}
               <div className="p-8 bg-white/5 border-t border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between">
-                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/30 font-bold italic">A qualidade da sua aquisição é garantida pela curadoria da S.ART.</p>
+                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/30 font-bold italic">A qualidade da sua aquisição é garantida pela curadoria da S.art.</p>
                  <Button 
                    onClick={() => setSelectedOrder(null)}
                    className="w-full md:w-auto h-14 px-12 bg-white text-black rounded-none text-[10px] uppercase tracking-[0.4em] font-black hover:bg-luxury-gold transition-all duration-500"

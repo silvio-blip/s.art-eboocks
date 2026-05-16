@@ -959,9 +959,9 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
     let emailBody = '';
     let flagField = '';
 
-    const customerName = profile?.full_name || (typeof order.shipping_details === 'string' ? JSON.parse(order.shipping_details).name : order.shipping_details?.name) || 'Cliente S.Art';
+    const customerName = profile?.full_name || (typeof order.shipping_details === 'string' ? JSON.parse(order.shipping_details).name : order.shipping_details?.name) || 'Cliente S.art';
     const productName = product?.name || product?.title || 'Obra de Arte';
-    const formattedId = `SART-${order.id.split('-')[0].toUpperCase()}`;
+    const formattedId = `Sart-${order.id.split('-')[0].toUpperCase()}`;
 
     // Priority: Refunded > Canceled > Delivered > Out for Delivery > Shipped > Paid
     if (['refunded', 'reembolsado'].includes(lowerS) || order.payment_status === 'refunded') {
@@ -974,7 +974,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           <p>O valor total de <strong>€${order.total_amount}</strong> já saiu do nosso sistema e está a ser processado pelo seu banco/operadora.</p>
           <p>O crédito deverá aparecer no seu extrato nos próximos dias úteis.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+          <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
         </div>
       `;
     } else if (['canceled', 'cancelado', 'void', 'failed'].includes(lowerS)) {
@@ -994,7 +994,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           `}
           <p>Se tiver alguma dúvida, por favor contacte o nosso suporte respondendo a este e-mail.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+          <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
         </div>
       `;
     } else if (['delivered', 'entregue', 'completed', 'concluído', 'concluido'].includes(lowerShip) || lowerS === 'completed' || lowerS === 'concluído') {
@@ -1007,7 +1007,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           <p>Esperamos que tenha gostado da sua nova obra de arte: <strong>${productName}</strong>.</p>
           <p>Se puder, adoraríamos ouvir a sua opinião. Sinta-se à vontade para responder a este e-mail ou deixar um comentário no nosso site.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+          <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
         </div>
       `;
     } else if (['out_for_delivery', 'saiu_para_entrega', 'prestes_a_chegar'].includes(lowerShip)) {
@@ -1021,9 +1021,9 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
             <p style="margin: 0;"><strong>Item:</strong> ${productName}</p>
             <p style="margin: 5px 0 0 0;">Prepare-se para receber a sua peça exclusiva!</p>
           </div>
-          <p>Obrigado por escolher a S.Art Boutique.</p>
+          <p>Obrigado por escolher a S.art Boutique.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+          <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
         </div>
       `;
     } else if (['sent', 'enviado', 'shipped', 'em trânsito'].includes(lowerShip)) {
@@ -1052,7 +1052,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           </div>
           <p>Em breve receberá a sua obra de arte. Obrigado pela confiança!</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+          <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
         </div>
       `;
     } else if (['paid', 'pago', 'completed', 'succeeded', 'pago com sucesso'].includes(lowerS)) {
@@ -1068,7 +1068,7 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
           </div>
           <p>O seu produto já está a ser preparado para envio. Assim que for despachado, enviaremos um novo e-mail com os detalhes do rastreio.</p>
           <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-          <p style="font-size: 12px; color: #666;">Equipa S.Art Boutique</p>
+          <p style="font-size: 12px; color: #666;">Equipa S.art Boutique</p>
         </div>
       `;
     }
@@ -1450,7 +1450,7 @@ adminRouter.get('/users', async (req, res) => {
         avatar_url: profile?.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || '',
         is_admin: profile?.is_admin || false,
         created_at: authUser.created_at,
-        custom_id: profile?.custom_id || `SART-${authUser.id.substring(0, 4).toUpperCase()}`
+        custom_id: profile?.custom_id || `Sart-${authUser.id.substring(0, 4).toUpperCase()}`
       };
     });
 
@@ -3342,7 +3342,7 @@ async function callAliExpressAPIInternal(method: string, params: any) {
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const PORT = 3000;
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`S.Art Server running on http://localhost:${PORT}`);
+    console.log(`S.art Server running on http://localhost:${PORT}`);
     
     // --- BACKGROUND SYNC CYCLE ---
     console.log(`[SYSTEM] Iniciando Ciclo Constante de Sincronização (2 min)...`);

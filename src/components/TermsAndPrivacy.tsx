@@ -9,7 +9,7 @@ export default function TermsAndPrivacy() {
         </h1>
         <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
         <p className="text-[11px] uppercase tracking-[0.4em] text-black/40 dark:text-white/40 max-w-sm mx-auto leading-relaxed">
-          S.Art Boutique
+          S.art Boutique
         </p>
       </div>
 
@@ -18,14 +18,14 @@ export default function TermsAndPrivacy() {
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">1. Aceitação dos Termos</h2>
           <p>
-            Ao aceder e utilizar o site S.Art, o utilizador concorda em cumprir e vincular-se aos seguintes termos. Este site é um atelier de curadoria destinado à venda de produtos físicos exclusivos e obras de arte.
+            Ao aceder e utilizar o site S.art, o utilizador concorda em cumprir e vincular-se aos seguintes termos. Este site é um atelier de curadoria destinado à venda de produtos físicos exclusivos e obras de arte.
           </p>
         </section>
 
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">2. Propriedade Intelectual</h2>
           <p>
-            Todo o conteúdo disponível (textos, imagens e design) é propriedade exclusiva da S.Art.
+            Todo o conteúdo disponível (textos, imagens e design) é propriedade exclusiva da S.art.
           </p>
           <p>
             É estritamente proibida a reprodução ou distribuição do conteúdo sem autorização prévia.
@@ -38,7 +38,7 @@ export default function TermsAndPrivacy() {
             Os pagamentos são processados de forma segura via Stripe.
           </p>
           <p>
-            A S.Art não armazena dados de cartões de crédito nos seus servidores.
+            A S.art não armazena dados de cartões de crédito nos seus servidores.
           </p>
           <p>
             Os preços podem ser alterados sem aviso prévio, mas compras já efetuadas não sofrerão ajustes.
@@ -84,7 +84,7 @@ export default function TermsAndPrivacy() {
         <section>
           <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">7. Limitação de Responsabilidade</h2>
           <p>
-            A S.Art esforça-se por manter o site online 24/7, mas não se responsabiliza por interrupções técnicas temporárias ou problemas de ligação do lado do utilizador.
+            A S.art esforça-se por manter o site online 24/7, mas não se responsabiliza por interrupções técnicas temporárias ou problemas de ligação do lado do utilizador.
           </p>
         </section>
 

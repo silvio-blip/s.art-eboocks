@@ -584,7 +584,7 @@ const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onCh
                       <span className={`text-[10px] uppercase tracking-widest font-bold ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
                         {country.name}
                       </span>
-                      <span className="text-[8px] text-white/30 uppercase tracking-tighter">Entrega S.Art VIP</span>
+                      <span className="text-[8px] text-white/30 uppercase tracking-tighter">Entrega S.art VIP</span>
                     </div>
                   </button>
                 ))}
@@ -686,12 +686,12 @@ const Navbar = ({
           <div className="w-10 h-10 md:w-12 md:h-12 rounded-full overflow-hidden border border-luxury-gold/30 shadow-2xl">
             <img 
               src="https://i.imgur.com/LdaKiWv.png" 
-              alt="S.Art Logo" 
+              alt="S.art Logo" 
               className="w-full h-full object-cover scale-110"
               referrerPolicy="no-referrer"
             />
           </div>
-          <span className="text-xl md:text-2xl font-serif tracking-tighter italic font-black text-white drop-shadow-2xl hidden sm:block">
+          <span className="text-xl md:text-2xl font-serif tracking-tighter italic font-black text-white drop-shadow-2xl">
             S.art
           </span>
         </button>
@@ -787,8 +787,12 @@ const Navbar = ({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden absolute top-full left-0 w-full bg-luxury-bg border-b border-luxury-border p-6 space-y-6 shadow-2xl"
+            className="md:hidden absolute top-full left-0 w-full bg-luxury-bg border-b border-luxury-border p-6 space-y-6 shadow-2xl z-50 overflow-hidden"
           >
+            <div className="flex items-center gap-4 border-b border-white/5 pb-4">
+              <span className="font-serif italic font-black text-xl text-white">S.art</span>
+            </div>
+            
             <div className="flex items-center bg-black/5 dark:bg-white/5 px-4 py-3 rounded-[4px] border border-luxury-border focus-within:border-luxury-gold transition-colors">
               <input
                 type="text"
@@ -1110,8 +1114,8 @@ const AuthDialog = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md bg-luxury-bg rounded-none border-none shadow-2xl p-6 md:p-12 w-[95vw] sm:w-full max-h-[90vh] overflow-y-auto custom-scrollbar transition-colors duration-500">
         <DialogHeader className="items-center text-center">
-          <DialogTitle className="font-serif text-3xl mb-2 text-luxury-foreground">
-            S.Art Atelier
+          <DialogTitle className="font-serif text-3xl mb-2 text-luxury-foreground italic">
+            S.art Atelier
           </DialogTitle>
           <div className="text-[10px] uppercase tracking-[0.2em] text-luxury-foreground/40">
             {mode === "login"
@@ -1601,7 +1605,7 @@ const ProductDetailsPage = ({
     const previousTwitterImage = twitterImage?.getAttribute("content");
     const previousOgTitle = ogTitle?.getAttribute("content");
 
-    document.title = `S.Art | ${product.title}`;
+    document.title = `S.art | ${product.title}`;
     if (ogImage && allImages[0]) ogImage.setAttribute("content", allImages[0]);
     if (twitterImage && allImages[0]) twitterImage.setAttribute("content", allImages[0]);
     if (ogTitle) ogTitle.setAttribute("content", product.title);
@@ -1640,7 +1644,7 @@ const ProductDetailsPage = ({
             const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
             
             const shareData: any = {
-              title: `S.Art | ${product.title}`,
+              title: `S.art | ${product.title}`,
               text: `Confira este produto exclusivo: ${product.title}`,
               url: url
             };
@@ -1794,7 +1798,7 @@ const ProductDetailsPage = ({
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold">
-                S.Art Exclusive
+                S.art Exclusive
               </p>
               <span className="text-black/20 dark:text-white/20">|</span>
               <p className="text-[10px] uppercase tracking-[0.2em] font-mono text-black/50 dark:text-white/50">
@@ -1842,7 +1846,7 @@ const ProductDetailsPage = ({
                 </label>
                 <div className="flex items-center gap-2 text-[10px] text-luxury-foreground">
                   <Truck size={14} className="text-luxury-gold" />
-                  <span>Seguro e Rastreável S.Art</span>
+                  <span>Seguro e Rastreável S.art</span>
                 </div>
               </div>
 
@@ -1925,7 +1929,7 @@ const ProductDetailsPage = ({
                   className="mx-auto text-luxury-gold opacity-50"
                 />
                 <p className="text-[8px] uppercase tracking-widest text-black/40 dark:text-white/40">
-                  Curadoria S.Art
+                  Curadoria S.art
                 </p>
               </div>
             </div>
@@ -2916,14 +2920,14 @@ export default function App() {
   if (loading) {
     return (
       <div
-        className={`h-screen flex items-center justify-center ${theme === "dark" ? "dark bg-black text-white" : "bg-white text-black"}`}
+        className={`h-screen flex flex-col items-center justify-center gap-6 ${theme === "dark" ? "dark bg-black text-white" : "bg-white text-black"}`}
       >
         <motion.div
-          animate={{ scale: [1, 1.1, 1], opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 2, repeat: Infinity }}
-          className="text-3xl font-serif tracking-tighter"
+          animate={{ opacity: [0.3, 1, 0.3] }}
+          transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
+          className="text-4xl font-serif tracking-tighter italic"
         >
-          S.Art
+          S.art
         </motion.div>
       </div>
     );
@@ -2980,7 +2984,7 @@ export default function App() {
               Encerrar Sessão?
             </DialogTitle>
             <p className="text-center text-[10px] uppercase tracking-widest text-luxury-foreground/40 leading-relaxed transition-colors">
-              Deseja realmente sair da sua conta na boutique S.Art?
+              Deseja realmente sair da sua conta na boutique S.art?
             </p>
           </DialogHeader>
           <div className="flex flex-col gap-3 pt-4">
@@ -3534,7 +3538,7 @@ export default function App() {
                   Finalizar Aquisição
                 </h2>
                 <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-foreground/40">
-                  Precisamos da sua morada para a entrega física S.Art
+                  Precisamos da sua morada para a entrega física S.art
                 </div>
               </div>
 
@@ -3764,7 +3768,7 @@ export default function App() {
                           </div>
                       )}
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
-                        <span>Envio S.Art VIP</span>
+                        <span>Envio S.art VIP</span>
                         {selectedProduct.free_shipping ? (
                           <span className="text-luxury-gold font-bold uppercase tracking-widest">
                             Grátis
@@ -4045,16 +4049,8 @@ export default function App() {
       <footer className="border-t border-white/5 py-24 px-6 bg-[#050505] transition-colors duration-500">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-12 text-center md:text-left">
           <div className="space-y-4">
-            <div className="w-16 h-16 rounded-full overflow-hidden border border-luxury-gold/30 shadow-2xl mx-auto md:mx-0">
-              <img 
-                src="https://i.imgur.com/LdaKiWv.png" 
-                alt="S.Art Logo" 
-                className="w-full h-full object-cover scale-110"
-                referrerPolicy="no-referrer"
-              />
-            </div>
             <div className="text-[9px] uppercase tracking-[0.3em] text-luxury-foreground/40 transition-colors">
-              © 2026 Boutique S.Art | S.Art-full.pt
+              © 2026 Boutique S.art | S.art-full.pt
             </div>
           </div>
           <div className="flex gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-luxury-foreground/60 transition-colors">

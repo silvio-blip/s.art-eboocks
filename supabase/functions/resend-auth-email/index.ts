@@ -31,14 +31,14 @@ serve(async (req) => {
     const isOTP = token && token.length === 6 && /^\d+$/.test(token)
     const resetUrl = isOTP ? null : `${redirect_to}?token_hash=${token_hash}&type=${type}`
 
-    let subject = 'Autenticação Digital | S.Art Atelier'
+    let subject = 'Autenticação Digital | S.art Atelier'
     let title = 'Portal de Acesso'
     let message = 'Aqui está o seu link de acesso exclusivo ao Atelier.'
     let actionText = 'ACEDER AO ATELIER'
     let actionUrl = resetUrl
 
     if (type === 'recovery') {
-      subject = 'Recuperação de Acesso | S.Art Atelier'
+      subject = 'Recuperação de Acesso | S.art Atelier'
       title = 'Recuperar Senha'
       if (isOTP) {
         message = 'Utilize o código de 6 dígitos abaixo para redefinir a sua password diretamente no Atelier.'
@@ -48,7 +48,7 @@ serve(async (req) => {
         actionText = 'REDEFINIR AGORA'
       }
     } else if (type === 'signup') {
-      subject = 'Bem-vindo à Boutique S.Art'
+      subject = 'Bem-vindo à Boutique S.art'
       title = 'Confirmar Registo'
       message = 'Obrigado por se juntar à nossa curadoria. Confirme o seu e-mail para desbloquear a sua biblioteca.'
       actionText = isOTP ? token : 'CONFIRMAR E-MAIL'
@@ -102,7 +102,7 @@ serve(async (req) => {
             </head>
             <body>
               <div class="container">
-                <div class="logo">S.ART</div>
+                <div class="logo">S.art</div>
                 <div class="title">${title}</div>
                 <p class="message">${message}</p>
                 
@@ -116,7 +116,7 @@ serve(async (req) => {
                 
                 <div class="footer">
                   <p class="security">Este código/link é exclusivo e expira em breve. <br> Se não solicitou isto, ignore este e-mail por segurança.</p>
-                  <p style="margin-top: 30px;">S.Art Studio © 2024 | Excellence in Digital Curation</p>
+                  <p style="margin-top: 30px;">S.art Studio © 2024 | Excellence in Digital Curation</p>
                 </div>
               </div>
             </body>
