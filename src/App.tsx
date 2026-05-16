@@ -28,6 +28,7 @@ import {
   BookOpen,
   CheckCircle2,
   ExternalLink,
+  Share2,
   Plus,
   Edit,
   Loader2,
@@ -1694,6 +1695,17 @@ const ProductDetailsPage = ({
               <p className="text-[10px] uppercase tracking-[0.2em] font-mono text-black/50 dark:text-white/50">
                 Ref: {product.id.split('-')[0].toUpperCase()}
               </p>
+              <span className="text-black/20 dark:text-white/20">|</span>
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
+                  navigator.clipboard.writeText(url);
+                  toast.success("Link do produto copiado!");
+                }}
+                className="flex items-center gap-2 text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold hover:text-black dark:hover:text-white transition-all"
+              >
+                <Share2 size={12} /> Partilhar
+              </button>
             </div>
             <h1 className={`font-serif leading-tight dark:text-white text-balance ${product.title.length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
               {product.title}
@@ -1851,6 +1863,93 @@ export default function App() {
     | "product-detail"
     | "shipping"
   >("home");
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+  const [isNavigatingByHistory, setIsNavigatingByHistory] = useState(false);
+
+  // Sync state to URL and save for refresh
+  useEffect(() => {
+    if (isNavigatingByHistory) return;
+
+    const params = new URLSearchParams(window.location.search);
+    params.set("v", view);
+    if (view === "product-detail" && detailProduct) {
+      params.set("product", detailProduct.id);
+    } else {
+      params.delete("product");
+    }
+
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    if (window.location.search !== `?${params.toString()}`) {
+      window.history.pushState({ view, productId: detailProduct?.id }, "", newUrl);
+    }
+    
+    // Persist to localStorage for refresh reliability
+    localStorage.setItem("sart_navigation_state", JSON.stringify({ view, productId: detailProduct?.id }));
+  }, [view, detailProduct, isNavigatingByHistory]);
+
+  // UseEffect for Popstate (Browser Back/Forward)
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (event && event.state) {
+        setIsNavigatingByHistory(true);
+        const { view: savedView, productId } = event.state;
+        if (productId && products.length > 0) {
+          const prod = products.find(p => p.id === productId);
+          if (prod) setDetailProduct(prod);
+        }
+        setView(savedView || "home");
+        setTimeout(() => setIsNavigatingByHistory(false), 100);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [products]);
+
+  // Initialize from URL or LocalStorage
+  useEffect(() => {
+    if (products.length === 0) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const urlProduct = params.get("product");
+    const urlView = params.get("v");
+    
+    let targetView = urlView;
+    let targetProductId = urlProduct;
+
+    // If no URL params, try localStorage
+    if (!urlProduct && !urlView) {
+      const persisted = localStorage.getItem("sart_navigation_state");
+      if (persisted) {
+        try {
+          const parsed = JSON.parse(persisted);
+          targetView = parsed.view;
+          targetProductId = parsed.productId;
+        } catch (e) {}
+      }
+    }
+
+    if (targetProductId) {
+      const prod = products.find(p => p.id === targetProductId);
+      if (prod) {
+        setDetailProduct(prod);
+        setView("product-detail");
+        // User requirements: If shared link and no account, prompt account
+        if (!user && !loading && urlProduct) {
+          setTimeout(() => setIsAuthOpen(true), 1500);
+        }
+      }
+    } else if (targetView) {
+      setView(targetView as any);
+    }
+  }, [products.length, loading]);
+
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      setView("home");
+    }
+  };
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
@@ -1992,9 +2091,10 @@ export default function App() {
   const [couponDiscount, setCouponDiscount] = useState(0);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "instant" });
-  }, [view, selectedProduct]);
-  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+    if (!isNavigatingByHistory) {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [view, selectedProduct, isNavigatingByHistory]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<{
     size: string;
@@ -3269,7 +3369,7 @@ export default function App() {
           {view === "product-detail" && detailProduct && (
             <ProductDetailsPage
               product={detailProduct}
-              onBack={() => setView("home")}
+              onBack={handleBack}
               onConfirm={handleDetailConfirm}
               isProcessing={detailLoading}
               quantity={quantity}
@@ -3606,7 +3706,7 @@ export default function App() {
                     </Button>
 
                     <button
-                      onClick={() => setView("home")}
+                      onClick={handleBack}
                       className="w-full text-center text-[8px] uppercase tracking-widest text-black/30 dark:text-white/30 hover:text-black dark:hover:text-white transition-colors"
                     >
                       Cancelar e Voltar à Boutique
@@ -3714,7 +3814,7 @@ export default function App() {
                   <ArrowRight size={14} className="ml-2" />
                 </Button>
                 <Button
-                  onClick={() => setView("home")}
+                  onClick={handleBack}
                   variant="outline"
                   className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500"
                 >
