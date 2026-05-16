@@ -1629,7 +1629,6 @@ const ProductDetailsPage = ({
           onClick={async () => {
             const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
             
-            // Try to share with image if browser supports it (mainly for mobile)
             const shareData: any = {
               title: `S.Art | ${product.title}`,
               text: `Confira este produto exclusivo: ${product.title}`,
@@ -1656,6 +1655,23 @@ const ProductDetailsPage = ({
 
             if (navigator.share) {
               try {
+                // Try to include product image in share if supported
+                if (allImages[0] && navigator.canShare && navigator.canShare({ files: [] })) {
+                  try {
+                    const response = await fetch(allImages[0], { mode: 'no-cors' });
+                    // no-cors will return an opaque response, which we can't get blob from
+                    // so we try regular fetch first
+                    const corsResponse = await fetch(allImages[0]);
+                    const blob = await corsResponse.blob();
+                    const file = new File([blob], 'product.jpg', { type: blob.type });
+                    if (navigator.canShare({ files: [file] })) {
+                      await navigator.share({ ...shareData, files: [file] });
+                      return;
+                    }
+                  } catch (e) {
+                    console.warn("Could not fetch image for sharing", e);
+                  }
+                }
                 await navigator.share(shareData);
               } catch (shareErr) {
                 if (shareErr instanceof Error && shareErr.name !== 'AbortError') {
@@ -1666,10 +1682,10 @@ const ProductDetailsPage = ({
               await copyToClipboard();
             }
           }}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all text-black/60 dark:text-white/60"
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all overflow-hidden"
           title="Partilhar"
         >
-          <Share2 size={18} />
+          <img src="https://i.imgur.com/LdaKiWv.png" alt="S.Art" className="w-5 h-5 object-contain" />
         </motion.button>
       </div>
 
