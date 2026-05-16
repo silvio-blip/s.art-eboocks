@@ -1,7 +1,7 @@
 // Vercel Edge Middleware - Hard Stop for Bots
 export const config = {
   // Captura a raiz e todas as rotas de produto
-  matcher: ['/((?!api|_next|static|assets|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)'],
+  matcher: ['/((?!api|_next|static|assets|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)', '/'],
 };
 
 const BOT_REGEX = /facebookexternalhit|whatsapp|twitterbot|discordbot|telegrambot|facebot|slurp|ia_archiver|bingbot|linkedinbot|googlebot|developers.facebook.com/i;
@@ -103,6 +103,9 @@ export async function middleware(req: Request) {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Accept-Ranges': 'none',
       'Vary': 'User-Agent',
       'X-OG-Edge': 'true'
     }
