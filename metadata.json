@@ -1,6 +1,6 @@
 {
-  "name": "S.Art",
-  "description": "Atelier digital de luxo e boutique exclusiva de produtos premium. Explore a nossa curadoria de moda, tecnologia e lifestyle de elite.",
+  "name": "S.Art | Loja Online",
+  "description": "Encontre os melhores produtos e novidades exclusivas. Artigos de qualidade e exclusivos disponíveis para todo o país.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
