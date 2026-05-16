@@ -679,11 +679,21 @@ const Navbar = ({
       <div className="max-w-7xl mx-auto w-full px-4 md:px-6 flex justify-between items-center">
         <button
           onClick={onHomeClick}
-          className={`text-2xl md:text-3xl font-serif tracking-tighter hover:opacity-70 transition-all duration-1000 italic font-black text-white drop-shadow-2xl ${
+          className={`flex items-center gap-3 hover:opacity-70 transition-all duration-1000 ${
             isScrolled ? "scale-90" : "scale-100"
           }`}
         >
-          S.art
+          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full overflow-hidden border border-luxury-gold/30 shadow-2xl">
+            <img 
+              src="https://i.imgur.com/LdaKiWv.png" 
+              alt="S.Art Logo" 
+              className="w-full h-full object-cover scale-110"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          <span className="text-xl md:text-2xl font-serif tracking-tighter italic font-black text-white drop-shadow-2xl hidden sm:block">
+            S.art
+          </span>
         </button>
 
         <div className="flex items-center gap-3 md:gap-6">
@@ -1639,7 +1649,9 @@ const ProductDetailsPage = ({
               try {
                 window.focus();
                 await navigator.clipboard.writeText(url);
-                toast.success("Link copiado!");
+                toast.success("Link copiado!", {
+                  icon: <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30"><img src="https://i.imgur.com/LdaKiWv.png" className="w-full h-full object-cover" /></div>
+                });
               } catch (err) {
                 const textArea = document.createElement("textarea");
                 textArea.value = url;
@@ -1647,7 +1659,9 @@ const ProductDetailsPage = ({
                 textArea.select();
                 try {
                   document.execCommand('copy');
-                  toast.success("Link copiado!");
+                  toast.success("Link copiado!", {
+                    icon: <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30"><img src="https://i.imgur.com/LdaKiWv.png" className="w-full h-full object-cover" /></div>
+                  });
                 } catch (e) {}
                 document.body.removeChild(textArea);
               }
@@ -1682,10 +1696,13 @@ const ProductDetailsPage = ({
               await copyToClipboard();
             }
           }}
-          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all text-black/60 dark:text-white/60"
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all text-black/60 dark:text-white/60"
           title="Partilhar"
         >
-          <Share2 size={18} />
+          <div className="w-5 h-5 rounded-full overflow-hidden border border-luxury-gold/30 flex-shrink-0">
+            <img src="https://i.imgur.com/LdaKiWv.png" className="w-full h-full object-cover" alt="" />
+          </div>
+          <Share2 size={16} />
         </motion.button>
       </div>
 
@@ -1934,29 +1951,33 @@ export default function App() {
     // Round favicon logic using Canvas
     const roundFavicon = () => {
       const icon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
-      if (icon) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = 128;
-          canvas.height = 128;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.beginPath();
-            ctx.arc(64, 64, 64, 0, Math.PI * 2);
-            ctx.clip();
-            ctx.drawImage(img, 0, 0, 128, 128);
-            const roundDataUrl = canvas.toDataURL('image/png');
-            icon.href = roundDataUrl;
-            
-            // Also update apple-touch-icon for mobile
-            const appleIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement;
-            if (appleIcon) appleIcon.href = roundDataUrl;
-          }
-        };
-        img.src = 'https://i.imgur.com/LdaKiWv.png';
-      }
+      const appleIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement;
+      
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.beginPath();
+          ctx.arc(64, 64, 64, 0, Math.PI * 2);
+          ctx.clip();
+          ctx.drawImage(img, 0, 0, 128, 128);
+          const roundDataUrl = canvas.toDataURL('image/png');
+          
+          // Update all possible favicon links
+          const links = document.querySelectorAll('link[rel*="icon"]');
+          links.forEach((link: any) => {
+            link.href = roundDataUrl;
+          });
+          
+          if (appleIcon) appleIcon.href = roundDataUrl;
+        }
+      };
+      // Use a cache-buster to ensure we get a fresh version for canvas
+      img.src = 'https://i.imgur.com/LdaKiWv.png' + '?v=' + new Date().getTime();
     };
     roundFavicon();
   }, []);
@@ -4024,9 +4045,14 @@ export default function App() {
       <footer className="border-t border-white/5 py-24 px-6 bg-[#050505] transition-colors duration-500">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-12 text-center md:text-left">
           <div className="space-y-4">
-            <h3 className="text-3xl font-serif tracking-tighter text-luxury-foreground transition-colors">
-              S.Art
-            </h3>
+            <div className="w-16 h-16 rounded-full overflow-hidden border border-luxury-gold/30 shadow-2xl mx-auto md:mx-0">
+              <img 
+                src="https://i.imgur.com/LdaKiWv.png" 
+                alt="S.Art Logo" 
+                className="w-full h-full object-cover scale-110"
+                referrerPolicy="no-referrer"
+              />
+            </div>
             <div className="text-[9px] uppercase tracking-[0.3em] text-luxury-foreground/40 transition-colors">
               © 2026 Boutique S.Art | S.Art-full.pt
             </div>
