@@ -1581,6 +1581,29 @@ const ProductDetailsPage = ({
 
   const [isExpanded, setIsExpanded] = useState(false);
 
+  useEffect(() => {
+    // Update title and meta tags dynamically for sharing
+    const previousTitle = document.title;
+    const ogImage = document.querySelector('meta[property="og:image"]');
+    const twitterImage = document.querySelector('meta[name="twitter:image"]');
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    const previousOgImage = ogImage?.getAttribute("content");
+    const previousTwitterImage = twitterImage?.getAttribute("content");
+    const previousOgTitle = ogTitle?.getAttribute("content");
+
+    document.title = `S.Art | ${product.title}`;
+    if (ogImage) ogImage.setAttribute("content", product.images[0]);
+    if (twitterImage) twitterImage.setAttribute("content", product.images[0]);
+    if (ogTitle) ogTitle.setAttribute("content", product.title);
+
+    return () => {
+      document.title = previousTitle;
+      if (ogImage && previousOgImage) ogImage.setAttribute("content", previousOgImage);
+      if (twitterImage && previousTwitterImage) twitterImage.setAttribute("content", previousTwitterImage);
+      if (ogTitle && previousOgTitle) ogTitle.setAttribute("content", previousOgTitle);
+    };
+  }, [product]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -1605,7 +1628,9 @@ const ProductDetailsPage = ({
           whileTap={{ scale: 0.9 }}
           onClick={async () => {
             const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
-            const shareData = {
+            
+            // Try to share with image if browser supports it (mainly for mobile)
+            const shareData: any = {
               title: `S.Art | ${product.title}`,
               text: `Confira este produto exclusivo: ${product.title}`,
               url: url
@@ -1613,13 +1638,10 @@ const ProductDetailsPage = ({
 
             const copyToClipboard = async () => {
               try {
-                // Try to focus window first to ensure clipboard works
                 window.focus();
                 await navigator.clipboard.writeText(url);
                 toast.success("Link copiado!");
               } catch (err) {
-                console.error("Clipboard failed:", err);
-                // Last resort fallback if focus still missing
                 const textArea = document.createElement("textarea");
                 textArea.value = url;
                 document.body.appendChild(textArea);
