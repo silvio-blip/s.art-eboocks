@@ -1929,6 +1929,37 @@ export default function App() {
       });
     }
   }, []);
+
+  useEffect(() => {
+    // Round favicon logic using Canvas
+    const roundFavicon = () => {
+      const icon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
+      if (icon) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.beginPath();
+            ctx.arc(64, 64, 64, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(img, 0, 0, 128, 128);
+            const roundDataUrl = canvas.toDataURL('image/png');
+            icon.href = roundDataUrl;
+            
+            // Also update apple-touch-icon for mobile
+            const appleIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement;
+            if (appleIcon) appleIcon.href = roundDataUrl;
+          }
+        };
+        img.src = 'https://i.imgur.com/LdaKiWv.png';
+      }
+    };
+    roundFavicon();
+  }, []);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
