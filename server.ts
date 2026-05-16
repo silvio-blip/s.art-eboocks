@@ -3005,14 +3005,22 @@ if (process.env.NODE_ENV !== 'production') {
   
   // CUSTOM MIDDLEWARE TO INJECT PRODUCT META TAGS IN DEV
   app.use(async (req, res, next) => {
-    const productId = req.query.product as string;
+    let productId = req.query.product as string;
+    
+    // Check path for /product/:id or /produto/:id patterns
+    if (!productId) {
+      const match = req.path.match(/\/(?:product|produto)\/([a-zA-Z0-9\-_]+)/);
+      if (match) productId = match[1];
+    }
+
     if (productId && (req.headers.accept || '').includes('text/html')) {
       try {
         const product = await getProductForMeta(productId);
         if (product) {
           const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
           const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
-          const hydratedHtml = await getHydratedHtml(transformedHtml, product);
+          const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+          const hydratedHtml = await getHydratedHtml(transformedHtml, product, fullUrl);
           return res.status(200).set({ 'Content-Type': 'text/html' }).end(hydratedHtml);
         }
       } catch (err) {
@@ -3029,7 +3037,14 @@ if (process.env.NODE_ENV !== 'production') {
     app.use(express.static(distPath, { index: false })); // Disable default index serving to handle it manually
     
     app.get('*', async (req, res) => {
-      const productId = req.query.product as string;
+      let productId = req.query.product as string;
+      
+      // Check path for /product/:id or /produto/:id patterns
+      if (!productId) {
+        const match = req.path.match(/\/(?:product|produto)\/([a-zA-Z0-9\-_]+)/);
+        if (match) productId = match[1];
+      }
+
       const indexPath = path.join(distPath, 'index.html');
       
       if (!fs.existsSync(indexPath)) {
@@ -3042,7 +3057,8 @@ if (process.env.NODE_ENV !== 'production') {
         try {
           const product = await getProductForMeta(productId);
           if (product) {
-            html = await getHydratedHtml(html, product);
+            const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+            html = await getHydratedHtml(html, product, fullUrl);
           }
         } catch (err) {
           console.error('[PROD META INJECT ERROR]', err);
@@ -3058,10 +3074,10 @@ if (process.env.NODE_ENV !== 'production') {
 async function getProductForMeta(productId: string) {
   try {
     const supabase = getSupabase();
-    // Support both UUID and custom IDs if applicable
+    // Support searching by ID or possibly other identifiers
     const { data: product } = await supabase
       .from('products')
-      .select('*')
+      .select('id, title, name, description, image_url, extra_images')
       .eq('id', productId)
       .maybeSingle();
     return product;
@@ -3070,58 +3086,65 @@ async function getProductForMeta(productId: string) {
   }
 }
 
-async function getHydratedHtml(html: string, product: any) {
+function getProductImageUrl(url: string | undefined | null) {
+  if (!url) return "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
+  if (url.startsWith("http")) return url;
+  const projectUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  if (!projectUrl) return url;
+  const baseUrl = projectUrl.endsWith('/') ? projectUrl.slice(0, -1) : projectUrl;
+  return `${baseUrl}/storage/v1/object/public/assets/${url}`;
+}
+
+async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   if (!product) return html;
   
-  const title = (product.name || product.title || "S.art | Boutique Premium").replace(/"/g, '&quot;');
+  const title = (product.title || product.name || "S.art | Boutique Premium").replace(/"/g, '&quot;');
   const description = (product.description || "Curadoria de Luxo - Descubra esta peça exclusiva.").replace(/"/g, '&quot;');
   
   // Resolve image - handle different fields
-  let image = product.image || product.thumbnail;
+  let image = product.image_url || product.image || product.thumbnail;
   if (!image && product.extra_images) {
-    const extra = product.extra_images.split(',').map((s: string) => s.trim()).filter(Boolean);
+    const extra = String(product.extra_images).split(',').map((s: string) => s.trim()).filter(Boolean);
     if (extra.length > 0) image = extra[0];
   }
-  if (!image) image = "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
-
-  // Escape special chars for meta tags
-  const safeImage = image.replace(/"/g, '&quot;');
+  
+  const absoluteImageUrl = getProductImageUrl(image);
+  const safeImage = absoluteImageUrl.replace(/"/g, '&quot;');
 
   let hydrated = html;
   
-  // Inject tags - simpler replacement using placeholders or just targeting existing tags from index.html
+  // Inject tags
   hydrated = hydrated.replace(/<title>.*?<\/title>/g, `<title>${title}</title>`);
   
-  // og:title
-  if (hydrated.includes('og:title')) {
-    hydrated = hydrated.replace(/<meta property="og:title" content=".*?" \/>/g, `<meta property="og:title" content="${title}" />`);
-  } else {
-    hydrated = hydrated.replace('</head>', `<meta property="og:title" content="${title}" />\n</head>`);
+  // Mapping for all essential meta tags
+  const metaMappings = [
+    { property: 'og:title', content: title, isProperty: true },
+    { property: 'og:description', content: description, isProperty: true },
+    { property: 'og:image', content: safeImage, isProperty: true },
+    { name: 'description', content: description },
+    { name: 'twitter:title', content: title },
+    { name: 'twitter:description', content: description },
+    { name: 'twitter:image', content: safeImage },
+    { property: 'og:type', content: 'article', isProperty: true },
+    { property: 'og:site_name', content: 'S.art Boutique', isProperty: true }
+  ];
+
+  if (reqUrl) {
+    metaMappings.push({ property: 'og:url', content: reqUrl, isProperty: true });
   }
 
-  // og:description
-  if (hydrated.includes('og:description')) {
-    hydrated = hydrated.replace(/<meta property="og:description" content=".*?" \/>/g, `<meta property="og:description" content="${description}" />`);
-  } else {
-    hydrated = hydrated.replace('</head>', `<meta property="og:description" content="${description}" />\n</head>`);
-  }
-
-  // og:image
-  if (hydrated.includes('og:image"')) {
-    hydrated = hydrated.replace(/<meta property="og:image" content=".*?" \/>/g, `<meta property="og:image" content="${safeImage}" />`);
-  } else {
-    hydrated = hydrated.replace('</head>', `<meta property="og:image" content="${safeImage}" />\n</head>`);
-  }
-
-  // twitter:image
-  if (hydrated.includes('twitter:image')) {
-    hydrated = hydrated.replace(/<meta name="twitter:image" content=".*?" \/>/g, `<meta name="twitter:image" content="${safeImage}" />`);
-  }
-
-  // Standard description
-  if (hydrated.includes('name="description"')) {
-    hydrated = hydrated.replace(/<meta name="description" content=".*?" \/>/g, `<meta name="description" content="${description}" />`);
-  }
+  metaMappings.forEach(meta => {
+    const attr = meta.isProperty ? 'property' : 'name';
+    // Matches patterns like <meta property="og:image" content="..." /> or <meta name="description" content="..." />
+    const regex = new RegExp(`<meta ${attr}="${meta.property}" content=".*?"\\s*\/?>`, 'g');
+    
+    if (hydrated.includes(`${attr}="${meta.property}"`)) {
+      hydrated = hydrated.replace(regex, `<meta ${attr}="${meta.property}" content="${meta.content}" />`);
+    } else {
+      // Append to head if not found
+      hydrated = hydrated.replace('</head>', `<meta ${attr}="${meta.property}" content="${meta.content}" />\n</head>`);
+    }
+  });
 
   return hydrated;
 }
