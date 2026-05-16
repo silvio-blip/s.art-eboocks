@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
-
+// Vercel Edge Middleware - Standard Web APIs (No Next.js needed)
 export const config = {
   matcher: ['/'],
 };
@@ -15,8 +14,8 @@ const BOT_AGENTS = [
   'ia_archiver'
 ];
 
-export async function middleware(req: NextRequest) {
-  const url = req.nextUrl;
+export async function middleware(req: Request) {
+  const url = new URL(req.url);
   const userAgent = req.headers.get('user-agent')?.toLowerCase() || '';
   const isBot = BOT_AGENTS.some(bot => userAgent.includes(bot));
   
@@ -29,7 +28,7 @@ export async function middleware(req: NextRequest) {
       const SUPABASE_ANON_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        return NextResponse.next();
+        return new Response(null, { status: 302, headers: { 'Location': url.pathname + url.search } });
       }
 
       const supabaseRes = await fetch(
@@ -43,7 +42,7 @@ export async function middleware(req: NextRequest) {
         }
       );
 
-      if (!supabaseRes.ok) return NextResponse.next();
+      if (!supabaseRes.ok) return new Response(null, { status: 302, headers: { 'Location': url.pathname + url.search } });
 
       const products = await supabaseRes.json();
       const product = Array.isArray(products) && products.length > 0 ? products[0] : null;
@@ -87,5 +86,8 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  // Em middleware Vercel padrão (não-Next), se retornar nada, ele segue para o próximo passo (render da original)
+  // Mas para ser explícito, podemos retornar null se for suportado ou apenas deixar passar.
+  // No Vercel, o middleware pode retornar um Response ou não retornar nada para seguir.
+  return undefined; 
 }
