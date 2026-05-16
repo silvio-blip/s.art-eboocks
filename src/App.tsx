@@ -547,16 +547,34 @@ function ScrollToTop() {
 
 const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onChange: (c: any) => void; className?: string }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const getCurrencySymbol = (code: string) => {
+    switch (code) {
+      case 'BRL': return 'R$';
+      case 'USD': return '$';
+      case 'GBP': return '£';
+      case 'JPY': return '¥';
+      case 'CAD': return 'C$';
+      case 'AUD': return 'A$';
+      case 'CHF': return 'Fr';
+      case 'SEK': return 'kr';
+      case 'NOK': return 'kr';
+      case 'DKK': return 'kr';
+      default: return '€';
+    }
+  };
 
   return (
     <div className={`relative ${className}`}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 hover:border-luxury-gold/40 transition-all rounded-sm group overflow-hidden"
+        className="flex items-center gap-2 px-2 md:px-3 py-1.5 bg-white/5 border border-white/10 hover:border-luxury-gold/40 transition-all rounded-full group transition-all duration-300"
       >
-        <span className="text-lg leading-none">{value.flag}</span>
-        <span className="text-[9px] uppercase tracking-widest text-white/50 group-hover:text-white font-bold transition-colors">{value.name}</span>
-        <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-500 ${isOpen ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-1.5">
+          <Globe size={14} className="text-luxury-gold md:w-4 md:h-4" />
+          <span className="text-[10px] md:text-[11px] font-mono font-bold text-white leading-none">
+            {getCurrencySymbol(value.currency)}
+          </span>
+        </div>
       </button>
 
       <AnimatePresence>
@@ -564,12 +582,16 @@ const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onCh
           <>
             <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
             <motion.div 
-              initial={{ opacity: 0, y: 5, scale: 0.95 }}
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 5, scale: 0.95 }}
-              className="absolute top-full right-0 mt-2 w-56 bg-[#0a0a0a] border border-white/10 shadow-2xl z-[101] overflow-hidden rounded-sm"
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="absolute top-full right-0 mt-3 w-64 bg-black/90 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[101] overflow-hidden rounded-xl"
             >
-              <div className="max-h-72 overflow-y-auto luxury-scrollbar p-1">
+              <div className="p-2 border-b border-white/5 bg-white/5">
+                <span className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold px-2">Seleções Internacionais</span>
+              </div>
+              <div className="max-h-80 overflow-y-auto luxury-scrollbar p-1">
                 {COUNTRIES.map(country => (
                   <button 
                     key={country.code}
@@ -577,15 +599,20 @@ const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onCh
                       onChange(country);
                       setIsOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all hover:bg-white/5 group ${value.code === country.code ? 'bg-luxury-gold/10' : ''}`}
+                    className={`w-full flex items-center justify-between px-4 py-3.5 text-left transition-all hover:bg-white/10 group rounded-lg mb-0.5 ${value.code === country.code ? 'bg-white/5' : ''}`}
                   >
-                    <span className="text-xl">{country.flag}</span>
-                    <div className="flex flex-col">
-                      <span className={`text-[10px] uppercase tracking-widest font-bold ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
-                        {country.name}
-                      </span>
-                      <span className="text-[8px] text-white/30 uppercase tracking-tighter">Entrega S.art VIP</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl filter grayscale group-hover:grayscale-0 transition-all duration-500">{country.flag}</span>
+                      <div className="flex flex-col">
+                        <span className={`text-[10px] uppercase tracking-widest font-black ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
+                          {country.name}
+                        </span>
+                        <span className="text-[8px] text-white/30 uppercase tracking-tighter">Premium Delivery</span>
+                      </div>
                     </div>
+                    <span className={`text-[11px] font-mono font-black ${value.code === country.code ? 'text-luxury-gold' : 'text-white/40 group-hover:text-white'}`}>
+                      {getCurrencySymbol(country.currency)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -689,9 +716,7 @@ const Navbar = ({
         </button>
 
         <div className="flex items-center gap-3 md:gap-6">
-          <div className="hidden sm:block">
-            <CountryDropdown value={selectedCountry} onChange={onCountryChange} className="hover:ring-2 hover:ring-luxury-gold/50 hover:shadow-lg transition-all" />
-          </div>
+          <CountryDropdown value={selectedCountry} onChange={onCountryChange} className="hover:ring-2 hover:ring-luxury-gold/50 hover:shadow-lg transition-all" />
           {/* Superior Luxury Search */}
           <div className="relative flex items-center">
             <AnimatePresence>
