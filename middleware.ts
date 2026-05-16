@@ -1,6 +1,6 @@
-// Vercel Edge Middleware - Hard Stop for Bots
+// Vercel Edge Middleware - Hard Stop for Bots to prevent Cache 206
 export const config = {
-  // Captura a raiz e todas as rotas de produto
+  // Capture all routes to ensure middleware always runs
   matcher: ['/((?!api|_next|static|assets|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)', '/'],
 };
 
@@ -10,19 +10,18 @@ export async function middleware(req: Request) {
   const url = new URL(req.url);
   const userAgent = req.headers.get('user-agent') || '';
   const isBot = BOT_REGEX.test(userAgent);
-  
-  // Extração do ID (suporta ?product=ID e ?v=product-detail&product=ID)
   const productId = url.searchParams.get('product');
+  const rangeHeader = req.headers.get('range');
 
-  // LOG PARA DEBUG (Ver nos logs da Vercel)
-  console.log(`[EDGE] UA: ${userAgent.substring(0, 40)} | Bot: ${isBot} | ID: ${productId}`);
+  // LOG PARA DEBUG (Crucial para ver nos logs da Vercel)
+  console.log(`[EDGE] Bot: ${isBot} | ID: ${productId} | Range: ${rangeHeader} | UA: ${userAgent.substring(0, 40)}`);
 
-  // SE NÃO FOR BOT OU NÃO TIVER ID, SEGUE NORMAL
+  // Se não for bot ou não tiver ID, deixa o Vercel servir o estático normalmente
   if (!isBot || !productId) {
     return undefined;
   }
 
-  // A PARTIR DAQUI: É BOT E TEM PRODUTO. NÃO HÁ VOLTA ATRÁS.
+  // A partir daqui: RESPOSTA FORÇADA PARA BOTS
   let title = "S.art | Boutique Premium";
   let description = "Curadoria de Luxo - Descubra esta peça exclusiva na S.art.";
   let image = 'https://sart-full.pt/og-default.jpg';
@@ -36,7 +35,7 @@ export async function middleware(req: Request) {
       const dbRes = await fetch(
         `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/products?id=eq.${productId}&select=title,description,image_url`,
         {
-          cache: 'no-store',
+          cache: 'no-store', // Fura o cache do backend
           headers: {
             'apikey': SUPABASE_ANON_KEY,
             'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
@@ -61,11 +60,10 @@ export async function middleware(req: Request) {
       }
     }
   } catch (err) {
-    console.error("[EDGE ERROR]", err);
+    console.error(`[EDGE FETCH ERROR] ${err}`);
     status = 'error';
   }
 
-  // Montagem da URL absoluta para os bots
   const host = req.headers.get('host') || 'sart-full.pt';
   const protocol = req.headers.get('x-forwarded-proto') || 'https';
   const absoluteUrl = `${protocol}://${host}${url.pathname}${url.search}`;
@@ -88,7 +86,7 @@ export async function middleware(req: Request) {
     <meta name="twitter:image" content="${image}">
     <meta http-equiv="refresh" content="0;url=${absoluteUrl}">
 </head>
-<body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;margin:0;">
+<body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;font-family:sans-serif;">
     <div style="text-align:center;">
         <p>A carregar: ${title}...</p>
         <script>window.location.href = "${absoluteUrl}";</script>
@@ -96,7 +94,7 @@ export async function middleware(req: Request) {
 </body>
 </html>`;
 
-  console.log(`[HARD STOP] Serving ${status} content for ${productId}`);
+  console.log(`[HARD STOP] Status: ${status} | Serving bot response for ${productId}`);
 
   return new Response(html, {
     status: 200,
@@ -106,8 +104,10 @@ export async function middleware(req: Request) {
       'Pragma': 'no-cache',
       'Expires': '0',
       'Accept-Ranges': 'none',
-      'Vary': 'User-Agent',
-      'X-OG-Edge': 'true'
+      'Vary': '*', // Crucial para furar cache de Edge
+      'X-Robots-Tag': 'noarchive',
+      'X-OG-Edge': 'intercept'
     }
   });
 }
+
