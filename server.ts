@@ -3002,15 +3002,128 @@ if (process.env.NODE_ENV !== 'production') {
     server: { middlewareMode: true },
     appType: 'spa',
   });
+  
+  // CUSTOM MIDDLEWARE TO INJECT PRODUCT META TAGS IN DEV
+  app.use(async (req, res, next) => {
+    const productId = req.query.product as string;
+    if (productId && (req.headers.accept || '').includes('text/html')) {
+      try {
+        const product = await getProductForMeta(productId);
+        if (product) {
+          const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
+          const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
+          const hydratedHtml = await getHydratedHtml(transformedHtml, product);
+          return res.status(200).set({ 'Content-Type': 'text/html' }).end(hydratedHtml);
+        }
+      } catch (err) {
+        console.error('[DEV META INJECT ERROR]', err);
+      }
+    }
+    next();
+  });
+
   app.use(vite.middlewares);
 } else {
   const distPath = path.join(process.cwd(), 'dist');
   if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.use(express.static(distPath, { index: false })); // Disable default index serving to handle it manually
+    
+    app.get('*', async (req, res) => {
+      const productId = req.query.product as string;
+      const indexPath = path.join(distPath, 'index.html');
+      
+      if (!fs.existsSync(indexPath)) {
+        return res.status(404).send('Index not found');
+      }
+
+      let html = fs.readFileSync(indexPath, 'utf-8');
+
+      if (productId) {
+        try {
+          const product = await getProductForMeta(productId);
+          if (product) {
+            html = await getHydratedHtml(html, product);
+          }
+        } catch (err) {
+          console.error('[PROD META INJECT ERROR]', err);
+        }
+      }
+      
+      res.status(200).set({ 'Content-Type': 'text/html' }).send(html);
     });
   }
+}
+
+// HELPERS FOR DYNAMIC META TAGS
+async function getProductForMeta(productId: string) {
+  try {
+    const supabase = getSupabase();
+    // Support both UUID and custom IDs if applicable
+    const { data: product } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .maybeSingle();
+    return product;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getHydratedHtml(html: string, product: any) {
+  if (!product) return html;
+  
+  const title = (product.name || product.title || "S.art | Boutique Premium").replace(/"/g, '&quot;');
+  const description = (product.description || "Curadoria de Luxo - Descubra esta peça exclusiva.").replace(/"/g, '&quot;');
+  
+  // Resolve image - handle different fields
+  let image = product.image || product.thumbnail;
+  if (!image && product.extra_images) {
+    const extra = product.extra_images.split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (extra.length > 0) image = extra[0];
+  }
+  if (!image) image = "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
+
+  // Escape special chars for meta tags
+  const safeImage = image.replace(/"/g, '&quot;');
+
+  let hydrated = html;
+  
+  // Inject tags - simpler replacement using placeholders or just targeting existing tags from index.html
+  hydrated = hydrated.replace(/<title>.*?<\/title>/g, `<title>${title}</title>`);
+  
+  // og:title
+  if (hydrated.includes('og:title')) {
+    hydrated = hydrated.replace(/<meta property="og:title" content=".*?" \/>/g, `<meta property="og:title" content="${title}" />`);
+  } else {
+    hydrated = hydrated.replace('</head>', `<meta property="og:title" content="${title}" />\n</head>`);
+  }
+
+  // og:description
+  if (hydrated.includes('og:description')) {
+    hydrated = hydrated.replace(/<meta property="og:description" content=".*?" \/>/g, `<meta property="og:description" content="${description}" />`);
+  } else {
+    hydrated = hydrated.replace('</head>', `<meta property="og:description" content="${description}" />\n</head>`);
+  }
+
+  // og:image
+  if (hydrated.includes('og:image"')) {
+    hydrated = hydrated.replace(/<meta property="og:image" content=".*?" \/>/g, `<meta property="og:image" content="${safeImage}" />`);
+  } else {
+    hydrated = hydrated.replace('</head>', `<meta property="og:image" content="${safeImage}" />\n</head>`);
+  }
+
+  // twitter:image
+  if (hydrated.includes('twitter:image')) {
+    hydrated = hydrated.replace(/<meta name="twitter:image" content=".*?" \/>/g, `<meta name="twitter:image" content="${safeImage}" />`);
+  }
+
+  // Standard description
+  if (hydrated.includes('name="description"')) {
+    hydrated = hydrated.replace(/<meta name="description" content=".*?" \/>/g, `<meta name="description" content="${description}" />`);
+  }
+
+  return hydrated;
 }
 
 async function processOrderFulfillment(order: any, forceManual: boolean = false) {
