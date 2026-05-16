@@ -1588,7 +1588,7 @@ const ProductDetailsPage = ({
       exit={{ opacity: 0, y: -20 }}
       className="max-w-7xl mx-auto space-y-12 px-4 py-8"
     >
-      <div className="flex items-center gap-4 mb-8">
+      <div className="flex items-center justify-between gap-4 mb-8">
         <button
           onClick={onBack}
           className="text-luxury-gold hover:text-black dark:hover:text-white transition-colors flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold group"
@@ -1599,6 +1599,33 @@ const ProductDetailsPage = ({
           />{" "}
           Voltar à Boutique
         </button>
+
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => {
+            const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
+            const shareData = {
+              title: `S.Art | ${product.title}`,
+              text: `Confira este produto exclusivo: ${product.title}`,
+              url: url
+            };
+
+            if (navigator.share) {
+              navigator.share(shareData).catch(() => {
+                navigator.clipboard.writeText(url);
+                toast.success("Link copiado!");
+              });
+            } else {
+              navigator.clipboard.writeText(url);
+              toast.success("Link copiado!");
+            }
+          }}
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all text-black/60 dark:text-white/60"
+          title="Partilhar"
+        >
+          <Share2 size={18} />
+        </motion.button>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-12 lg:gap-16 items-start">
@@ -1695,24 +1722,16 @@ const ProductDetailsPage = ({
               <p className="text-[10px] uppercase tracking-[0.2em] font-mono text-black/50 dark:text-white/50">
                 Ref: {product.id.split('-')[0].toUpperCase()}
               </p>
-              <span className="text-black/20 dark:text-white/20">|</span>
-              <button
-                onClick={() => {
-                  const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
-                  navigator.clipboard.writeText(url);
-                  toast.success("Link do produto copiado!");
-                }}
-                className="flex items-center gap-2 text-[10px] uppercase tracking-[0.4em] text-luxury-gold font-bold hover:text-black dark:hover:text-white transition-all"
-              >
-                <Share2 size={12} /> Partilhar
-              </button>
             </div>
-            <h1 className={`font-serif leading-tight dark:text-white text-balance ${product.title.length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
-              {product.title}
-            </h1>
-            <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
-              €{product.pvp}
-            </p>
+            
+            <div className="space-y-4">
+              <h1 className={`font-serif leading-tight dark:text-white text-balance ${product.title.length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
+                {product.title}
+              </h1>
+              <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
+                €{product.pvp}
+              </p>
+            </div>
           </div>
 
           <Separator className="bg-black/10 dark:bg-white/10" />
@@ -1865,6 +1884,7 @@ export default function App() {
   >("home");
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [isNavigatingByHistory, setIsNavigatingByHistory] = useState(false);
+  const [homeScrollPos, setHomeScrollPos] = useState(0);
 
   // Sync state to URL and save for refresh
   useEffect(() => {
@@ -2091,10 +2111,22 @@ export default function App() {
   const [couponDiscount, setCouponDiscount] = useState(0);
 
   useEffect(() => {
-    if (!isNavigatingByHistory) {
+    if (view === "home") {
+      if (isNavigatingByHistory) {
+        // Use a slightly longer delay to ensure products are fully loaded and layout is stable
+        const timer = setTimeout(() => {
+          window.scrollTo({ top: homeScrollPos, behavior: "instant" });
+        }, 50);
+        return () => clearTimeout(timer);
+      } else {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }
+    } else if (!isNavigatingByHistory) {
+      // Save scroll when leaving home to any other view
+      setHomeScrollPos(window.scrollY);
       window.scrollTo({ top: 0, behavior: "instant" });
     }
-  }, [view, selectedProduct, isNavigatingByHistory]);
+  }, [view, selectedProduct, isNavigatingByHistory, homeScrollPos]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<{
     size: string;
@@ -3814,7 +3846,7 @@ export default function App() {
                   <ArrowRight size={14} className="ml-2" />
                 </Button>
                 <Button
-                  onClick={handleBack}
+                  onClick={() => setView("home")}
                   variant="outline"
                   className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500"
                 >
