@@ -17,7 +17,8 @@ import {
   MapPin,
   Calendar,
   CreditCard,
-  Hash
+  Hash,
+  Crown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -65,6 +66,7 @@ interface Profile {
   description: string;
   custom_id: string;
   notification_email: string;
+  is_admin?: boolean;
 }
 
 interface ProfileDashboardProps {
@@ -137,13 +139,14 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
 
       if (error) throw error;
       
-      const profileData = {
+      const profileData: Profile = {
         id: data.id,
         full_name: data.full_name || '',
         avatar_url: data.avatar_url || '',
         description: data.description || '',
         custom_id: data.custom_id || `Sart-${data.id.substring(0, 4).toUpperCase()}`,
         notification_email: data.notification_email || user.email || '',
+        is_admin: data.is_admin,
       };
 
       setProfile(profileData);
@@ -426,8 +429,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/5">
                 <div className="space-y-2">
                   <span className="text-luxury-gold text-[9px] uppercase tracking-[0.5em] font-black">Área de Membros</span>
-                  <h2 className="text-4xl md:text-5xl font-serif italic text-white tracking-tight">
+                  <h2 className="text-4xl md:text-5xl font-serif italic text-white tracking-tight flex items-center gap-4">
                     {profile?.full_name || 'Eminente Convidado'}
+                    {profile?.is_admin && (
+                      <Crown size={24} className="text-luxury-gold fill-luxury-gold/20 animate-pulse shrink-0" />
+                    )}
                   </h2>
                 </div>
                 <Button 

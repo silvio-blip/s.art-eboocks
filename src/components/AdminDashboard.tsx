@@ -40,6 +40,7 @@ import {
   ShieldAlert,
   Settings,
   Zap,
+  Crown,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -3563,7 +3564,12 @@ export default function AdminDashboard({
                             )}
                           </div>
                           <div>
-                            <p className="text-sm text-white font-medium">{profile.full_name || "Sem Nome"}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm text-white font-medium">{profile.full_name || "Sem Nome"}</p>
+                              {profile.is_admin && (
+                                <Crown size={12} className="text-luxury-gold fill-luxury-gold/20 animate-pulse" title="Administrador Master" />
+                              )}
+                            </div>
                             <div className="flex items-center gap-2">
                               <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `Sart-${profile.id.substring(0, 4).toUpperCase()}`}</p>
                               <span className="text-white/10">|</span>

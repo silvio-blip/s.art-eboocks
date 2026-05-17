@@ -38,6 +38,7 @@ import {
   Minus,
   Globe,
   Truck,
+  Crown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -774,12 +775,19 @@ const Navbar = ({
                     )}
                     <button
                       onClick={() => onDashboardClick("dashboard")}
-                      className="hover:opacity-70 transition-all transform hover:scale-110 active:scale-95 overflow-hidden w-8 h-8 rounded-full border-2 border-white/30 shadow-2xl"
+                      className="relative hover:opacity-70 transition-all transform hover:scale-110 active:scale-95 overflow-visible w-8 h-8 flex items-center justify-center shadow-2xl"
                     >
-                      {avatarUrl ? (
-                        <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                      ) : (
-                        <User size={20} className="text-white" />
+                      <div className="w-8 h-8 rounded-full border-2 border-white/30 overflow-hidden shrink-0">
+                        {avatarUrl ? (
+                          <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={20} className="text-white" />
+                        )}
+                      </div>
+                      {profile?.is_admin && (
+                        <div className="absolute -top-2 -right-2 bg-luxury-gold rounded-full p-0.5 border border-luxury-black shadow-lg animate-pulse">
+                          <Crown size={10} className="text-luxury-black fill-luxury-black" />
+                        </div>
                       )}
                     </button>
                   </div>
@@ -2342,6 +2350,7 @@ export default function App() {
   const [profile, setProfile] = useState<{
     full_name: string;
     avatar_url: string;
+    is_admin?: boolean;
   } | null>(null);
   const theme = "dark";
 
@@ -2512,7 +2521,7 @@ export default function App() {
   const fetchProfile = async (userObj: SupabaseUser) => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("theme, full_name, avatar_url, welcomed, custom_id")
+      .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin")
       .eq("id", userObj.id)
       .single();
 
@@ -2544,6 +2553,7 @@ export default function App() {
           full_name: newProfile.full_name || "",
           avatar_url: newProfile.avatar_url || "",
           custom_cursor_enabled: newProfile.custom_cursor_enabled !== false,
+          is_admin: newProfile.is_admin || false,
         });
         if (newProfile.welcomed === false) {
           sendWelcomeEmail(userObj, newProfile);
@@ -2582,6 +2592,7 @@ export default function App() {
       setProfile({
         full_name: data.full_name || userObj.user_metadata?.full_name || userObj.user_metadata?.name || "",
         avatar_url: finalAvatar || googleAvatar || "", 
+        is_admin: data.is_admin || false,
       });
 
       // Só envia e-mail se ainda não foi marcado como welcomed

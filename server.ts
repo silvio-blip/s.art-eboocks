@@ -44,6 +44,132 @@ const initDB = async () => {
     }
 
     if (hasExecSql) {
+      console.log('[INIT] public.exec_sql found. Starting schema management...');
+      
+      // Ensure basic tables and schema
+      try {
+        await supabase.rpc('exec_sql', { sql: `
+          -- Reset RLS and Policies for PROFILES to fix recursion
+          ALTER TABLE IF EXISTS profiles DISABLE ROW LEVEL SECURITY;
+          
+          -- Nuclear Cleanup: Drop ALL policies on core tables to avoid legacy recursive policies
+          DO $$ 
+          DECLARE 
+            pol RECORD;
+          BEGIN 
+            FOR pol IN (
+              SELECT policyname, tablename 
+              FROM pg_policies 
+              WHERE schemaname = 'public' 
+              AND tablename IN ('profiles', 'products', 'orders', 'categories', 'site_settings')
+            ) LOOP
+              EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(pol.policyname) || ' ON ' || quote_ident(pol.tablename);
+            END LOOP;
+          END $$;
+
+          CREATE TABLE IF NOT EXISTS profiles (
+            id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+            email TEXT,
+            full_name TEXT,
+            avatar_url TEXT,
+            is_admin BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+
+          -- Ensure is_admin exists if table already existed
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+
+          -- Remove OLD recursive policies
+          DO $$ 
+          BEGIN 
+            DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
+            DROP POLICY IF EXISTS "Admins can update all profiles" ON profiles;
+            DROP POLICY IF EXISTS "Users can view their own profile" ON profiles;
+            DROP POLICY IF EXISTS "Allow users to view own profile" ON profiles;
+            DROP POLICY IF EXISTS "Allow admins to view all profiles" ON profiles;
+            DROP POLICY IF EXISTS "Allow users to update own profile" ON profiles;
+            DROP POLICY IF EXISTS "Allow admins to manage all profiles" ON profiles;
+          END $$;
+
+          -- Define SECURITY DEFINER function for admin check
+          -- This breaks infinite recursion because it runs bypasses RLS
+          CREATE OR REPLACE FUNCTION public.is_admin()
+          RETURNS BOOLEAN AS $inner$
+          BEGIN
+            RETURN EXISTS (
+              SELECT 1 FROM public.profiles 
+              WHERE id = auth.uid() AND is_admin = true
+            );
+          END;
+          $inner$ LANGUAGE plpgsql SECURITY DEFINER;
+
+          -- Enable RLS and set NEW safe policies
+          ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+          
+          CREATE POLICY "Allow users to view own profile" ON profiles 
+            FOR SELECT USING (auth.uid() = id);
+
+          CREATE POLICY "Allow admins to view all profiles" ON profiles 
+            FOR SELECT USING (public.is_admin());
+
+          CREATE POLICY "Allow users to update own profile" ON profiles 
+            FOR UPDATE USING (auth.uid() = id);
+
+          CREATE POLICY "Allow admins to manage all profiles" ON profiles 
+            FOR ALL USING (public.is_admin());
+
+          CREATE TABLE IF NOT EXISTS categories (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+
+          ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+          DROP POLICY IF EXISTS "Allow public read on categories" ON categories;
+          CREATE POLICY "Allow public read on categories" ON categories FOR SELECT USING (true);
+          
+          CREATE TABLE IF NOT EXISTS site_settings (
+            key TEXT PRIMARY KEY,
+            value JSONB,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+
+          ALTER TABLE site_settings ENABLE ROW LEVEL SECURITY;
+          DROP POLICY IF EXISTS "Allow public read on site_settings" ON site_settings;
+          CREATE POLICY "Allow public read on site_settings" ON site_settings FOR SELECT USING (true);
+
+          -- Seed default site settings if empty
+          INSERT INTO site_settings (key, value)
+          SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
+          WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
+        ` });
+      } catch(e) { console.error('[INIT] Error ensuring tables/RLS:', e); }
+
+      // Update Products RLS
+      try {
+        await supabase.rpc('exec_sql', { sql: `
+          ALTER TABLE IF EXISTS products ENABLE ROW LEVEL SECURITY;
+          DROP POLICY IF EXISTS "Anyone can view products" ON products;
+          CREATE POLICY "Anyone can view products" ON products FOR SELECT USING (true);
+          
+          DROP POLICY IF EXISTS "Admins can manage products" ON products;
+          CREATE POLICY "Admins can manage products" ON products FOR ALL USING (public.is_admin());
+        ` });
+      } catch(e) { console.error('[INIT] Error updating products RLS:', e); }
+
+      // Update Orders RLS
+      try {
+        await supabase.rpc('exec_sql', { sql: `
+          ALTER TABLE IF EXISTS orders ENABLE ROW LEVEL SECURITY;
+          DROP POLICY IF EXISTS "Users can view own orders" ON orders;
+          CREATE POLICY "Users can view own orders" ON orders FOR SELECT USING (auth.uid() = user_id);
+          
+          DROP POLICY IF EXISTS "Admins can view all orders" ON orders;
+          CREATE POLICY "Admins can view all orders" ON orders FOR SELECT USING (public.is_admin());
+        ` });
+      } catch(e) { console.error('[INIT] Error updating orders RLS:', e); }
+      
       // Ensure free_shipping exists in products
       try {
         await supabase.rpc('exec_sql', { sql: 'ALTER TABLE products ADD COLUMN IF NOT EXISTS free_shipping BOOLEAN DEFAULT FALSE;' });
@@ -70,28 +196,6 @@ const initDB = async () => {
         { name: 'shipping_tracking_url', type: 'TEXT' }
       ];
 
-      // Ensure categories table exists
-      try {
-        await supabase.rpc('exec_sql', { sql: `
-          CREATE TABLE IF NOT EXISTS categories (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            name TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-          );
-          
-          CREATE TABLE IF NOT EXISTS site_settings (
-            key TEXT PRIMARY KEY,
-            value JSONB,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-          );
-
-          -- Seed default site settings if empty
-          INSERT INTO site_settings (key, value)
-          SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
-          WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
-        ` });
-      } catch(e) { console.error('[INIT] Error ensuring tables:', e); }
-      
       for (const col of columnsToEnsure) {
         try {
           if (col.name === 'stripe_payment_intent') {
@@ -184,14 +288,8 @@ const initDB = async () => {
             -- Update status constraint if exists to include manual_fulfillment_required
             -- (Assuming status is check constrained or just a text field)
 
-            -- Ensure policies exist
-            DROP POLICY IF EXISTS "Anyone can view products" ON products;
-            CREATE POLICY "Anyone can view products" ON products FOR SELECT USING (true);
-            
-            DROP POLICY IF EXISTS "Admins can manage products" ON products;
-            CREATE POLICY "Admins can manage products" ON products FOR ALL USING (
-              (SELECT is_admin FROM profiles WHERE id = auth.uid()) = true
-            );
+            -- Ensure policies exist are already set up in the earlier unified block
+            -- but we can re-verify here if needed, or just remove this duplicate logic.
           END $$;
         ` });
 
