@@ -1639,8 +1639,10 @@ adminRouter.post('/products', async (req, res) => {
       console.warn(`[ADMIN] Price is invalid (${rawPrice}). Defaulting to 0.`);
       finalPrice = 0;
     }
+    
+    finalPrice = Math.round(finalPrice * 100) / 100;
 
-    const priceMarkup = parseFloat(String(price_markup || 0));
+    const priceMarkup = Math.round(parseFloat(String(price_markup || 0)) * 100) / 100;
 
     const supabase = getSupabase();
     
@@ -1748,7 +1750,8 @@ adminRouter.put('/products/:id', async (req, res) => {
       finalPrice = 0;
     }
 
-    const priceMarkup = parseFloat(String(price_markup || 0));
+    finalPrice = Math.round(finalPrice * 100) / 100;
+    const priceMarkup = Math.round(parseFloat(String(price_markup || 0)) * 100) / 100;
 
     // Recalculate price for AliExpress products if markup changed and base_price is available
     if (provider === 'aliexpress' && existing?.metadata?.base_price !== undefined) {
@@ -1870,7 +1873,7 @@ adminRouter.patch('/products/:id', async (req, res) => {
     
     // Prioritize pvp if it exists, otherwise use price
     const rawPrice = (pvp !== undefined && pvp !== null) ? pvp : price;
-    const finalPrice = (typeof rawPrice === 'string' ? parseFloat(rawPrice) : (rawPrice || 0));
+    const finalPrice = Math.round((typeof rawPrice === 'string' ? parseFloat(rawPrice) : (rawPrice || 0)) * 100) / 100;
 
     const supabase = getSupabase();
     const updateData: any = { 
@@ -2069,11 +2072,12 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const { productId, markup } = req.body;
     if (!productId) return res.status(400).json({ error: 'ID de importação é obrigatório.' });
 
-    const priceMarkup = markup !== undefined ? parseFloat(String(markup)) : undefined;
+    const priceMarkup = markup !== undefined ? Math.round(parseFloat(String(markup)) * 100) / 100 : undefined;
     console.log(`[ADMIN] Importando produto internacional ID: ${productId} com Margem: ${priceMarkup}`);
     
     const data = await fetchAliExpressProduct(productId);
     const parsed = parseAliExpressProduct(data);
+    const basePrice = Math.round((parsed.price || 0) * 100) / 100;
     const baseInfo = data?.ae_item_base_info_dto || {};
 
     const supabase = getSupabase();
@@ -2086,7 +2090,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
       .maybeSingle();
 
     const activeMarkup = priceMarkup !== undefined ? priceMarkup : (existing?.price_markup || 0);
-    const finalPriceWithMarkup = (parsed.price || 0) + activeMarkup;
+    const finalPriceWithMarkup = Math.round((basePrice + activeMarkup) * 100) / 100;
 
     // Manual Upsert Logic
     const commonData = {
@@ -2114,7 +2118,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
         import_date: existing?.metadata?.import_date || new Date().toISOString(),
         raw_colors: parsed.colors,
         raw_sizes: parsed.sizes,
-        base_price: parsed.price
+        base_price: basePrice
       }
     };
 
@@ -2171,7 +2175,8 @@ adminRouter.post('/products/sync-aliexpress-all', async (req, res) => {
           const parsed = parseAliExpressProduct(data);
           
           const markup = product.price_markup || 0;
-          const newPrice = parsed.price + markup;
+          const basePrice = Math.round((parsed.price || 0) * 100) / 100;
+          const newPrice = Math.round((basePrice + markup) * 100) / 100;
 
           await supabase.from('products').update({
             price: newPrice,
@@ -2180,7 +2185,7 @@ adminRouter.post('/products/sync-aliexpress-all', async (req, res) => {
             metadata: {
               ...product.metadata,
               variations: parsed.metadata.variations,
-              base_price: parsed.price,
+              base_price: basePrice,
               last_sync_success: new Date().toISOString()
             }
           }).eq('id', product.id);

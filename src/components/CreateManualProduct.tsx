@@ -65,7 +65,7 @@ export function CreateManualProduct({ onSuccess }: CreateManualProductProps) {
           {
             title: formData.title,
             description: formData.description,
-            price: parseFloat(formData.price),
+            price: Math.round(parseFloat(formData.price || "0") * 100) / 100,
             category: formData.category, // Added category
             image_url: formData.image_url,
             extra_images: formData.extra_images,

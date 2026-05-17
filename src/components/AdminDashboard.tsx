@@ -151,7 +151,11 @@ export default function AdminDashboard({
   onBack: () => void;
   formatPrice?: (price: number) => string;
 }) {
-  const renderPrice = (val: number) => formatPrice ? formatPrice(val) : `€${Number(val).toFixed(2)}`;
+  const renderPrice = (val: number) => {
+    const rounded = Math.round(val * 100) / 100;
+    return formatPrice ? formatPrice(rounded) : `€${rounded.toFixed(2)}`;
+  };
+  const roundValue = (v: number) => Math.round(v * 100) / 100;
   const theme = "dark";
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -2465,7 +2469,7 @@ export default function AdminDashboard({
                             }
                             onChange={(e) => {
                               const val = e.target.value;
-                              const numVal = val === "" ? 0 : parseFloat(val);
+                              const numVal = val === "" ? 0 : roundValue(parseFloat(val));
                               setEditingProduct({
                                 ...editingProduct,
                                 pvp: numVal,
@@ -2488,7 +2492,7 @@ export default function AdminDashboard({
                                    onClick={() => {
                                      const base = Number(editingProduct.metadata.base_price || 0);
                                      const markup = Number(editingProduct.price_markup || 0);
-                                     const suggested = base + markup;
+                                     const suggested = roundValue(base + markup);
                                      setEditingProduct({
                                        ...editingProduct,
                                        pvp: suggested,
@@ -2514,11 +2518,11 @@ export default function AdminDashboard({
                             value={editingProduct.price_markup || 0}
                             onChange={(e) => {
                               const val = e.target.value;
-                              const numVal = val === "" ? 0 : parseFloat(val);
+                              const numVal = val === "" ? 0 : roundValue(parseFloat(val));
                               
                               // Automatically update PVP if base_price exists
                               const basePrice = Number(editingProduct.metadata?.base_price || 0);
-                              const updatedPvp = basePrice > 0 ? basePrice + numVal : editingProduct.pvp;
+                              const updatedPvp = basePrice > 0 ? roundValue(basePrice + numVal) : editingProduct.pvp;
 
                               setEditingProduct({
                                 ...editingProduct,
