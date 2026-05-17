@@ -876,9 +876,9 @@ function ProductCard({
         y: 0,
         scale: 1,
         transition: { 
-          duration: 0.6, 
+          duration: 0.1, 
           ease: [0.22, 1, 0.36, 1], // expoOut style smooth ease
-          delay: (index % 3) * 0.1
+          delay: (index % 3) * 0.01
         } 
       }}
       viewport={{ once: false, amount: 0.1 }}
@@ -3525,8 +3525,8 @@ export default function App() {
                       visible: {
                         opacity: 1,
                         transition: {
-                          staggerChildren: 0.25,
-                          delayChildren: 0.2
+                          staggerChildren: 0.05,
+                          delayChildren: 0.1
                         }
                       }
                     }}
