@@ -2010,9 +2010,16 @@ export default function App() {
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const getInitialView = () => {
-    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    if (typeof window === "undefined") return "home";
+    const params = new URLSearchParams(window.location.search);
     const v = params.get("v");
-    if (v && ["home", "dashboard", "success", "admin", "reset-password", "terms", "product-detail", "shipping"].includes(v)) {
+    const status = params.get("payment_status");
+    const sessionId = params.get("session_id");
+
+    if (status === "cancel") return "cancelled";
+    if (sessionId) return "success";
+
+    if (v && ["home", "dashboard", "success", "cancelled", "admin", "reset-password", "terms", "product-detail", "shipping"].includes(v)) {
       return v as any;
     }
     return "home";
@@ -2022,6 +2029,7 @@ export default function App() {
     | "home"
     | "dashboard"
     | "success"
+    | "cancelled"
     | "admin"
     | "reset-password"
     | "terms"
@@ -2088,12 +2096,13 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const urlProduct = params.get("product");
     const urlView = params.get("v");
+    const isStripeReturn = params.get("payment_status") || params.get("session_id");
     
     let targetView = urlView;
     let targetProductId = urlProduct;
 
-    // If no URL params, try localStorage
-    if (!urlProduct && !urlView) {
+    // If no URL params AND not a Stripe return, try localStorage
+    if (!urlProduct && !urlView && !isStripeReturn) {
       const persisted = localStorage.getItem("sart_navigation_state");
       if (persisted) {
         try {
@@ -2319,9 +2328,10 @@ export default function App() {
   }>({ size: "", color: "" });
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Intelligent Search: Auto-scroll to Boutique when user starts typing
+  // Intelligent Search: Auto-scroll to Boutique when user starts typing (Browsing views only)
   useEffect(() => {
-    if (searchQuery.trim().length > 0) {
+    const browsingViews = ["home", "dashboard", "product-detail", "admin", "terms"];
+    if (searchQuery.trim().length > 0 && browsingViews.includes(view)) {
       if (view !== "home") {
         setView("home");
         // Give a small delay for the view to mount before scrolling
@@ -2650,6 +2660,8 @@ export default function App() {
 
     if (status === "cancel") {
       setView("cancelled");
+      // Limpar estado de navegação persistido para não haver conflito na restauração
+      localStorage.removeItem("sart_navigation_state");
       toast.error("O pagamento foi cancelado ou recusado. Se desejar, pode tentar novamente a sua aquisição.", {
         duration: 8000,
         icon: '⚠️',
@@ -2677,6 +2689,8 @@ export default function App() {
     if (sessionId) {
       // Clear ID from URL to prevent reactivation on refresh
       window.history.replaceState({}, "", window.location.pathname);
+      // Limpar estado de navegação persistido para não haver conflito na restauração
+      localStorage.removeItem("sart_navigation_state");
 
       setView("success");
       

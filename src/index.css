@@ -253,14 +253,26 @@ aside {
 
 .bento-grid {
     display: block;
-    columns: 2;
-    column-gap: 4px;
+    columns: 1;
+    column-gap: 12px;
     width: 100%;
+}
+
+@media (min-width: 640px) {
+    .bento-grid {
+        columns: 2;
+    }
+}
+
+@media (min-width: 1280px) {
+    .bento-grid {
+        columns: 3;
+    }
 }
 
 .bento-grid > * {
     break-inside: avoid;
-    margin-bottom: 4px;
+    margin-bottom: 12px;
     display: block;
     width: 100%;
 }
