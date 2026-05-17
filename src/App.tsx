@@ -2655,6 +2655,14 @@ export default function App() {
         icon: '⚠️',
         id: 'payment-cancel'
       });
+      // Tentar recuperar o produto do localStorage para facilitar a re-tentativa
+      const pending = localStorage.getItem('sart_pending_checkout');
+      if (pending) {
+        try {
+          const { product } = JSON.parse(pending);
+          if (product) setSelectedProduct(product);
+        } catch (e) {}
+      }
       localStorage.removeItem('sart_pending_checkout');
       window.history.replaceState({}, "", window.location.pathname);
       return;
@@ -2671,6 +2679,16 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
 
       setView("success");
+      
+      // Tentar recuperar info do produto imediatamente do localStorage para UI não ficar vazia
+      const pending = localStorage.getItem('sart_pending_checkout');
+      if (pending) {
+        try {
+          const { product } = JSON.parse(pending);
+          if (product) setSuccessProduct(product);
+        } catch (e) {}
+      }
+
       try {
  
         toast.info("A processar a sua compra... Por favor, aguarde um momento.", { id: "loading-order" });
@@ -2744,6 +2762,24 @@ export default function App() {
       }
     }
   };
+
+  useEffect(() => {
+    // Redirecionamento de segurança para evitar página em branco no shipping
+    if (view === "shipping" && !selectedProduct) {
+      const pending = localStorage.getItem('sart_pending_checkout');
+      if (pending) {
+        try {
+          const { product } = JSON.parse(pending);
+          if (product) {
+            setSelectedProduct(product);
+            return;
+          }
+        } catch (e) {}
+      }
+      console.warn("View is shipping but no product selected. Redirecting home.");
+      setView("home");
+    }
+  }, [view, selectedProduct]);
 
   useEffect(() => {
     if (view === "success") {
@@ -4016,7 +4052,10 @@ export default function App() {
                   Tentar Novamente <ArrowRight size={14} className="ml-2" />
                 </Button>
                 <Button
-                  onClick={() => setView("home")}
+                  onClick={() => {
+                    localStorage.removeItem('sart_pending_checkout');
+                    setView("home");
+                  }}
                   variant="outline"
                   className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500 text-white/60 border-white/10"
                 >
@@ -4096,14 +4135,20 @@ export default function App() {
 
               <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
                 <Button
-                  onClick={() => setView("dashboard")}
+                  onClick={() => {
+                    localStorage.removeItem('sart_pending_checkout');
+                    setView("dashboard");
+                  }}
                   className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
                 >
                   Acompanhar Pedido{" "}
                   <ArrowRight size={14} className="ml-2" />
                 </Button>
                 <Button
-                  onClick={() => setView("home")}
+                  onClick={() => {
+                    localStorage.removeItem('sart_pending_checkout');
+                    setView("home");
+                  }}
                   variant="outline"
                   className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500"
                 >
