@@ -254,14 +254,14 @@ aside {
 .bento-grid {
     display: block;
     columns: 2;
-    column-gap: 20px;
+    column-gap: 12px;
     width: 100%;
 }
 
 .bento-grid > * {
     break-inside: avoid;
-    margin-bottom: 8px;
-    display: inline-block;
+    margin-bottom: 12px;
+    display: block;
     width: 100%;
 }
 

@@ -2787,6 +2787,7 @@ export default function App() {
       const productsWithPvp = (dbProducts || []).map(p => ({
         ...p,
         pvp: p.price || 0,
+        is_active: p.is_active === undefined ? true : p.is_active, // Default to true if field missing
         supabase_id: p.id
       }));
 
@@ -3256,7 +3257,7 @@ export default function App() {
               </section>
 
               {(() => {
-                const featuredProducts = products.filter(p => p.is_featured && p.is_active);
+                const featuredProducts = products.filter(p => p.is_featured && p.is_active !== false);
                 if (featuredProducts.length === 0) return null;
                 const isFewFeatured = featuredProducts.length <= 2;
                 
@@ -3528,7 +3529,7 @@ export default function App() {
                   <motion.div 
                     initial="hidden"
                     whileInView="visible"
-                    viewport={{ once: true, margin: "-100px" }}
+                    viewport={{ once: true, margin: "-20px" }}
                     variants={{
                       hidden: { opacity: 0 },
                       visible: {
@@ -3573,7 +3574,7 @@ export default function App() {
                   {products.filter((p) => {
                     const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
                     const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
-                    const matchesSearch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
+                    const matchesSearch = (p.title || "").toLowerCase().includes(searchQuery.toLowerCase());
                     return matchesCategory && matchesPrice && matchesSearch;
                   }).length === 0 && (
                     <div className="py-32 text-center space-y-6">
