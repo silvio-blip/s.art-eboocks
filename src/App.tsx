@@ -122,7 +122,7 @@ const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
   });
 
   // Extremely slow base speed (percent per second)
-  const baseVelocity = -1.2;
+  const baseVelocity = -0.5;
   const directionFactor = React.useRef<number>(1);
 
   // Seamless wrap at 1/3
@@ -764,13 +764,14 @@ const Navbar = ({
               >
                 {user ? (
                   <div className="flex items-center gap-3 md:gap-6">
-                    {(ADMIN_IDS.includes(user.id) || profile?.is_admin) && (
+    {(ADMIN_IDS.includes(user.id || "") || String(profile?.is_admin) === 'true') && (
                       <button
                         onClick={() => onDashboardClick("admin")}
-                        className={iconClass}
-                        title="Admin"
+                        className={`${iconClass} flex items-center gap-1.5 focus:outline-none group/admin`}
+                        title="Admin Panel"
                       >
-                        <Shield size={20} />
+                        <Shield size={20} className="group-hover/admin:rotate-12 transition-transform duration-500" />
+                        <span className="hidden lg:inline text-[8px] tracking-[0.2em] font-bold text-luxury-gold/80">PAINEL</span>
                       </button>
                     )}
                     <button
@@ -875,19 +876,19 @@ function ProductCard({
         y: 0,
         scale: 1,
         transition: { 
-          duration: 0.1, 
+          duration: 0.6, 
           ease: [0.22, 1, 0.36, 1], // expoOut style smooth ease
-          delay: (index % 3) * 0.01
+          delay: (index % 3) * 0.1
         } 
       }}
       viewport={{ once: false, amount: 0.1 }}
-      whileHover={{ y: -8, scale: 1.02, transition: { duration: 0.1 } }}
+      whileHover={{ y: -8, scale: 1.02, transition: { duration: 0.3 } }}
       exit={{ 
         opacity: 0, 
         x: isEven ? -40 : 40,
         y: comesFromTop ? -40 : 40,
         scale: 0.95,
-        transition: { duration: 0.1 }
+        transition: { duration: 0.4 }
       }}
       className={`luxury-card cursor-pointer group relative overflow-hidden ${className}`}
       onClick={() => {
@@ -903,22 +904,22 @@ function ProductCard({
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-auto object-contain transition-transform duration-[500ms] ease-out group-hover:scale-105"
+          className="w-full h-auto object-contain transition-transform duration-[1500ms] ease-out group-hover:scale-105"
         />
-        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-150" />
+        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-500" />
         
         {/* Shine effect on hover */}
-        <div className="absolute inset-0 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+        <div className="absolute inset-0 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
           <motion.div 
             initial={{ x: "-100%", skewX: -20 }}
             whileHover={{ x: "200%" }}
-            transition={{ duration: 0.4, ease: "easeInOut" }}
+            transition={{ duration: 0.8, ease: "easeInOut" }}
             className="absolute top-0 left-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent"
           />
         </div>
       </div>
 
-      <div className="card-info bg-gradient-to-t from-black/80 via-black/20 to-transparent md:translate-y-6 md:group-hover:translate-y-0 md:opacity-0 md:group-hover:opacity-100 transition-all duration-150 ease-premium p-4 md:p-6">
+      <div className="card-info bg-gradient-to-t from-black/80 via-black/20 to-transparent md:translate-y-6 md:group-hover:translate-y-0 md:opacity-0 md:group-hover:opacity-100 transition-all duration-500 ease-premium p-4 md:p-6">
         <div className="flex items-center gap-3 md:gap-4">
           <motion.div 
             whileHover={{ scale: 1.1 }}
@@ -2356,7 +2357,7 @@ export default function App() {
 
   const [displayText, setDisplayText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
-  const [typingSpeed, setTypingSpeed] = useState(150);
+  const [typingSpeed, setTypingSpeed] = useState(200);
 
   useEffect(() => {
     if (view !== "home") return;
@@ -2367,20 +2368,20 @@ export default function App() {
       if (!isDeleting) {
         const nextText = fullText.substring(0, displayText.length + 1);
         setDisplayText(nextText);
-        setTypingSpeed(120);
+        setTypingSpeed(220); // Even slower
         
         if (nextText === fullText) {
-          setTypingSpeed(4000); // Wait 4s before starting to delete
+          setTypingSpeed(5000); // Wait 5s before starting to delete
           setIsDeleting(true);
         }
       } else {
         const nextText = fullText.substring(0, displayText.length - 1);
         setDisplayText(nextText);
-        setTypingSpeed(60);
+        setTypingSpeed(150); // Slower deletion
         
         if (nextText === "") {
           setIsDeleting(false);
-          setTypingSpeed(800);
+          setTypingSpeed(1000);
         }
       }
     };
@@ -3524,7 +3525,8 @@ export default function App() {
                       visible: {
                         opacity: 1,
                         transition: {
-                          staggerChildren: 0.02
+                          staggerChildren: 0.25,
+                          delayChildren: 0.2
                         }
                       }
                     }}
