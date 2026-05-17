@@ -764,7 +764,7 @@ const Navbar = ({
               >
                 {user ? (
                   <div className="flex items-center gap-3 md:gap-6">
-                    {ADMIN_IDS.includes(user.id) && (
+                    {(ADMIN_IDS.includes(user.id) || profile?.is_admin) && (
                       <button
                         onClick={() => onDashboardClick("admin")}
                         className={iconClass}
@@ -2395,7 +2395,7 @@ export default function App() {
 
   useEffect(() => {
     if (window.location.pathname === "/admin") {
-      if (user && !ADMIN_IDS.includes(user.id)) {
+      if (user && !(ADMIN_IDS.includes(user.id) || profile?.is_admin)) {
         setView("home");
         window.history.replaceState({}, "", "/");
         toast.error("Acesso restrito ao Administrador.");
@@ -2403,7 +2403,7 @@ export default function App() {
         setView("admin");
       }
     }
-  }, [user]);
+  }, [user, profile]);
 
   // Gerir subscrição em tempo real separadamente para evitar conflitos de bloqueio
   useEffect(() => {
@@ -3088,7 +3088,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "admin" && user && ADMIN_IDS.includes(user.id) && (
+          {view === "admin" && user && (ADMIN_IDS.includes(user.id) || profile?.is_admin) && (
             <motion.div
               key="admin"
               initial={{ opacity: 0, y: 20 }}
