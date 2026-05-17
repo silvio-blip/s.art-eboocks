@@ -2007,6 +2007,7 @@ export default function App() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const getInitialView = () => {
     const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
@@ -2644,7 +2645,20 @@ export default function App() {
 
   const checkUrlParams = async () => {
     const params = new URLSearchParams(window.location.search);
+    const status = params.get("payment_status");
     const sessionId = params.get("session_id");
+
+    if (status === "cancel") {
+      setView("cancelled");
+      toast.error("O pagamento foi cancelado ou recusado. Se desejar, pode tentar novamente a sua aquisição.", {
+        duration: 8000,
+        icon: '⚠️',
+        id: 'payment-cancel'
+      });
+      localStorage.removeItem('sart_pending_checkout');
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
 
     // Security & Redirect: If session state is active but no ID is present, kick back to library
     if (view === "success" && !sessionId) {
@@ -2693,9 +2707,14 @@ export default function App() {
 
         if (order && (["paid", "completed", "pago", "succeeded"].includes(order.status.toLowerCase()))) {
           toast.dismiss("loading-order");
+          
+          // Trigger immediate dashboard refresh if user is loaded
+          if (user?.id) {
+            fetchDashboardData(user.id);
+          }
+
           // Buscar produto separadamente para evitar erro de join 400
           if (order.product_id && !successProduct) {
-
             const { data: prodData } = await supabase
               .from("products")
               .select("*")
@@ -2705,18 +2724,20 @@ export default function App() {
           }
           
           setSuccessOrderId(order.id);
-          // MENSAGEM DE SUCESSO AGRESSIVA E DIRETA
-          toast.success("🔥 Compra confirmada! Verifique agora sua CAIXA DE ENTRADA ou GMAIL para o seu comprovativo oficial.", { 
-            duration: 15000,
-            id: "payment-success-final"
+          
+          // MENSAGEM DE SUCESSO ELEGANTE E CONFIRMADORA
+          toast.success("Pagamento Confirmado! O seu produto foi reservado com sucesso e o comprovativo já segue para o seu e-mail.", { 
+            duration: 12000,
+            id: "payment-success-final",
+            icon: '✨'
           });
+
+          localStorage.removeItem('sart_pending_checkout');
         } else if (order) {
           console.log("[S.ART DEBUG] Order found but status is:", order.status);
           toast.info("Pagamento em processamento...");
         } else {
           console.log("[S.ART DEBUG] Order not found for session:", sessionId);
-          // Opcional: tentar novamente após uns segundos
-          setTimeout(() => checkUrlParams(), 3000);
         }
       } catch (err: any) {
         console.error("[S.ART SESSION ERROR LOG]", err);
@@ -2725,40 +2746,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    const handleReturnFromPayment = async () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const status = urlParams.get('payment_status');
-      const sessionId = urlParams.get('session_id');
-
-      if (status === 'success') {
-        const pending = localStorage.getItem('sart_pending_checkout');
-        if (pending) {
-          try {
-            const { product } = JSON.parse(pending);
-            toast.success(`Pagamento confirmado! Verifique a sua caixa de correio ou Gmail para o comprovativo.`, {
-              duration: 10000,
-              id: "payment-success"
-            });
-            // Opcional: Atualizar dashboard após uns segundos para ver se o webhook já registrou
-            setTimeout(() => fetchDashboardData(user.id), 5000);
-          } catch (e) {
-            console.error("Erro ao recuperar checkout pendente:", e);
-          } finally {
-            localStorage.removeItem('sart_pending_checkout');
-            window.history.replaceState({}, document.title, window.location.pathname);
-          }
-        }
-      } else if (status === 'cancel') {
-        toast.error("Pagamento cancelado pelo utilizador.");
-        localStorage.removeItem('sart_pending_checkout');
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    };
-
-    if (user && !loading) {
-      handleReturnFromPayment();
+    if (view === "success") {
+      fetchProducts();
+      if (user) fetchDashboardData(user.id);
     }
-  }, [user, loading]);
+  }, [view]);
 
   useEffect(() => {
     if (searchQuery.trim() !== "" && view === "home") {
@@ -2772,6 +2764,7 @@ export default function App() {
   }, [searchQuery, view]);
 
   const fetchProducts = async () => {
+    setLoadingProducts(true);
     try {
       const { data: dbProducts, error: dbError } = await supabase
         .from("products")
@@ -2795,6 +2788,7 @@ export default function App() {
     } catch (err) {
       console.error("Erro no fetchProducts:", err);
     } finally {
+      setLoadingProducts(false);
       setLoading(false);
     }
   };
@@ -3280,32 +3274,32 @@ export default function App() {
                       }}
                       className="px-[5%] mt-8"
                     >
-                      <div className={`block columns-1 lg:columns-2 gap-x-8 lg:gap-x-16 ${isFewFeatured ? 'max-w-[1200px]' : 'max-w-[1700px]'} mx-auto`}>
+                      <div className={`block columns-1 lg:columns-2 gap-x-4 lg:gap-x-8 ${isFewFeatured ? 'max-w-[1000px]' : 'max-w-[1600px]'} mx-auto overflow-visible`}>
                         {featuredProducts.map((featuredProduct, fIdx) => (
                           <motion.div 
                             key={featuredProduct.id} 
                             initial={{ 
                               opacity: 0, 
-                              x: fIdx % 2 === 0 ? -150 : 150,
-                              y: fIdx % 2 === 0 ? -60 : 60,
-                              scale: 1.15
+                              x: fIdx % 2 === 0 ? -100 : 100,
+                              y: fIdx % 2 === 0 ? -40 : 40,
+                              scale: 1.1
                             }}
                             whileInView={{ 
                               opacity: 1, 
                               x: 0,
                               y: 0,
-                              scale: 0.92, // Subtle smaller scale as requested
+                              scale: 0.85, 
                               transition: { duration: 1.2, ease: [0.22, 1, 0.36, 1] } 
                             }}
                             viewport={{ once: false, amount: 0.1 }}
-                            whileHover={{ scale: 0.95, transition: { duration: 0.3 } }}
+                            whileHover={{ scale: 0.88, transition: { duration: 0.3 } }}
                             exit={{ 
                               opacity: 0, 
                               x: fIdx % 2 === 0 ? -80 : 80,
                               y: fIdx % 2 === 0 ? -30 : 30,
-                              scale: 0.8
+                              scale: 0.75
                             }}
-                            className="break-inside-avoid mb-4 flex flex-col space-y-2"
+                            className="break-inside-avoid mb-8 flex flex-col space-y-4"
                           >
                           {/* Main Product Card with internal truncated title */}
                           <div 
@@ -3543,15 +3537,16 @@ export default function App() {
                     className="bento-grid"
                     id="product-grid"
                   >
-                    {products
-                      .filter((p) => {
-                        const title = p.title || "";
-                        const desc = p.description || "";
-                        const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
-                        const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
-                        const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase()) || desc.toLowerCase().includes(searchQuery.toLowerCase());
-                        return matchesCategory && matchesPrice && matchesSearch;
-                      })
+                      {products
+                        .filter((p) => {
+                          const title = p.title || "";
+                          const desc = p.description || "";
+                          const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
+                          const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
+                          const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase()) || desc.toLowerCase().includes(searchQuery.toLowerCase());
+                          const isActive = p.is_active !== false;
+                          return matchesCategory && matchesPrice && matchesSearch && isActive;
+                        })
                       .map((product, idx) => {
                         return (
                           <ProductCard
@@ -3571,14 +3566,15 @@ export default function App() {
                       })}
                   </motion.div>
 
-                  {products.filter((p) => {
+                  {!loadingProducts && products.filter((p) => {
                     const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
                     const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
-                    const matchesSearch = (p.title || "").toLowerCase().includes(searchQuery.toLowerCase());
-                    return matchesCategory && matchesPrice && matchesSearch;
+                    const matchesSearch = (p.title || "").toLowerCase().includes(searchQuery.toLowerCase()) || (p.description || "").toLowerCase().includes(searchQuery.toLowerCase());
+                    const isActive = p.is_active !== false;
+                    return matchesCategory && matchesPrice && matchesSearch && isActive;
                   }).length === 0 && (
                     <div className="py-32 text-center space-y-6">
-                      <p className="font-serif text-3xl italic text-white/20 px-8">
+                      <p className="font-serif text-3xl italic text-white/20 px-8 transition-colors">
                         Lamentamos, mas nenhuma obra em nossa curadoria atual condiz com os critérios selecionados.
                       </p>
                       <button 
@@ -3586,11 +3582,19 @@ export default function App() {
                           setSelectedCategory("Todos");
                           setMinPrice(0);
                           setMaxPrice(10000);
+                          setSearchQuery("");
                         }}
                         className="text-luxury-gold uppercase tracking-[0.3em] text-xs font-bold hover:text-white transition-colors"
                       >
                         Redefinir Curadoria
                       </button>
+                    </div>
+                  )}
+
+                  {loadingProducts && (
+                    <div className="py-40 flex flex-col items-center justify-center space-y-6">
+                      <Loader2 className="animate-spin text-luxury-gold" size={40} />
+                      <p className="text-[10px] uppercase tracking-[0.4em] text-white/20 font-black animate-pulse">Consultando o Acervo S.art...</p>
                     </div>
                   )}
                 </div>
@@ -3976,30 +3980,81 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "success" && (
+          {view === "cancelled" && (
             <motion.div
-              key="success"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
+              key="cancelled"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.05 }}
               className="max-w-xl mx-auto py-24 text-center space-y-12"
             >
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: "spring", damping: 12 }}
-                className="w-24 h-24 bg-luxury-gold rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-luxury-gold/20"
+                className="w-24 h-24 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center mx-auto shadow-2xl"
               >
-                <CheckCircle2 size={40} className="text-white" />
+                <X size={40} className="text-red-500" />
               </motion.div>
 
-              <div className="space-y-6 md:space-y-8">
+              <div className="space-y-6">
                 <h2 className="text-4xl md:text-6xl font-serif text-luxury-foreground leading-[1.1] px-4 transition-colors">
-                  Pedido <br />
-                  Confirmado.
+                  Pagamento <br />
+                  <span className="text-red-500 italic">Não Concluído.</span>
                 </h2>
-                <div className="h-px w-24 bg-luxury-gold mx-auto opacity-50" />
+                <div className="h-px w-24 bg-red-500/30 mx-auto" />
                 <p className="text-[11px] uppercase tracking-[0.4em] text-luxury-foreground/40 max-w-sm mx-auto leading-relaxed px-6 transition-colors">
-                  O seu pedido foi processado com sucesso. A sua morada e dados de envio foram registados e receberá em breve informações sobre a entrega.
+                   A transação foi cancelada ou recusada. Não se preocupe, nenhum valor foi cobrado e pode tentar novamente quando desejar.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
+                <Button
+                  onClick={() => setView("shipping")}
+                  className="bg-white text-black px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:bg-neutral-200 transition-all flex items-center"
+                >
+                  Tentar Novamente <ArrowRight size={14} className="ml-2" />
+                </Button>
+                <Button
+                  onClick={() => setView("home")}
+                  variant="outline"
+                  className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500 text-white/60 border-white/10"
+                >
+                  Voltar à Boutique
+                </Button>
+              </div>
+
+              <div className="pt-12 text-[9px] uppercase tracking-widest text-white/20 italic">
+                Se o erro persistir, contacte o suporte do seu banco ou a nossa equipa S.art.
+              </div>
+            </motion.div>
+          )}
+
+          {view === "success" && (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.1 }}
+              className="max-w-xl mx-auto py-24 text-center space-y-12"
+            >
+              <motion.div
+                initial={{ scale: 0, rotate: -45 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", damping: 10, stiffness: 100 }}
+                className="w-28 h-28 bg-luxury-gold rounded-full flex items-center justify-center mx-auto shadow-[0_0_50px_rgba(212,175,55,0.3)]"
+              >
+                <CheckCircle2 size={48} className="text-white" />
+              </motion.div>
+
+              <div className="space-y-6">
+                <h2 className="text-5xl md:text-7xl font-serif text-luxury-foreground leading-[1] px-4 transition-colors">
+                  Produto Recebido <br />
+                  <span className="text-luxury-gold italic">com Sucesso.</span>
+                </h2>
+                <div className="h-px w-32 bg-luxury-gold mx-auto opacity-40" />
+                <p className="text-[12px] md:text-[14px] uppercase tracking-[0.4em] text-luxury-foreground/60 max-w-md mx-auto leading-relaxed px-6 transition-colors">
+                  Confirmamos o seu pagamento. Um e-mail com todos os detalhes e o seu comprovativo já foi enviado para a sua caixa de entrada.
                 </p>
               </div>
 
