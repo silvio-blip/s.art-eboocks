@@ -3255,49 +3255,57 @@ export default function App() {
                 </motion.div>
               </section>
 
-              {/* Featured Section (Destaque) - Redesenhada com Grid de 2 Colunas (Desktop) */}
-              {products.filter(p => p.is_featured && p.is_active).length > 0 && (
-                <section id="featured-section" className="bg-luxury-bg py-32 border-b border-luxury-border overflow-hidden transition-colors duration-500">
-                  <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
+              {(() => {
+                const featuredProducts = products.filter(p => p.is_featured && p.is_active);
+                if (featuredProducts.length === 0) return null;
+                const isFewFeatured = featuredProducts.length <= 2;
+                
+                return (
+                  <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500">
+                    <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
 
-                  <motion.div 
-                    initial="hidden"
-                    whileInView="visible"
-                    viewport={{ once: true, margin: "-100px" }}
-                    variants={{
-                      hidden: { opacity: 0 },
-                      visible: {
-                        opacity: 1,
-                        transition: {
-                          staggerChildren: 0.25
+                    <motion.div 
+                      initial="hidden"
+                      whileInView="visible"
+                      viewport={{ once: true, margin: "-100px" }}
+                      variants={{
+                        hidden: { opacity: 0 },
+                        visible: {
+                          opacity: 1,
+                          transition: {
+                            staggerChildren: 0.25
+                          }
                         }
-                      }
-                    }}
-                    className="px-[5%]"
-                  >
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-12 gap-y-24 max-w-[1700px] mx-auto">
-                      {products.filter(p => p.is_featured && p.is_active).map((featuredProduct, fIdx) => (
-                        <motion.div 
-                          key={featuredProduct.id} 
-                          initial={{ 
-                            opacity: 0, 
-                            x: fIdx % 2 === 0 ? -100 : 100,
-                            y: fIdx % 2 === 0 ? -40 : 40 
-                          }}
-                          whileInView={{ 
-                            opacity: 1, 
-                            x: 0,
-                            y: 0,
-                            transition: { duration: 0.9, ease: [0.22, 1, 0.36, 1] } 
-                          }}
-                          viewport={{ once: false, amount: 0.1 }}
-                          exit={{ 
-                            opacity: 0, 
-                            x: fIdx % 2 === 0 ? -80 : 80,
-                            y: fIdx % 2 === 0 ? -30 : 30
-                          }}
-                          className="flex flex-col space-y-8"
-                        >
+                      }}
+                      className="px-[5%] mt-8"
+                    >
+                      <div className={`block columns-1 lg:columns-2 gap-x-8 lg:gap-x-16 ${isFewFeatured ? 'max-w-[1200px]' : 'max-w-[1700px]'} mx-auto`}>
+                        {featuredProducts.map((featuredProduct, fIdx) => (
+                          <motion.div 
+                            key={featuredProduct.id} 
+                            initial={{ 
+                              opacity: 0, 
+                              x: fIdx % 2 === 0 ? -150 : 150,
+                              y: fIdx % 2 === 0 ? -60 : 60,
+                              scale: 1.15
+                            }}
+                            whileInView={{ 
+                              opacity: 1, 
+                              x: 0,
+                              y: 0,
+                              scale: 0.92, // Subtle smaller scale as requested
+                              transition: { duration: 1.2, ease: [0.22, 1, 0.36, 1] } 
+                            }}
+                            viewport={{ once: false, amount: 0.1 }}
+                            whileHover={{ scale: 0.95, transition: { duration: 0.3 } }}
+                            exit={{ 
+                              opacity: 0, 
+                              x: fIdx % 2 === 0 ? -80 : 80,
+                              y: fIdx % 2 === 0 ? -30 : 30,
+                              scale: 0.8
+                            }}
+                            className="break-inside-avoid mb-4 flex flex-col space-y-2"
+                          >
                           {/* Main Product Card with internal truncated title */}
                           <div 
                             onClick={() => {
@@ -3367,7 +3375,8 @@ export default function App() {
                     </div>
                   </motion.div>
                 </section>
-              )}
+                );
+              })()}
 
               <InfiniteProductMarquee products={products} />
 
