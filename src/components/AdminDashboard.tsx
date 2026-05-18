@@ -168,18 +168,19 @@ export default function AdminDashboard({
     null,
   );
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
-  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons" | "gestão">(
+  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons" | "pontuação">(
     "overview",
   );
 
   const availableTabs = useMemo(() => {
     if (!currentUserProfile) return ["overview"];
     if (currentUserProfile.is_admin) {
-      return ["overview", "products", "orders", "refunds", "users", "coupons", "gestão"];
+      return ["overview", "products", "orders", "refunds", "users", "coupons", "pontuação"];
     }
     if (currentUserProfile.is_employee) {
-      // Employees see products, orders and gestion
-      return ["products", "orders", "gestão"];
+      // Employees ONLY see Products and Pontuação (Ranking)
+      // Removed orders and users as requested
+      return ["products", "pontuação"];
     }
     return [];
   }, [currentUserProfile]);
@@ -255,20 +256,25 @@ export default function AdminDashboard({
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      // Search filter
+      // 1. Restriction: Employees ONLY see active products
+      if (currentUserProfile?.is_employee && !currentUserProfile?.is_admin) {
+        if (!p.is_active) return false;
+      }
+
+      // 2. Search filter
       const titleMatches = (p.title || "").toLowerCase().includes(productSearch.toLowerCase());
       const categoryMatches = (p.category || "").toLowerCase().includes(productSearch.toLowerCase());
       const idMatches = (p.aliexpress_id || "").toString().toLowerCase().includes(productSearch.toLowerCase());
       if (!titleMatches && !categoryMatches && !idMatches) return false;
 
-      // Status filter (Featured/Standard)
+      // 3. Status filter (Featured/Standard)
       const isFeatured = !!p.is_featured;
       if (productFeaturedFilter === "featured") return isFeatured;
       if (productFeaturedFilter === "standard") return !isFeatured;
       
       return true;
     });
-  }, [products, productSearch, productFeaturedFilter]);
+  }, [products, productSearch, productFeaturedFilter, currentUserProfile]);
 
   useEffect(() => {
     checkAdminAccess();
@@ -723,7 +729,7 @@ export default function AdminDashboard({
           'Content-Type': 'application/json',
           'x-user-id': user.id
         },
-        body: JSON.stringify({ productId, markup: markupValue })
+        body: JSON.stringify({ productId, markup: markupValue, userId: user.id })
       });
 
       const data = await response.json();
@@ -1475,8 +1481,8 @@ export default function AdminDashboard({
                             ? "Reembolsos"
                             : t === "coupons"
                             ? "Cupons"
-                            : t === "gestão"
-                            ? "Gestão"
+                            : t === "pontuação"
+                            ? "Pontuação"
                             : "Utilizadores"}
                   </span>
                   {t === "refunds" && <Undo2 size={12} className={theme === 'dark' ? "text-white/20" : "text-black/20"} />}
@@ -2317,6 +2323,7 @@ export default function AdminDashboard({
 
                       <div className="max-h-[50vh] overflow-y-auto luxury-scrollbar pr-2 pt-2">
                         <CreateManualProduct 
+                          userId={user.id}
                           onSuccess={() => {
                             fetchProducts();
                             setIsProductCreateModalOpen(false);
@@ -3569,141 +3576,211 @@ export default function AdminDashboard({
           </div>
         )}
 
-        {tab === "gestão" && (
+        {tab === "pontuação" && (
           <div className="space-y-12 animate-in slide-in-from-bottom-6 duration-700">
             <div>
-              <h2 className="text-2xl md:text-3xl font-serif">Gestão de Colaboradores</h2>
+              <h2 className="text-2xl md:text-3xl font-serif">
+                {currentUserProfile?.is_admin ? "Ranking & Pontuação Geral" : "Sua Pontuação & Histórico"}
+              </h2>
               <div className="text-[10px] uppercase tracking-widest opacity-30 mt-2">
-                Monitorização de carregamento de produtos e performance
+                {currentUserProfile?.is_admin 
+                  ? "Monitorização detalhada do carregamento de produtos por cada colaborador"
+                  : "Lista dos produtos que você carregou para a boutique"}
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="w-12 h-12 bg-luxury-gold/10 flex items-center justify-center text-luxury-gold">
-                  <ShoppingBag size={24} />
-                </div>
-                <div>
-                  <h4 className="text-3xl font-serif text-luxury-gold">{products.length}</h4>
-                  <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Produtos Totais</p>
-                </div>
-              </Card>
+              {currentUserProfile?.is_admin ? (
+                <>
+                  <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
+                    <div className="w-12 h-12 bg-luxury-gold/10 flex items-center justify-center text-luxury-gold">
+                      <ShoppingBag size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-3xl font-serif text-luxury-gold">{products.length}</h4>
+                      <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Produtos Totais</p>
+                    </div>
+                  </Card>
 
-              <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="w-12 h-12 bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                  <Users size={24} />
-                </div>
-                <div>
-                  <h4 className="text-3xl font-serif text-white">{users.filter(u => u.is_employee).length}</h4>
-                  <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Funcionários Ativos</p>
-                </div>
-              </Card>
+                  <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
+                    <div className="w-12 h-12 bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                      <Users size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-3xl font-serif text-white">{users.filter(u => u.is_employee).length}</h4>
+                      <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Funcionários Ativos</p>
+                    </div>
+                  </Card>
 
-              <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="w-12 h-12 bg-blue-500/10 flex items-center justify-center text-blue-500">
-                  <TrendingUp size={24} />
-                </div>
-                <div>
-                  <h4 className="text-3xl font-serif text-white">
-                    {Math.round((products.length / (users.filter(u => u.is_employee || u.is_admin).length || 1)) * 10) / 10}
-                  </h4>
-                  <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Média por Colaborador</p>
-                </div>
-              </Card>
+                  <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
+                     <div className="w-12 h-12 bg-blue-500/10 flex items-center justify-center text-blue-500">
+                      <TrendingUp size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-3xl font-serif text-white">
+                        {Math.round((products.length / (users.filter(u => u.is_employee || u.is_admin).length || 1)) * 10) / 10}
+                      </h4>
+                      <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Média por Colaborador</p>
+                    </div>
+                  </Card>
+                </>
+              ) : (
+                /* Employee Personal View - Large Card */
+                <Card className="bg-luxury-dark border-luxury-gold/20 p-12 flex flex-col items-center justify-center text-center space-y-4 md:col-span-3">
+                  <div className="w-20 h-20 bg-luxury-gold/10 flex items-center justify-center text-luxury-gold ring-1 ring-luxury-gold/40 rounded-full mb-4">
+                    <TrendingUp size={40} />
+                  </div>
+                  <div>
+                    <p className="text-[14px] uppercase tracking-[0.4em] text-white/40 mb-2">Seus Resultados</p>
+                    <h4 className="text-7xl font-serif text-luxury-gold">
+                      {products.filter(p => p.created_by === user.id).length}
+                    </h4>
+                    <p className="text-[12px] uppercase tracking-widest text-white/80 mt-4 font-bold border-t border-white/10 pt-4 px-12">Produtos Listados por Você</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/30 mt-2">Obrigado pela sua contribuição!</p>
+                  </div>
+                </Card>
+              )}
             </div>
 
-            <div className="bg-luxury-dark border border-white/5 overflow-hidden">
-              <div className="px-8 py-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Ranking de Performance</h3>
-                <span className="text-[9px] uppercase tracking-widest text-white/30">Total de produtos carregados</span>
-              </div>
-              <div className="overflow-x-auto luxury-scrollbar">
-                <table className="w-full text-left min-w-[800px]">
-                  <thead>
-                    <tr className="border-b border-white/5 bg-black/20">
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Posição</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Utilizador</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-center">Produtos Carregados</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Cargo</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Ação</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {users
-                      .filter(u => (u.products_count || 0) > 0 || u.is_employee || u.is_admin)
-                      .sort((a, b) => (b.products_count || 0) - (a.products_count || 0))
-                      .map((u, idx) => (
-                        <tr key={u.id} className="hover:bg-white/[0.02] transition-colors group">
-                          <td className="px-8 py-6">
-                            <span className={`w-8 h-8 flex items-center justify-center font-mono text-[10px] ${
-                              idx === 0 ? "bg-luxury-gold text-black font-black" : 
-                              idx === 1 ? "bg-zinc-300 text-black font-black" :
-                              idx === 2 ? "bg-amber-700 text-white font-black" :
-                              "bg-white/5 text-white/40"
-                            }`}>
-                              {idx + 1}
-                            </span>
-                          </td>
-                          <td className="px-8 py-6">
-                            <div className="flex items-center gap-3">
-                              {u.avatar_url ? (
-                                <img src={u.avatar_url} className="w-8 h-8 rounded-none border border-white/10" />
-                              ) : (
-                                <div className="w-8 h-8 bg-white/5 flex items-center justify-center text-[10px] font-bold text-white/20">
-                                  {u.full_name?.charAt(0) || u.email?.charAt(0)}
+            {currentUserProfile?.is_admin && (
+              <div className="bg-luxury-dark border border-white/5 overflow-hidden">
+                <div className="px-8 py-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                  <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Ranking de Performance</h3>
+                  <span className="text-[9px] uppercase tracking-widest text-white/30">Total de produtos carregados</span>
+                </div>
+                {/* ... Ranking table only for admin ... */}
+                <div className="overflow-x-auto luxury-scrollbar">
+                  <table className="w-full text-left min-w-[800px]">
+                    <thead>
+                      <tr className="border-b border-white/5 bg-black/20">
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Posição</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Utilizador</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-center">Produtos</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Cargo</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {users
+                        .filter(u => u.is_employee || u.is_admin) // Only staff in ranking
+                        .sort((a, b) => (b.products_count || 0) - (a.products_count || 0))
+                        .map((u, idx) => (
+                          <tr key={u.id} className="hover:bg-white/[0.02] transition-colors group">
+                            <td className="px-8 py-6">
+                              <span className={`w-8 h-8 flex items-center justify-center font-mono text-[10px] ${
+                                idx === 0 ? "bg-luxury-gold text-black font-black" : 
+                                idx === 1 ? "bg-zinc-300 text-black font-black" :
+                                idx === 2 ? "bg-amber-700 text-white font-black" :
+                                "bg-white/5 text-white/40"
+                              }`}>
+                                {idx + 1}
+                              </span>
+                            </td>
+                            <td className="px-8 py-6">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-none border border-white/10 bg-white/5 flex items-center justify-center">
+                                  {u.avatar_url ? (
+                                    <img src={u.avatar_url} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-[10px] font-bold text-white/20">{u.full_name?.charAt(0) || u.email?.charAt(0)}</span>
+                                  )}
                                 </div>
-                              )}
-                              <div className="flex flex-col">
-                                <span className="text-xs font-serif text-white">{u.full_name || "Sem Nome"}</span>
-                                <span className="text-[9px] text-white/20 uppercase tracking-widest">{u.email}</span>
+                                <div className="flex flex-col">
+                                  <span className="text-xs font-serif text-white">{u.full_name || "Sem Nome"}</span>
+                                  <span className="text-[9px] text-white/20 uppercase tracking-widest">{u.email}</span>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-8 py-6 text-center">
-                            <div className="flex flex-col items-center">
-                              <span className="text-xl font-mono font-black text-luxury-gold bg-luxury-gold/5 px-4 py-1 border border-luxury-gold/10">
+                            </td>
+                            <td className="px-8 py-6 text-center">
+                              <span className="text-xl font-mono font-black text-luxury-gold">
                                 {u.products_count || 0}
                               </span>
-                              <div className="w-32 h-1 bg-white/5 mt-3 overflow-hidden">
-                                <motion.div 
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${Math.min(100, ((u.products_count || 0) / (products.length || 1)) * 100)}%` }}
-                                  className="h-full bg-luxury-gold/40" 
-                                />
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-8 py-6">
-                            <span className={`text-[8px] uppercase tracking-widest font-black px-2 py-1 ${
-                              u.is_admin ? "bg-red-500/10 text-red-500" :
-                              u.is_employee ? "bg-emerald-500/10 text-emerald-500" :
-                              "bg-white/10 text-white/40"
-                            }`}>
-                              {u.is_admin ? "Administrador" : u.is_employee ? "Funcionário" : "Cliente"}
-                            </span>
-                          </td>
-                          <td className="px-8 py-6">
-                            <Button
-                              variant="ghost"
-                              onClick={() => {
-                                setTab("users");
-                                // Here we could filter the users table or highlight the user
-                              }}
-                              className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10 h-8 font-bold"
-                            >
-                              Ver Perfil
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+                            </td>
+                            <td className="px-8 py-6">
+                              <span className={`text-[8px] uppercase tracking-widest font-black px-2 py-1 ${
+                                u.is_admin ? "bg-red-500/10 text-red-500" :
+                                "bg-emerald-500/10 text-emerald-500"
+                              }`}>
+                                {u.is_admin ? "Administrador" : "Funcionário"}
+                              </span>
+                            </td>
+                            <td className="px-8 py-6">
+                              <Button
+                                variant="ghost"
+                                onClick={() => setTab("users")}
+                                className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10 h-8 font-bold"
+                              >
+                                Ver Detalhes
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* List of products created by the user (Simplified for employees) */}
+            {!currentUserProfile?.is_admin && currentUserProfile?.is_employee && (
+              <div className="bg-luxury-dark border border-white/5 overflow-hidden">
+                <div className="px-8 py-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                  <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Seus Produtos Listados</h3>
+                  <span className="text-[9px] uppercase tracking-widest text-white/30">Total: {products.filter(p => p.created_by === user.id).length}</span>
+                </div>
+                <div className="overflow-x-auto luxury-scrollbar">
+                  <table className="w-full text-left min-w-[800px]">
+                    <thead>
+                      <tr className="border-b border-white/5 bg-black/20">
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Capa</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Produto</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Preço</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Estado</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-right">Data</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {products
+                        .filter(p => p.created_by === user.id)
+                        .slice(0, 50)
+                        .map((p) => (
+                          <tr key={p.id} className="hover:bg-white/[0.02] transition-colors group">
+                            <td className="px-8 py-4">
+                              <img src={getImageUrl(p.image_url)} className="w-10 h-10 object-cover border border-white/10" />
+                            </td>
+                            <td className="px-8 py-4">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-serif text-white">{p.title}</span>
+                                <span className="text-[9px] text-white/20 uppercase tracking-widest">{p.category}</span>
+                              </div>
+                            </td>
+                            <td className="px-8 py-4 font-mono text-xs text-luxury-gold">
+                              {renderPrice(p.pvp)}
+                            </td>
+                            <td className="px-8 py-4">
+                               <span className={`text-[8px] uppercase tracking-widest font-black px-2 py-1 ${p.is_active ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}>
+                                {p.is_active ? "Ativo" : "Inativo"}
+                              </span>
+                            </td>
+                            <td className="px-8 py-4 text-right text-[10px] text-white/20 font-mono">
+                              {p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy") : "-"}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  {products.filter(p => (p as any).created_by === user.id).length === 0 && (
+                    <div className="px-8 py-12 text-center text-white/20 text-[10px] uppercase tracking-widest italic">
+                      Parece que você ainda não tem produtos registrados no seu nome.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {tab === "users" && (
+        {tab === "users" && currentUserProfile?.is_admin && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
               <div>
@@ -3711,7 +3788,7 @@ export default function AdminDashboard({
                   Gestão de <span className="text-luxury-gold italic">Utilizadores</span>
                 </h2>
                 <p id="desc-management" className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
-                  Controle absoluto sobre os membros da boutique. Gestão de acessos, privilégios e histórico de compromisso com a excelência.
+                  Controle absoluto sobre os membros da boutique. Monitorize o carregamento de produtos e performance de cada colaborador.
                 </p>
               </div>
               <div className="w-full md:max-w-xs relative group">

@@ -2364,6 +2364,7 @@ export default function App() {
     avatar_url: string;
     is_admin?: boolean;
     is_employee?: boolean;
+    products_count?: number;
   } | null>(null);
   const theme = "dark";
 
@@ -2568,6 +2569,12 @@ export default function App() {
       .eq("id", userObj.id)
       .single();
 
+    // Get product count for this user
+    const { count: pCount } = await supabase
+      .from("products")
+      .select("*", { count: 'exact', head: true })
+      .eq("created_by", userObj.id);
+
     // Se o perfil não existir, criá-lo (Sincronização manual como fallback se o trigger não correr)
     if (error && (error.code === 'PGRST116' || error.message.includes('No object found') || error.message.includes('JSON object requested'))) {
       console.log("[PROFILE] Perfil não encontrado. Tentando sincronização de fallback...");
@@ -2598,6 +2605,7 @@ export default function App() {
           custom_cursor_enabled: newProfile.custom_cursor_enabled !== false,
           is_admin: newProfile.is_admin || false,
           is_employee: newProfile.is_employee || false,
+          products_count: pCount || 0
         });
         if (newProfile.welcomed === false) {
           sendWelcomeEmail(userObj, newProfile);
@@ -2609,7 +2617,8 @@ export default function App() {
           full_name: fullName,
           avatar_url: googleAvatar || "",
           is_admin: false,
-          is_employee: false
+          is_employee: false,
+          products_count: pCount || 0
         });
       }
       return;
@@ -2640,6 +2649,7 @@ export default function App() {
         avatar_url: finalAvatar || googleAvatar || "", 
         is_admin: data.is_admin || false,
         is_employee: data.is_employee || false,
+        products_count: pCount || 0
       });
 
       // Só envia e-mail se ainda não foi marcado como welcomed

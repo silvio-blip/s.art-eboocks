@@ -19,7 +19,7 @@ import {
   CreditCard,
   Hash,
   Crown,
-  Shield
+  Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -68,6 +68,8 @@ interface Profile {
   custom_id: string;
   notification_email: string;
   is_admin?: boolean;
+  is_employee?: boolean;
+  products_count?: number;
 }
 
 interface ProfileDashboardProps {
@@ -140,6 +142,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
 
       if (error) throw error;
       
+      const { count: pCount } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('created_by', user.id);
+      
       const profileData: Profile = {
         id: data.id,
         full_name: data.full_name || '',
@@ -148,6 +155,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         custom_id: data.custom_id || `Sart-${data.id.substring(0, 4).toUpperCase()}`,
         notification_email: data.notification_email || user.email || '',
         is_admin: data.is_admin,
+        is_employee: data.is_employee,
+        products_count: pCount || 0
       };
 
       setProfile(profileData);
@@ -410,7 +419,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
               </div>
 
               {/* Stats/Quick Actions */}
-              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-6 bg-white/5 border border-white/10 backdrop-blur-md">
                    <div className="flex items-center gap-4">
                      <div className="w-10 h-10 rounded-full bg-luxury-gold/20 flex items-center justify-center text-luxury-gold">
@@ -419,6 +428,18 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                      <div>
                        <p className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Total Gastos</p>
                        <p className="text-xl font-serif text-white">{formatPrice ? formatPrice(purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0)) : `€${purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0).toFixed(2)}`}</p>
+                     </div>
+                   </div>
+                </div>
+
+                <div className="p-6 bg-white/5 border border-white/10 backdrop-blur-md">
+                   <div className="flex items-center gap-4">
+                     <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-500">
+                       <FileText size={18} />
+                     </div>
+                     <div>
+                       <p className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Produtos Carregados</p>
+                       <p className="text-xl font-serif text-white">{profile?.products_count || 0}</p>
                      </div>
                    </div>
                 </div>

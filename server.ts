@@ -303,6 +303,27 @@ const initDB = async () => {
               ALTER TABLE orders ADD COLUMN currency TEXT DEFAULT 'EUR';
             END IF;
 
+            -- --- PRODUCT OWNERSHIP RECONCILIATION ---
+            -- Ensures all products are linked to an authorized creator (Admin/Employee).
+            -- This fixes the issue where 106 products might have been attributed to a client.
+            DO $$
+            DECLARE 
+              master_admin_id UUID;
+            BEGIN
+              -- Find the primary admin (the one that should own orphaned products)
+              SELECT id INTO master_admin_id FROM profiles WHERE is_admin = true ORDER BY created_at ASC LIMIT 1;
+              
+              IF master_admin_id IS NOT NULL THEN
+                -- 1. Products with NO owner
+                UPDATE products SET created_by = master_admin_id WHERE created_by IS NULL;
+                
+                -- 2. Products owned by someone who is NOT staff (Admin or Employee)
+                UPDATE products 
+                SET created_by = master_admin_id 
+                WHERE created_by NOT IN (SELECT id FROM profiles WHERE is_admin = true OR is_employee = true);
+              END IF;
+            END $$;
+
             -- Update status constraint if exists to include manual_fulfillment_required
             -- (Assuming status is check constrained or just a text field)
 
@@ -1550,7 +1571,14 @@ adminRouter.post('/orders/:id/manual-update', async (req, res) => {
 
 adminRouter.get('/users', async (req, res) => {
   try {
+    const userId = req.headers['x-user-id'] || req.query.userId;
     const supabase = getSupabase();
+    
+    // Check if requester is admin
+    const { data: requester } = await supabase.from('profiles').select('is_admin').eq('id', userId).single();
+    if (!requester?.is_admin) {
+      return res.status(403).json({ error: "Acesso negado: apenas administradores podem ver a lista de utilizadores." });
+    }
     
     // Fetch all users from Auth (requires Service Role)
       const authData = await supabase.auth.admin.listUsers();
@@ -2272,8 +2300,10 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
       }
     };
 
+    const requesterId = req.body.userId || req.headers['x-user-id'];
+    
     if (!existing) {
-      commonData.created_by = req.body.userId || null;
+      commonData.created_by = requesterId || null;
     }
 
     let result_data;
@@ -2980,9 +3010,16 @@ apiRouter.put('/orders/:id/address', async (req, res) => {
 // Admin Refund Processing (Initiates Stripe refund, otherwise updates local state)
 adminRouter.post('/orders/:id/refund', async (req, res) => {
   const { id } = req.params;
+  const userId = req.headers['x-user-id'];
   const supabase = getSupabase();
 
   try {
+    // Check if requester is admin
+    const { data: requester } = await supabase.from('profiles').select('is_admin').eq('id', userId).single();
+    if (!requester?.is_admin) {
+      return res.status(403).json({ error: "Acesso negado: apenas administradores podem processar reembolsos." });
+    }
+
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('*')

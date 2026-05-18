@@ -17,9 +17,10 @@ import { supabase } from "../lib/supabase";
 
 interface CreateManualProductProps {
   onSuccess?: () => void;
+  userId?: string;
 }
 
-export function CreateManualProduct({ onSuccess }: CreateManualProductProps) {
+export function CreateManualProduct({ onSuccess, userId }: CreateManualProductProps) {
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [formData, setFormData] = useState({
@@ -74,7 +75,8 @@ export function CreateManualProduct({ onSuccess }: CreateManualProductProps) {
             sku: formData.sku || null,
             is_active: true,
             product_type: 'physical',
-            free_shipping: formData.free_shipping
+            free_shipping: formData.free_shipping,
+            created_by: userId || null
           }
         ]);
 
