@@ -4029,6 +4029,7 @@ export default function AdminDashboard({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => {
+                                    setTab("products");
                                     setEditingProduct(p);
                                     // Keep modal open or close it? Let's close this one so the edit modal is visible
                                     setIsUserDetailsModalOpen(false);
@@ -4041,6 +4042,7 @@ export default function AdminDashboard({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => {
+                                    setTab("products");
                                     setProductToDelete(p);
                                     setIsUserDetailsModalOpen(false);
                                   }}
