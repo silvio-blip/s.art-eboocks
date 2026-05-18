@@ -142,6 +142,7 @@ interface Profile {
   is_employee: boolean;
   created_at: string;
   custom_id?: string;
+  products_count?: number;
 }
 
 export default function AdminDashboard({
@@ -167,19 +168,18 @@ export default function AdminDashboard({
     null,
   );
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
-  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons">(
+  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons" | "gestão">(
     "overview",
   );
 
   const availableTabs = useMemo(() => {
     if (!currentUserProfile) return ["overview"];
     if (currentUserProfile.is_admin) {
-      return ["overview", "products", "orders", "refunds", "users", "coupons"];
+      return ["overview", "products", "orders", "refunds", "users", "coupons", "gestão"];
     }
     if (currentUserProfile.is_employee) {
-      // Employees only see "Produtos" (atividade) and maybe overview?
-      // User said: "só poderão acessar a parte de atividade"
-      return ["products"];
+      // Employees see products and gestion
+      return ["products", "gestão"];
     }
     return [];
   }, [currentUserProfile]);
@@ -927,6 +927,10 @@ export default function AdminDashboard({
   };
 
   const handleDeleteProduct = (product: Product) => {
+    if (!currentUserProfile?.is_admin) {
+      toast.error("Você não tem permissão para eliminar produtos. Apenas administradores podem realizar esta ação.");
+      return;
+    }
     setProductToDelete(product);
     setDeleteConfirmName("");
   };
@@ -1461,6 +1465,8 @@ export default function AdminDashboard({
                             ? "Reembolsos"
                             : t === "coupons"
                             ? "Cupons"
+                            : t === "gestão"
+                            ? "Gestão"
                             : "Utilizadores"}
                   </span>
                   {t === "refunds" && <Undo2 size={12} className={theme === 'dark' ? "text-white/20" : "text-black/20"} />}
@@ -2353,11 +2359,12 @@ export default function AdminDashboard({
                       >
                         <Edit size={12} />
                       </Button>
-                      {currentUserProfile?.is_admin && (
+                      {(currentUserProfile?.is_admin || currentUserProfile?.is_employee) && (
                         <Button
                           variant="outline"
                           className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest text-red-500 hover:bg-red-500 hover:text-white"
                           onClick={() => handleDeleteProduct(p)}
+                          title="Eliminar Produto"
                         >
                           <Trash2 size={12} />
                         </Button>
@@ -3552,6 +3559,140 @@ export default function AdminDashboard({
           </div>
         )}
 
+        {tab === "gestão" && (
+          <div className="space-y-12 animate-in slide-in-from-bottom-6 duration-700">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-serif">Gestão de Colaboradores</h2>
+              <div className="text-[10px] uppercase tracking-widest opacity-30 mt-2">
+                Monitorização de carregamento de produtos e performance
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="w-12 h-12 bg-luxury-gold/10 flex items-center justify-center text-luxury-gold">
+                  <ShoppingBag size={24} />
+                </div>
+                <div>
+                  <h4 className="text-3xl font-serif text-luxury-gold">{products.length}</h4>
+                  <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Produtos Totais</p>
+                </div>
+              </Card>
+
+              <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="w-12 h-12 bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                  <Users size={24} />
+                </div>
+                <div>
+                  <h4 className="text-3xl font-serif text-white">{users.filter(u => u.is_employee).length}</h4>
+                  <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Funcionários Ativos</p>
+                </div>
+              </Card>
+
+              <Card className="bg-luxury-dark border-white/5 p-8 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="w-12 h-12 bg-blue-500/10 flex items-center justify-center text-blue-500">
+                  <TrendingUp size={24} />
+                </div>
+                <div>
+                  <h4 className="text-3xl font-serif text-white">
+                    {Math.round((products.length / (users.filter(u => u.is_employee || u.is_admin).length || 1)) * 10) / 10}
+                  </h4>
+                  <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Média por Colaborador</p>
+                </div>
+              </Card>
+            </div>
+
+            <div className="bg-luxury-dark border border-white/5 overflow-hidden">
+              <div className="px-8 py-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Ranking de Performance</h3>
+                <span className="text-[9px] uppercase tracking-widest text-white/30">Total de produtos carregados</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-white/5 bg-black/20">
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Posição</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Utilizador</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-center">Produtos Carregados</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Cargo</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {users
+                      .filter(u => (u.products_count || 0) > 0 || u.is_employee || u.is_admin)
+                      .sort((a, b) => (b.products_count || 0) - (a.products_count || 0))
+                      .map((u, idx) => (
+                        <tr key={u.id} className="hover:bg-white/[0.02] transition-colors group">
+                          <td className="px-8 py-6">
+                            <span className={`w-8 h-8 flex items-center justify-center font-mono text-[10px] ${
+                              idx === 0 ? "bg-luxury-gold text-black font-black" : 
+                              idx === 1 ? "bg-zinc-300 text-black font-black" :
+                              idx === 2 ? "bg-amber-700 text-white font-black" :
+                              "bg-white/5 text-white/40"
+                            }`}>
+                              {idx + 1}
+                            </span>
+                          </td>
+                          <td className="px-8 py-6">
+                            <div className="flex items-center gap-3">
+                              {u.avatar_url ? (
+                                <img src={u.avatar_url} className="w-8 h-8 rounded-none border border-white/10" />
+                              ) : (
+                                <div className="w-8 h-8 bg-white/5 flex items-center justify-center text-[10px] font-bold text-white/20">
+                                  {u.full_name?.charAt(0) || u.email?.charAt(0)}
+                                </div>
+                              )}
+                              <div className="flex flex-col">
+                                <span className="text-xs font-serif text-white">{u.full_name || "Sem Nome"}</span>
+                                <span className="text-[9px] text-white/20 uppercase tracking-widest">{u.email}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6 text-center">
+                            <div className="flex flex-col items-center">
+                              <span className="text-xl font-mono font-black text-luxury-gold bg-luxury-gold/5 px-4 py-1 border border-luxury-gold/10">
+                                {u.products_count || 0}
+                              </span>
+                              <div className="w-32 h-1 bg-white/5 mt-3 overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${Math.min(100, ((u.products_count || 0) / (products.length || 1)) * 100)}%` }}
+                                  className="h-full bg-luxury-gold/40" 
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-8 py-6">
+                            <span className={`text-[8px] uppercase tracking-widest font-black px-2 py-1 ${
+                              u.is_admin ? "bg-red-500/10 text-red-500" :
+                              u.is_employee ? "bg-emerald-500/10 text-emerald-500" :
+                              "bg-white/10 text-white/40"
+                            }`}>
+                              {u.is_admin ? "Administrador" : u.is_employee ? "Funcionário" : "Cliente"}
+                            </span>
+                          </td>
+                          <td className="px-8 py-6">
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                setTab("users");
+                                // Here we could filter the users table or highlight the user
+                              }}
+                              className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10 h-8 font-bold"
+                            >
+                              Ver Perfil
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === "users" && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
@@ -3582,6 +3723,7 @@ export default function AdminDashboard({
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Utilizador</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">E-mail Corporativo</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Membro Desde</th>
+                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Produtos</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Estatuto</th>
                     <th className="px-8 py-8 font-normal text-right">Ações de Controlo</th>
                   </tr>
@@ -3633,6 +3775,11 @@ export default function AdminDashboard({
                       <td className="px-8 py-5 text-sm text-white/60">{profile.email || "N/D"}</td>
                       <td className="px-8 py-5 text-sm text-white/60">
                         {profile.created_at ? format(new Date(profile.created_at), "dd/MM/yyyy") : "-"}
+                      </td>
+                      <td className="px-8 py-5">
+                         <span className="text-[10px] font-black text-luxury-gold px-3 py-1 bg-luxury-gold/10 border border-luxury-gold/20 font-mono">
+                           {profile.products_count || 0}
+                         </span>
                       </td>
                       <td className="px-8 py-5">
                         <div className="flex flex-col gap-1">

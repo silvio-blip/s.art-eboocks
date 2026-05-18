@@ -2597,6 +2597,7 @@ export default function App() {
           avatar_url: newProfile.avatar_url || "",
           custom_cursor_enabled: newProfile.custom_cursor_enabled !== false,
           is_admin: newProfile.is_admin || false,
+          is_employee: newProfile.is_employee || false,
         });
         if (newProfile.welcomed === false) {
           sendWelcomeEmail(userObj, newProfile);
@@ -2636,6 +2637,7 @@ export default function App() {
         full_name: data.full_name || userObj.user_metadata?.full_name || userObj.user_metadata?.name || "",
         avatar_url: finalAvatar || googleAvatar || "", 
         is_admin: data.is_admin || false,
+        is_employee: data.is_employee || false,
       });
 
       // Só envia e-mail se ainda não foi marcado como welcomed

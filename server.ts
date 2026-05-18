@@ -283,6 +283,10 @@ const initDB = async () => {
               CREATE UNIQUE INDEX IF NOT EXISTS products_aliexpress_id_idx ON products (aliexpress_id) WHERE aliexpress_id IS NOT NULL;
             END IF;
 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'created_by') THEN
+              ALTER TABLE products ADD COLUMN created_by UUID REFERENCES profiles(id) ON DELETE SET NULL;
+            END IF;
+
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'sku') THEN
               ALTER TABLE products ADD COLUMN sku TEXT;
             END IF;
@@ -1558,7 +1562,20 @@ adminRouter.get('/users', async (req, res) => {
 
     if (profileError) throw profileError;
 
-    // Merge Auth users with Profiles
+    // Merge Auth users with Profiles and count products
+    const { data: productCounts, error: countError } = await supabase
+      .from('products')
+      .select('created_by');
+
+    if (countError) console.error("[ADMIN USERS] Error fetching product counts:", countError);
+
+    const countsMap: Record<string, number> = {};
+    productCounts?.forEach(p => {
+      if (p.created_by) {
+        countsMap[p.created_by] = (countsMap[p.created_by] || 0) + 1;
+      }
+    });
+
     const mergedUsers = authData.data.users.map(authUser => {
       const profile = profileData?.find(p => p.id === authUser.id);
       return {
@@ -1569,7 +1586,8 @@ adminRouter.get('/users', async (req, res) => {
         is_admin: profile?.is_admin || false,
         is_employee: profile?.is_employee || false,
         created_at: authUser.created_at,
-        custom_id: profile?.custom_id || `Sart-${authUser.id.substring(0, 4).toUpperCase()}`
+        custom_id: profile?.custom_id || `Sart-${authUser.id.substring(0, 4).toUpperCase()}`,
+        products_count: countsMap[authUser.id] || 0
       };
     });
 
@@ -1782,7 +1800,8 @@ adminRouter.post('/products', async (req, res) => {
       title, description, price: finalPrice, image_url, file_url, category,
       product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider,
       price_markup: priceMarkup,
-      free_shipping: !!free_shipping
+      free_shipping: !!free_shipping,
+      created_by: req.body.userId || null
     };
     
     if (aliexpress_id) {
@@ -2224,7 +2243,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const finalPriceWithMarkup = Math.round((basePrice + activeMarkup) * 100) / 100;
 
     // Manual Upsert Logic
-    const commonData = {
+    const commonData: any = {
       aliexpress_id: String(baseInfo.product_id),
       title: (existing?.title && existing.title !== parsed.title) ? existing.title : parsed.title,
       description: (existing?.description && existing.description.length > 50) ? existing.description : (parsed.description || ""),
@@ -2252,6 +2271,10 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
         base_price: basePrice
       }
     };
+
+    if (!existing) {
+      commonData.created_by = req.body.userId || null;
+    }
 
     let result_data;
     if (existing?.id) {
