@@ -2078,14 +2078,19 @@ export default function AdminDashboard({
 
             {/* Category Management Modal */}
             {isCategoryModalOpen && (
-              <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-md flex items-center justify-center p-4">
-                <Card className="max-w-md w-full bg-[#050505] border-luxury-gold/30 rounded-none p-10 space-y-8 animate-in zoom-in-95 duration-300">
-                  <div className="flex justify-between items-center border-b border-white/10 pb-6">
-                    <h3 className="text-2xl font-serif text-luxury-gold italic">Gestão de Coleções</h3>
-                    <button onClick={() => {
-                      setIsCategoryModalOpen(false);
-                      setEditingCategoryId(null);
-                    }}><X size={24} className="text-white/40 hover:text-white transition-colors" /></button>
+              <div className="fixed inset-0 z-[70] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+                <Card className="max-w-md w-full bg-[#050505] border-luxury-gold/30 rounded-none p-6 md:p-10 space-y-6 md:space-y-8 animate-in zoom-in-95 duration-300 relative my-auto">
+                  <div className="flex justify-between items-center border-b border-white/10 pb-6 shrink-0 pt-4 md:pt-0">
+                    <h3 className="text-xl md:text-2xl font-serif text-luxury-gold italic">Gestão de Coleções</h3>
+                    <button 
+                      onClick={() => {
+                        setIsCategoryModalOpen(false);
+                        setEditingCategoryId(null);
+                      }}
+                      className="p-2 hover:bg-white/5 transition-colors absolute top-4 right-4 md:relative md:top-0 md:right-0"
+                    >
+                      <X size={20} className="text-white/40 hover:text-white transition-colors" />
+                    </button>
                   </div>
                   
                   <div className="space-y-4">
@@ -2104,9 +2109,9 @@ export default function AdminDashboard({
                     </div>
                   </div>
                   
-                  <div className="space-y-6 pt-6 ">
+                  <div className="space-y-6 pt-6">
                     <label className="text-[10px] uppercase tracking-[0.4em] text-white/30 font-bold block">Categorias Ativas</label>
-                    <div className="max-h-[350px] overflow-y-auto space-y-3 pr-2 luxury-scrollbar">
+                    <div className="max-h-[300px] md:max-h-[400px] overflow-y-auto space-y-3 pr-2 luxury-scrollbar">
                       {categories.map((cat) => (
                         <div key={cat.id} className="flex justify-between items-center bg-white/[0.02] p-4 group border border-white/5 hover:border-luxury-gold/40 transition-all duration-500">
                           {editingCategoryId === cat.id ? (
@@ -2178,12 +2183,12 @@ export default function AdminDashboard({
 
                 {/* Category Delete Confirmation Overlay */}
                 {categoryToDelete && (
-                  <div className="absolute inset-0 bg-black/98 z-[80] flex flex-col items-center justify-center p-12 text-center animate-in fade-in zoom-in duration-500">
-                    <div className="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-8 border border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.2)]">
-                      <Trash2 size={40} className="text-red-500" />
+                  <div className="absolute inset-0 bg-black/98 z-[80] flex flex-col items-center justify-center p-6 md:p-12 text-center animate-in fade-in zoom-in duration-500">
+                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-6 md:mb-8 border border-red-500/20 shadow-[0_0_50px_rgba(239,68,68,0.2)]">
+                      <Trash2 size={32} className="text-red-500" />
                     </div>
-                    <h4 className="text-3xl font-serif text-white mb-4 italic">Confirmar Exclusão?</h4>
-                    <p className="text-[11px] uppercase tracking-[0.25em] text-white/40 mb-10 max-w-sm leading-loose">
+                    <h4 className="text-2xl md:text-3xl font-serif text-white mb-4 italic">Confirmar Exclusão?</h4>
+                    <p className="text-[10px] md:text-[11px] uppercase tracking-[0.25em] text-white/40 mb-8 md:mb-10 max-w-sm leading-loose">
                       Tem a certeza absoluta que deseja eliminar a categoria <span className="text-luxury-gold font-black">"{categoryToDelete.name}"</span>?<br/>
                       <span className="text-red-500/50 mt-2 block">Produtos associados serão mantidos, mas a categoria será removida.</span>
                     </p>
@@ -2191,13 +2196,13 @@ export default function AdminDashboard({
                       <Button 
                         variant="outline" 
                         onClick={() => setCategoryToDelete(null)}
-                        className="flex-1 border-white/20 text-white/60 hover:text-white h-14 text-[10px] uppercase tracking-[0.4em] rounded-none hover:bg-white/5 transition-all"
+                        className="flex-1 border-white/20 text-white/60 hover:text-white h-12 md:h-14 text-[9px] md:text-[10px] uppercase tracking-[0.4em] rounded-none hover:bg-white/5 transition-all"
                       >
                         Manter
                       </Button>
                       <Button 
                         onClick={() => handleDeleteCategory(categoryToDelete.id)}
-                        className="flex-1 bg-red-600 hover:bg-red-700 text-white h-14 text-[10px] uppercase tracking-[0.4em] rounded-none shadow-2xl transition-all"
+                        className="flex-1 bg-red-600 hover:bg-red-700 text-white h-12 md:h-14 text-[9px] md:text-[10px] uppercase tracking-[0.4em] rounded-none shadow-2xl transition-all"
                       >
                         Eliminar
                       </Button>
