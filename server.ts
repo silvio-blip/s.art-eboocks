@@ -1340,11 +1340,11 @@ adminRouter.use(async (req, res, next) => {
     const supabase = getSupabase();
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('is_admin')
+      .select('is_admin, is_employee')
       .eq('id', userId)
       .single();
 
-    if (error || !profile || !profile.is_admin) {
+    if (error || !profile || (!profile.is_admin && !profile.is_employee)) {
       // Emergency fallback for initial setup if no admin exists yet
       const HARDCODED_ADMINS = ['3d596215-583e-498f-9fd5-36b83d8bccf5', '00d44feb-0b51-405e-86f7-31b67edfb7b6'];
       if (HARDCODED_ADMINS.includes(userId as string)) {

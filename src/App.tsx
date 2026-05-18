@@ -2608,6 +2608,8 @@ export default function App() {
         setProfile({
           full_name: fullName,
           avatar_url: googleAvatar || "",
+          is_admin: false,
+          is_employee: false
         });
       }
       return;

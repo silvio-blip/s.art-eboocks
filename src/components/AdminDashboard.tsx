@@ -178,8 +178,8 @@ export default function AdminDashboard({
       return ["overview", "products", "orders", "refunds", "users", "coupons", "gestão"];
     }
     if (currentUserProfile.is_employee) {
-      // Employees see products and gestion
-      return ["products", "gestão"];
+      // Employees see products, orders and gestion
+      return ["products", "orders", "gestão"];
     }
     return [];
   }, [currentUserProfile]);
@@ -566,6 +566,16 @@ export default function AdminDashboard({
   };
 
   const updateUserRole = async (targetUser: Profile, roleType: "admin" | "employee", value: boolean) => {
+    // Restriction: Mutual exclusion between admin and employee roles
+    if (roleType === "admin" && value === true && targetUser.is_employee) {
+      toast.error("Remova o cargo de funcionário antes de tornar este utilizador administrador.");
+      return;
+    }
+    if (roleType === "employee" && value === true && targetUser.is_admin) {
+      toast.error("Remova o cargo de administrador antes de tornar este utilizador funcionário.");
+      return;
+    }
+
     try {
       const updatePayload: any = { userId: user.id };
       
@@ -2973,8 +2983,8 @@ export default function AdminDashboard({
               </select>
             </div>
 
-            <div className="overflow-x-auto border border-white/5 bg-luxury-dark/30">
-              <table className="w-full text-left text-sm">
+            <div className="overflow-x-auto border border-white/5 bg-luxury-dark/30 luxury-scrollbar">
+              <table className="w-full text-left text-sm min-w-[1200px]">
                 <thead>
                   <tr className="bg-white/5 border-b border-white/5">
                     <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
@@ -3607,8 +3617,8 @@ export default function AdminDashboard({
                 <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Ranking de Performance</h3>
                 <span className="text-[9px] uppercase tracking-widest text-white/30">Total de produtos carregados</span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
+              <div className="overflow-x-auto luxury-scrollbar">
+                <table className="w-full text-left min-w-[800px]">
                   <thead>
                     <tr className="border-b border-white/5 bg-black/20">
                       <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Posição</th>
@@ -3717,9 +3727,10 @@ export default function AdminDashboard({
             </div>
 
             <div className="bg-white/5 border border-white/10 rounded-sm overflow-hidden">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.25em] text-white/30 bg-white/[0.02]">
+              <div className="overflow-x-auto luxury-scrollbar">
+                <table className="w-full text-left min-w-[1000px]">
+                  <thead>
+                    <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.25em] text-white/30 bg-white/[0.02]">
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Utilizador</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">E-mail Corporativo</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Membro Desde</th>
@@ -3830,7 +3841,8 @@ export default function AdminDashboard({
               </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
       </div>
 
       {viewingOrder && (() => {
