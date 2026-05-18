@@ -139,6 +139,7 @@ interface Profile {
   email: string;
   avatar_url: string;
   is_admin: boolean;
+  is_employee: boolean;
   created_at: string;
   custom_id?: string;
 }
@@ -165,9 +166,29 @@ export default function AdminDashboard({
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(
     null,
   );
+  const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
   const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons">(
     "overview",
   );
+
+  const availableTabs = useMemo(() => {
+    if (!currentUserProfile) return ["overview"];
+    if (currentUserProfile.is_admin) {
+      return ["overview", "products", "orders", "refunds", "users", "coupons"];
+    }
+    if (currentUserProfile.is_employee) {
+      // Employees only see "Produtos" (atividade) and maybe overview?
+      // User said: "só poderão acessar a parte de atividade"
+      return ["products"];
+    }
+    return [];
+  }, [currentUserProfile]);
+
+  useEffect(() => {
+    if (availableTabs.length > 0 && !availableTabs.includes(tab)) {
+      setTab(availableTabs[0] as any);
+    }
+  }, [availableTabs, tab]);
   const [timeRange, setTimeRange] = useState<"weekly" | "monthly" | "yearly">(
     "weekly",
   );
@@ -307,16 +328,31 @@ export default function AdminDashboard({
   const checkAdminAccess = async () => {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_admin")
+      .select("*")
       .eq("id", user.id)
       .single();
 
-    if (!profile?.is_admin) {
+    if (!profile?.is_admin && !profile?.is_employee) {
       const HARDCODED_ADMINS = ["3d596215-583e-498f-9fd5-36b83d8bccf5", "00d44feb-0b51-405e-86f7-31b67edfb7b6"];
       if (!HARDCODED_ADMINS.includes(user.id)) {
         onBack();
         return;
       }
+      
+      // If hardcoded admin, set a mock profile if one doesn't exist
+      if (!profile) {
+        setCurrentUserProfile({
+          id: user.id,
+          full_name: user.user_metadata?.full_name || user.email || "Admin",
+          email: user.email || "",
+          avatar_url: user.user_metadata?.avatar_url || "",
+          is_admin: true,
+          is_employee: false,
+          created_at: new Date().toISOString()
+        } as Profile);
+      }
+    } else {
+      setCurrentUserProfile(profile as Profile);
     }
     fetchData();
   };
@@ -529,23 +565,27 @@ export default function AdminDashboard({
     }
   };
 
-  const toggleAdminRole = async (targetUser: Profile) => {
+  const updateUserRole = async (targetUser: Profile, roleType: "admin" | "employee", value: boolean) => {
     try {
-      const newRole = !targetUser.is_admin;
       const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
           "x-user-id": user.id
         },
-        body: JSON.stringify({ userId: user.id, is_admin: newRole }),
+        body: JSON.stringify({ 
+          userId: user.id, 
+          is_admin: roleType === "admin" ? value : undefined,
+          is_employee: roleType === "employee" ? value : undefined
+        }),
       });
 
       if (res.ok) {
-        toast.success(`Permissões de ${targetUser.full_name || targetUser.email} atualizadas.`);
+        toast.success(`Cargos de ${targetUser.full_name || targetUser.email} atualizados.`);
         fetchUsers();
       } else {
-        toast.error("Erro ao atualizar permissões.");
+        const err = await res.json();
+        toast.error(err.error || "Erro ao atualizar cargos.");
       }
     } catch (e) {
       toast.error("Erro na comunicação com o servidor.");
@@ -1392,7 +1432,7 @@ export default function AdminDashboard({
           </div>
 
           <div className={`hidden sm:flex rounded-full p-1 border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
-            {(["overview", "products", "orders", "refunds", "users", "coupons"] as const).map((t) => (
+            {(availableTabs as any[]).map((t) => (
               <button
                 key={t}
                 id={t === "users" ? "tab-users" : undefined}
@@ -1434,38 +1474,42 @@ export default function AdminDashboard({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsSiteSettingsOpen(true)}
-              className="border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold hover:text-black gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden lg:flex"
-              title="Ajustar Design e Hero"
-            >
-              <Settings size={12} /> Configurações
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsSiteSettingsOpen(true)}
-              className="border-white/10 text-white/50 hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5 lg:hidden"
-              title="Configurações do Site"
-            >
-              <Settings size={14} />
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={sendTestEmail}
-              className={`border-black/10 dark:border-white/10 opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden md:flex ${theme === 'dark' ? 'text-white' : 'text-black'}`}
-            >
-              <FileText size={12} /> Testar E-mail
-            </Button>
+            {currentUserProfile?.is_admin && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSiteSettingsOpen(true)}
+                  className="border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold hover:text-black gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden lg:flex"
+                  title="Ajustar Design e Hero"
+                >
+                  <Settings size={12} /> Configurações
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSiteSettingsOpen(true)}
+                  className="border-white/10 text-white/50 hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5 lg:hidden"
+                  title="Configurações do Site"
+                >
+                  <Settings size={14} />
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={sendTestEmail}
+                  className={`border-black/10 dark:border-white/10 opacity-60 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/5 gap-2 h-8 text-[10px] uppercase font-bold tracking-widest hidden md:flex ${theme === 'dark' ? 'text-white' : 'text-black'}`}
+                >
+                  <FileText size={12} /> Testar E-mail
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
         {/* Mobile Tabs */}
         <div className={`sm:hidden flex border-t ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
-          {(["overview", "products", "orders", "refunds", "users", "coupons"] as const).map((t) => (
+          {(availableTabs as any[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -2303,13 +2347,15 @@ export default function AdminDashboard({
                       >
                         <Edit size={12} />
                       </Button>
-                      <Button
-                        variant="outline"
-                        className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest text-red-500 hover:bg-red-500 hover:text-white"
-                        onClick={() => handleDeleteProduct(p)}
-                      >
-                        <Trash2 size={12} />
-                      </Button>
+                      {currentUserProfile?.is_admin && (
+                        <Button
+                          variant="outline"
+                          className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest text-red-500 hover:bg-red-500 hover:text-white"
+                          onClick={() => handleDeleteProduct(p)}
+                        >
+                          <Trash2 size={12} />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   <CardContent className="p-3 space-y-1">
@@ -3583,31 +3629,46 @@ export default function AdminDashboard({
                         {profile.created_at ? format(new Date(profile.created_at), "dd/MM/yyyy") : "-"}
                       </td>
                       <td className="px-8 py-5">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold ${
-                          profile.is_admin 
-                            ? "bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30" 
-                            : "bg-white/5 text-white/40 border border-white/10"
-                        }`}>
-                          {profile.is_admin ? <ShieldCheck size={10} /> : <Users size={10} />}
-                          {profile.is_admin ? "Administrador" : "Cliente"}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold ${
+                            profile.is_admin 
+                              ? "bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30" 
+                              : "bg-white/5 text-white/40 border border-white/10"
+                          }`}>
+                            {profile.is_admin ? <ShieldCheck size={10} /> : <Users size={10} />}
+                            {profile.is_admin ? "Administrador" : "Cliente"}
+                          </span>
+                          {profile.is_employee && !profile.is_admin && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                              <ShieldCheck size={10} /> Funcionário
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-8 py-5 text-right">
                         {profile.id !== user.id && (
-                          <Button 
-                            onClick={() => toggleAdminRole(profile)}
-                            variant="outline" 
-                            size="sm"
-                            className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all ${
-                              profile.is_admin ? "hover:border-red-500 hover:text-red-500" : ""
-                            }`}
-                          >
-                            {profile.is_admin ? (
-                              <><ShieldAlert size={10} className="mr-2" /> Revogar Admin</>
-                            ) : (
-                              <><ShieldCheck size={10} className="mr-2" /> Tornar Admin</>
-                            )}
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button 
+                              onClick={() => updateUserRole(profile, "admin", !profile.is_admin)}
+                              variant="outline" 
+                              size="sm"
+                              className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all ${
+                                profile.is_admin ? "hover:border-red-500 hover:text-red-500" : ""
+                              }`}
+                            >
+                              {profile.is_admin ? "Revogar Admin" : "Tornar Admin"}
+                            </Button>
+                            <Button 
+                              onClick={() => updateUserRole(profile, "employee", !profile.is_employee)}
+                              variant="outline" 
+                              size="sm"
+                              className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-blue-500 hover:text-blue-500 transition-all ${
+                                profile.is_employee ? "hover:border-red-500 hover:text-red-500" : ""
+                              }`}
+                            >
+                              {profile.is_employee ? "Revogar Func" : "Tornar Func"}
+                            </Button>
+                          </div>
                         )}
                       </td>
                     </tr>

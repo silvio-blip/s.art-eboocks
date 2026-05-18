@@ -764,11 +764,11 @@ const Navbar = ({
               >
                 {user ? (
                   <div className="flex items-center gap-3 md:gap-6">
-    {(ADMIN_IDS.includes(user.id || "") || String(profile?.is_admin) === 'true') && (
+    {(ADMIN_IDS.includes(user.id || "") || profile?.is_admin || profile?.is_employee) && (
                       <button
                         onClick={() => onDashboardClick("admin")}
                         className={`${iconClass} flex items-center gap-1.5 focus:outline-none group/admin`}
-                        title="Admin Panel"
+                        title="Painel de Administração"
                       >
                         <Shield size={20} className="group-hover/admin:rotate-12 transition-transform duration-500" />
                         <span className="hidden lg:inline text-[8px] tracking-[0.2em] font-bold text-luxury-gold/80">PAINEL</span>
@@ -2363,6 +2363,7 @@ export default function App() {
     full_name: string;
     avatar_url: string;
     is_admin?: boolean;
+    is_employee?: boolean;
   } | null>(null);
   const theme = "dark";
 
@@ -2407,10 +2408,10 @@ export default function App() {
 
   useEffect(() => {
     if (window.location.pathname === "/admin") {
-      if (user && !(ADMIN_IDS.includes(user.id) || profile?.is_admin)) {
+      if (user && !(ADMIN_IDS.includes(user.id) || profile?.is_admin || profile?.is_employee)) {
         setView("home");
         window.history.replaceState({}, "", "/");
-        toast.error("Acesso restrito ao Administrador.");
+        toast.error("Acesso restrito.");
       } else {
         setView("admin");
       }
@@ -2533,7 +2534,7 @@ export default function App() {
   const fetchProfile = async (userObj: SupabaseUser) => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin")
+      .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin, is_employee")
       .eq("id", userObj.id)
       .single();
 

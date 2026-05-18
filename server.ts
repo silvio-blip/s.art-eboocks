@@ -73,12 +73,14 @@ const initDB = async () => {
             full_name TEXT,
             avatar_url TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
+            is_employee BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
           );
 
-          -- Ensure is_admin exists if table already existed
+          -- Ensure columns exist if table already existed
           ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_employee BOOLEAN DEFAULT FALSE;
 
           -- Remove OLD recursive policies
           DO $$ 
@@ -92,8 +94,7 @@ const initDB = async () => {
             DROP POLICY IF EXISTS "Allow admins to manage all profiles" ON profiles;
           END $$;
 
-          -- Define SECURITY DEFINER function for admin check
-          -- This breaks infinite recursion because it runs bypasses RLS
+          -- Define SECURITY DEFINER functions for role checks
           CREATE OR REPLACE FUNCTION public.is_admin()
           RETURNS BOOLEAN AS $inner$
           BEGIN
@@ -104,14 +105,24 @@ const initDB = async () => {
           END;
           $inner$ LANGUAGE plpgsql SECURITY DEFINER;
 
+          CREATE OR REPLACE FUNCTION public.is_employee()
+          RETURNS BOOLEAN AS $inner$
+          BEGIN
+            RETURN EXISTS (
+              SELECT 1 FROM public.profiles 
+              WHERE id = auth.uid() AND is_employee = true
+            );
+          END;
+          $inner$ LANGUAGE plpgsql SECURITY DEFINER;
+
           -- Enable RLS and set NEW safe policies
           ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
           
           CREATE POLICY "Allow users to view own profile" ON profiles 
             FOR SELECT USING (auth.uid() = id);
 
-          CREATE POLICY "Allow admins to view all profiles" ON profiles 
-            FOR SELECT USING (public.is_admin());
+          CREATE POLICY "Allow admins/employees to view all profiles" ON profiles 
+            FOR SELECT USING (public.is_admin() OR public.is_employee());
 
           CREATE POLICY "Allow users to update own profile" ON profiles 
             FOR UPDATE USING (auth.uid() = id);
@@ -138,6 +149,9 @@ const initDB = async () => {
           ALTER TABLE site_settings ENABLE ROW LEVEL SECURITY;
           DROP POLICY IF EXISTS "Allow public read on site_settings" ON site_settings;
           CREATE POLICY "Allow public read on site_settings" ON site_settings FOR SELECT USING (true);
+          
+          DROP POLICY IF EXISTS "Allow admins to manage site_settings" ON site_settings;
+          CREATE POLICY "Allow admins to manage site_settings" ON site_settings FOR ALL USING (public.is_admin());
 
           -- Seed default site settings if empty
           INSERT INTO site_settings (key, value)
@@ -153,8 +167,8 @@ const initDB = async () => {
           DROP POLICY IF EXISTS "Anyone can view products" ON products;
           CREATE POLICY "Anyone can view products" ON products FOR SELECT USING (true);
           
-          DROP POLICY IF EXISTS "Admins can manage products" ON products;
-          CREATE POLICY "Admins can manage products" ON products FOR ALL USING (public.is_admin());
+          DROP POLICY IF EXISTS "Admins/Employees can manage products" ON products;
+          CREATE POLICY "Admins/Employees can manage products" ON products FOR ALL USING (public.is_admin() OR public.is_employee());
         ` });
       } catch(e) { console.error('[INIT] Error updating products RLS:', e); }
 
@@ -165,8 +179,8 @@ const initDB = async () => {
           DROP POLICY IF EXISTS "Users can view own orders" ON orders;
           CREATE POLICY "Users can view own orders" ON orders FOR SELECT USING (auth.uid() = user_id);
           
-          DROP POLICY IF EXISTS "Admins can view all orders" ON orders;
-          CREATE POLICY "Admins can view all orders" ON orders FOR SELECT USING (public.is_admin());
+          DROP POLICY IF EXISTS "Admins/Employees can view all orders" ON orders;
+          CREATE POLICY "Admins/Employees can view all orders" ON orders FOR SELECT USING (public.is_admin() OR public.is_employee());
         ` });
       } catch(e) { console.error('[INIT] Error updating orders RLS:', e); }
       
@@ -1553,6 +1567,7 @@ adminRouter.get('/users', async (req, res) => {
         full_name: profile?.full_name || authUser.user_metadata?.full_name || authUser.user_metadata?.name || '',
         avatar_url: profile?.avatar_url || authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture || '',
         is_admin: profile?.is_admin || false,
+        is_employee: profile?.is_employee || false,
         created_at: authUser.created_at,
         custom_id: profile?.custom_id || `Sart-${authUser.id.substring(0, 4).toUpperCase()}`
       };
@@ -1689,11 +1704,29 @@ adminRouter.delete('/categories/:id', async (req, res) => {
 adminRouter.put('/users/:id/role', async (req, res) => {
   try {
     const { id } = req.params;
-    const { is_admin } = req.body;
+    const { is_admin, is_employee, userId } = req.body;
     const supabase = getSupabase();
+    
+    // Check if requester is admin
+    if (userId) {
+      const { data: requesterProfile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', userId)
+        .single();
+      
+      if (!requesterProfile?.is_admin) {
+        return res.status(403).json({ error: "Apenas administradores podem alterar cargos." });
+      }
+    }
+
+    const updateData: any = {};
+    if (is_admin !== undefined) updateData.is_admin = is_admin;
+    if (is_employee !== undefined) updateData.is_employee = is_employee;
+
     const { data, error } = await supabase
       .from('profiles')
-      .update({ is_admin })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -2343,7 +2376,21 @@ adminRouter.post('/categories/resync', async (req, res) => {
 adminRouter.delete('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.headers['x-user-id'];
     const supabase = getSupabase();
+
+    if (userId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', userId)
+        .single();
+      
+      if (!profile?.is_admin) {
+        return res.status(403).json({ error: "Apenas administradores podem eliminar produtos permanentemente." });
+      }
+    }
+
     const { error } = await supabase
       .from('products')
       .delete()
