@@ -226,6 +226,8 @@ export default function AdminDashboard({
   const [manualTrackingCode, setManualTrackingCode] = useState("");
   const [manualTrackingUrl, setManualTrackingUrl] = useState("");
   const [manualProviderOrderId, setManualProviderOrderId] = useState("");
+  const [selectedUserForProducts, setSelectedUserForProducts] = useState<Profile | null>(null);
+  const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false);
   
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3685,7 +3687,7 @@ export default function AdminDashboard({
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-none border border-white/10 bg-white/5 flex items-center justify-center">
                                   {u.avatar_url ? (
-                                    <img src={u.avatar_url} className="w-full h-full object-cover" />
+                                    <img src={getImageUrl(u.avatar_url || u.email)} className="w-full h-full object-cover" />
                                   ) : (
                                     <span className="text-[10px] font-bold text-white/20">{u.full_name?.charAt(0) || u.email?.charAt(0)}</span>
                                   )}
@@ -3712,7 +3714,10 @@ export default function AdminDashboard({
                             <td className="px-8 py-6">
                               <Button
                                 variant="ghost"
-                                onClick={() => setTab("users")}
+                                onClick={() => {
+                                  setSelectedUserForProducts(u);
+                                  setIsUserDetailsModalOpen(true);
+                                }}
                                 className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10 h-8 font-bold"
                               >
                                 Ver Detalhes
@@ -3914,6 +3919,17 @@ export default function AdminDashboard({
                             >
                               {profile.is_employee ? "Revogar Func" : "Tornar Func"}
                             </Button>
+                            <Button 
+                              onClick={() => {
+                                setSelectedUserForProducts(profile);
+                                setIsUserDetailsModalOpen(true);
+                              }}
+                              variant="ghost" 
+                              size="sm"
+                              className="rounded-none text-[8px] uppercase tracking-widest h-8 text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10"
+                            >
+                              Ver Contribuições
+                            </Button>
                           </div>
                         )}
                       </td>
@@ -3923,6 +3939,141 @@ export default function AdminDashboard({
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* User Details & Products Modal (Admin) */}
+      {isUserDetailsModalOpen && selectedUserForProducts && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/95 backdrop-blur-md" onClick={() => setIsUserDetailsModalOpen(false)} />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="relative w-full max-w-4xl bg-[#050505] border border-white/10 rounded-[2rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,1)] flex flex-col max-h-[90vh]"
+          >
+            {/* Header */}
+            <div className="p-8 border-b border-white/5 bg-white/[0.02] flex justify-between items-start">
+              <div className="flex items-center gap-6">
+                <div className="w-16 h-16 rounded-none border border-white/10 bg-white/5 flex items-center justify-center overflow-hidden">
+                  {selectedUserForProducts.avatar_url ? (
+                    <img src={selectedUserForProducts.avatar_url} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-xl font-serif text-white/20">{selectedUserForProducts.full_name?.charAt(0) || selectedUserForProducts.email?.charAt(0)}</span>
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-2xl font-serif text-white">{selectedUserForProducts.full_name || "Sem Nome"}</h3>
+                  <div className="flex items-center gap-4 mt-1">
+                    <p className="text-[10px] uppercase tracking-widest text-white/40">{selectedUserForProducts.email}</p>
+                    <span className="text-white/10">|</span>
+                    <span className={`text-[8px] uppercase tracking-widest font-black px-2 py-0.5 ${
+                      selectedUserForProducts.is_admin ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                    }`}>
+                      {selectedUserForProducts.is_admin ? "Master Admin" : "Colaborador"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsUserDetailsModalOpen(false)}
+                className="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white hover:bg-white/5 transition-all"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* List of User Products */}
+            <div className="flex-1 overflow-y-auto luxury-scrollbar p-0">
+               <div className="px-8 py-6 border-b border-white/5 flex justify-between items-center bg-black/40">
+                  <h4 className="text-[10px] uppercase tracking-[0.3em] font-bold text-luxury-gold">Produtos Carregados por este Utilizador</h4>
+                  <span className="text-[9px] uppercase tracking-widest text-white/30 font-mono">
+                    Total: {products.filter(p => p.created_by === selectedUserForProducts.id).length}
+                  </span>
+               </div>
+               
+               <table className="w-full text-left">
+                  <thead className="bg-white/5 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Capa</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Produto</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Preço</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-right">Controlo Adm</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {products
+                      .filter(p => p.created_by === selectedUserForProducts.id)
+                      .map((p) => (
+                        <tr key={p.id} className="hover:bg-white/[0.02] transition-colors group">
+                           <td className="px-8 py-4">
+                              <div className="w-12 h-12 border border-white/10 overflow-hidden bg-black flex items-center justify-center">
+                                {p.image_url ? (
+                                  <img src={p.image_url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                                ) : (
+                                  <ShoppingBag size={16} className="text-white/10" />
+                                )}
+                              </div>
+                           </td>
+                           <td className="px-8 py-4">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-serif text-white group-hover:text-luxury-gold transition-colors">{p.title}</span>
+                                <span className="text-[8px] uppercase tracking-widest text-white/20 mt-1 font-mono">{p.category || "Sem Categoria"}</span>
+                              </div>
+                           </td>
+                           <td className="px-8 py-4">
+                              <span className="text-xs font-mono font-bold text-white/60">{renderPrice(p.pvp || p.price || 0)}</span>
+                           </td>
+                           <td className="px-8 py-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingProduct(p);
+                                    // Keep modal open or close it? Let's close this one so the edit modal is visible
+                                    setIsUserDetailsModalOpen(false);
+                                  }}
+                                  className="h-8 w-8 p-0 text-white/20 hover:text-luxury-gold hover:bg-luxury-gold/10"
+                                >
+                                  <Edit size={14} />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setProductToDelete(p);
+                                    setIsUserDetailsModalOpen(false);
+                                  }}
+                                  className="h-8 w-8 p-0 text-white/20 hover:text-red-500 hover:bg-red-500/10"
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              </div>
+                           </td>
+                        </tr>
+                      ))}
+                    {products.filter(p => p.created_by === selectedUserForProducts.id).length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-8 py-20 text-center">
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-white/20">Este utilizador ainda não carregou nenhum produto.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+               </table>
+            </div>
+
+            {/* Footer */}
+            <div className="p-8 border-t border-white/5 bg-black/60 flex justify-end">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsUserDetailsModalOpen(false)}
+                className="rounded-none border-white/10 text-white/40 hover:text-white uppercase tracking-widest text-[9px] px-8 h-12"
+              >
+                Fechar Visualização
+              </Button>
+            </div>
+          </motion.div>
         </div>
       )}
       </div>
