@@ -18,7 +18,8 @@ import {
   Calendar,
   CreditCard,
   Hash,
-  Crown
+  Crown,
+  Shield
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -433,6 +434,9 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     {profile?.full_name || 'Eminente Convidado'}
                     {profile?.is_admin && (
                       <Crown size={24} className="text-luxury-gold fill-luxury-gold/20 animate-pulse shrink-0" />
+                    )}
+                    {profile?.is_employee && !profile?.is_admin && (
+                      <Shield size={24} className="text-blue-500 fill-blue-500/20 animate-pulse shrink-0" />
                     )}
                   </h2>
                 </div>

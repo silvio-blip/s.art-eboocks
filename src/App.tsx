@@ -2418,6 +2418,36 @@ export default function App() {
     }
   }, [user, profile]);
 
+  // Gerir subscrição em tempo real para o perfil do utilizador
+  useEffect(() => {
+    if (!user) return;
+
+    const channelName = `user-profile-realtime-${user.id}`;
+    const profileChannel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          table: "profiles",
+          filter: `id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          console.log("[REALTIME] Perfil atualizado detetado:", payload.new);
+          setProfile(prev => ({
+            ...prev,
+            ...payload.new
+          }));
+          toast.info("As suas permissões foram atualizadas.");
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(profileChannel);
+    };
+  }, [user]);
+
   // Gerir subscrição em tempo real separadamente para evitar conflitos de bloqueio
   useEffect(() => {
     if (!user) return;
@@ -3135,7 +3165,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "admin" && user && (ADMIN_IDS.includes(user.id) || profile?.is_admin) && (
+          {view === "admin" && user && (ADMIN_IDS.includes(user.id) || profile?.is_admin || profile?.is_employee) && (
             <motion.div
               key="admin"
               initial={{ opacity: 0, y: 20 }}

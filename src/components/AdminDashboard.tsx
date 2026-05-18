@@ -567,17 +567,23 @@ export default function AdminDashboard({
 
   const updateUserRole = async (targetUser: Profile, roleType: "admin" | "employee", value: boolean) => {
     try {
+      const updatePayload: any = { userId: user.id };
+      
+      if (roleType === "admin") {
+        updatePayload.is_admin = value;
+        if (value) updatePayload.is_employee = false; // Exclusive: if admin, not employee
+      } else {
+        updatePayload.is_employee = value;
+        if (value) updatePayload.is_admin = false; // Exclusive: if employee, not admin
+      }
+
       const res = await fetch(`/api/admin/users/${targetUser.id}/role`, {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
           "x-user-id": user.id
         },
-        body: JSON.stringify({ 
-          userId: user.id, 
-          is_admin: roleType === "admin" ? value : undefined,
-          is_employee: roleType === "employee" ? value : undefined
-        }),
+        body: JSON.stringify(updatePayload),
       });
 
       if (res.ok) {
