@@ -5,9 +5,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { product } = req.query;
   const productId = Array.isArray(product) ? product[0] : (product as string);
 
-  // Padrões de Luxo
-  let title = "S.art | Boutique Premium";
-  let description = "Curadoria de Luxo - Descubra esta peça exclusiva na S.art.";
+  // Novos padrões modernos (Moda, Tendências, Lifestyle)
+  let title = "S.art Boutique | Moda, Tendências e Lifestyle";
+  let description = "Descubra a seleção inteligente da S.art. De vestuário e calçado a gadgets inovadores, reunimos as últimas tendências num só lugar. Qualidade, estilo e uma compra segura.";
   let image = 'https://sart-full.pt/og-default.jpg';
   
   const host = (req.headers['host'] as string) || 'sart-full.pt';

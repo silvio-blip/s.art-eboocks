@@ -3410,8 +3410,8 @@ function getProductImageUrl(url: string | undefined | null) {
 async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   if (!product) return html;
   
-  const title = (product.title || product.name || "S.art | Boutique Premium").replace(/"/g, '&quot;');
-  const description = (product.description || "Curadoria de Luxo - Descubra esta peça exclusiva.").replace(/"/g, '&quot;').replace(/\n/g, ' ');
+  const title = (product.title || product.name || "S.art Boutique | Moda, Tendências e Lifestyle").replace(/"/g, '&quot;');
+  const description = (product.description || "Descubra a seleção inteligente da S.art. De vestuário e calçado a gadgets inovadores, reunimos as últimas tendências num só lugar. Qualidade, estilo e uma compra segura.").replace(/"/g, '&quot;').replace(/\n/g, ' ');
   
   // Resolve image - handle different fields
   let image = product.image_url || product.image || product.thumbnail;

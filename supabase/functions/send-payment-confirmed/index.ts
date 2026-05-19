@@ -299,7 +299,7 @@ Deno.serve(async (req) => {
                             <table border="0" align="center" style="margin-top: 15px;">
                                 <tr>
                                     <td align="center" style="background-color: #c99372; padding: 6px 18px; border-radius: 2px;">
-                                        <span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; font-weight: bold; color: #000000; letter-spacing: 3px; text-transform: uppercase;">Boutique Premium</span>
+                                        <span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; font-weight: bold; color: #000000; letter-spacing: 3px; text-transform: uppercase;">S.art Boutique</span>
                                     </td>
                                 </tr>
                             </table>

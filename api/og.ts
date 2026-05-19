@@ -44,8 +44,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).send('Produto não encontrado');
     }
 
-    const title = (product.title || "S.art | Boutique Premium").replace(/"/g, '&quot;');
-    const rawDescription = product.description || "Curadoria de Luxo - Descubra esta peça exclusiva.";
+    const title = (product.title || "S.art Boutique | Moda, Tendências e Lifestyle").replace(/"/g, '&quot;');
+    const rawDescription = product.description || "Descubra a seleção inteligente da S.art. De vestuário e calçado a gadgets inovadores, reunimos as últimas tendências num só lugar. Qualidade, estilo e uma compra segura.";
     const description = rawDescription.replace(/"/g, '&quot;').replace(/\n/g, ' ').substring(0, 200);
     const image = product.image_url || 'https://sart-full.pt/og-default.jpg';
     

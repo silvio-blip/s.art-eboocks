@@ -1149,7 +1149,7 @@ const AuthDialog = ({
           </DialogTitle>
           <div className="text-[10px] uppercase tracking-[0.2em] text-luxury-foreground/40">
             {mode === "login"
-              ? "Entrar na Boutique Premium"
+              ? "Entrar na S.art Boutique"
               : mode === "register"
                 ? "Criar Conta Exclusiva"
                 : mode === "forgot"
@@ -1677,8 +1677,8 @@ const ProductDetailsPage = ({
             const url = `${window.location.origin}/?v=product-detail&product=${product.id}`;
             
             const shareData: any = {
-              title: `S.art | Boutique Premium`,
-              text: `Curadoria de Luxo - Descubra esta peça exclusiva: ${product.title}`,
+              title: `S.art Boutique | Moda, Tendências e Lifestyle`,
+              text: `Descubra a seleção inteligente da S.art: ${product.title}`,
               url: url
             };
 
