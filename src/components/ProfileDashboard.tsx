@@ -76,6 +76,7 @@ interface Profile {
     city?: string;
     zip?: string;
     phone?: string;
+    country?: string;
   };
 }
 
@@ -136,7 +137,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     address: '',
     city: '',
     zip: '',
-    phone: ''
+    phone: '',
+    country: 'Portugal'
   });
   const [isSavingSavedAddress, setIsSavingSavedAddress] = useState(false);
 
@@ -194,7 +196,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         address: profileData.saved_address?.address || '',
         city: profileData.saved_address?.city || '',
         zip: profileData.saved_address?.zip || '',
-        phone: profileData.saved_address?.phone || ''
+        phone: profileData.saved_address?.phone || '',
+        country: profileData.saved_address?.country || 'Portugal'
       });
 
       if (!data.custom_id) {
@@ -636,6 +639,21 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         />
                       </div>
                       <div className="space-y-2">
+                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">País</label>
+                        <select 
+                          value={savedAddressForm.country} 
+                          onChange={e => setSavedAddressForm({...savedAddressForm, country: e.target.value})}
+                          className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                        >
+                          <option value="Portugal">Portugal</option>
+                          <option value="Brasil">Brasil</option>
+                          <option value="Espanha">Espanha</option>
+                          <option value="Estados Unidos">Estados Unidos</option>
+                          <option value="França">França</option>
+                          <option value="Reino Unido">Reino Unido</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
                         <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Código Postal</label>
                         <input 
                           type="text" 
@@ -670,7 +688,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                  <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Localização</p>
                                  <p className="text-sm text-white/80 leading-relaxed font-serif">
                                    {profile.saved_address.address}<br />
-                                   {profile.saved_address.zip} {profile.saved_address.city}
+                                   {profile.saved_address.zip} {profile.saved_address.city}<br />
+                                   {profile.saved_address.country || 'Portugal'}
                                  </p>
                                </div>
                             </div>

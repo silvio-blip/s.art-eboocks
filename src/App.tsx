@@ -107,7 +107,6 @@ const QuantitySelector = ({ value, onChange, label = "Quantidade" }: { value: nu
 
 const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
   const activeProducts = useMemo(() => products.filter(p => p.is_active && p.image_url), [products]);
-  if (activeProducts.length === 0) return null;
 
   const baseX = useMotionValue(0);
   const { scrollY } = useScroll();
@@ -149,6 +148,7 @@ const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
   });
 
   const marqueeItems = useMemo(() => {
+    if (activeProducts.length === 0) return [];
     let list = [...activeProducts];
     // Ensure we have a high enough count to prevent gaps anywhere
     while (list.length < 20) {
@@ -157,6 +157,8 @@ const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
     // Triple it for the wrap logic
     return [...list, ...list, ...list];
   }, [activeProducts]);
+
+  if (activeProducts.length === 0) return null;
 
   return (
     <div className="relative py-14 overflow-hidden bg-[#050505] select-none pointer-events-none">
@@ -1439,7 +1441,6 @@ const CheckoutModal = ({
   onConfirm: (customerData: any) => void;
   isProcessing: boolean;
 }) => {
-  if (!product) return null;
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -1450,6 +1451,8 @@ const CheckoutModal = ({
     zip: "",
     country: "PT",
   });
+
+  if (!product) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -2408,6 +2411,7 @@ export default function App() {
       city?: string;
       zip?: string;
       phone?: string;
+      country?: string;
     };
   } | null>(null);
   const theme = "dark";
@@ -2415,23 +2419,56 @@ export default function App() {
   // Pre-fill shipping info from profile if available
   useEffect(() => {
     if (view === "shipping" && user && profile) {
-      // Use profile.saved_address if it exists, otherwise it might be empty
       const address = profile.saved_address || {};
       
       setShippingInfo(prev => {
-        // If they are already filled, don't overwrite user input unless they were empty
-        const shouldUpdate = !prev.address || prev.address === "";
-        
-        if (!shouldUpdate) return prev;
+        // We want to fill if the fields are empty
+        const newInfo = { ...prev };
+        let updated = false;
 
-        return {
-          ...prev,
-          fullName: address.full_name || prev.fullName || profile.full_name || user.user_metadata?.full_name || "",
-          address: address.address || prev.address || "",
-          city: address.city || prev.city || "",
-          postalCode: address.zip || prev.postalCode || "",
-          phone: (address.phone && address.phone !== "") ? address.phone : prev.phone,
-        };
+        if (!newInfo.fullName && (address.full_name || profile.full_name || user.user_metadata?.full_name)) {
+          newInfo.fullName = address.full_name || profile.full_name || user.user_metadata?.full_name || "";
+          updated = true;
+        }
+
+        if (!newInfo.address && address.address) {
+          newInfo.address = address.address;
+          updated = true;
+        }
+
+        if (!newInfo.city && address.city) {
+          newInfo.city = address.city;
+          updated = true;
+        }
+
+        if (!newInfo.postalCode && address.zip) {
+          newInfo.postalCode = address.zip;
+          updated = true;
+        }
+
+        if (address.country && (newInfo.country !== address.country)) {
+          newInfo.country = address.country;
+          updated = true;
+        }
+
+        // Phone normalization and fill
+        let phoneToPath = address.phone || "";
+        if (phoneToPath && phoneToPath.startsWith('+')) {
+          const matchedCountry = COUNTRIES.find(c => phoneToPath.startsWith(c.prefix));
+          if (matchedCountry) {
+            const prefix = matchedCountry.prefix;
+            if (phoneToPath.startsWith(prefix) && phoneToPath.length > prefix.length && phoneToPath[prefix.length] !== ' ') {
+              phoneToPath = prefix + " " + phoneToPath.slice(prefix.length);
+            }
+          }
+        }
+
+        if ((!newInfo.phone || newInfo.phone === "+351 " || newInfo.phone === "") && phoneToPath) {
+          newInfo.phone = phoneToPath;
+          updated = true;
+        }
+
+        return updated ? newInfo : prev;
       });
       
       if (address.address) {
@@ -3933,19 +3970,38 @@ export default function App() {
                         onChange={(e) => {
                           const input = e.target.value;
                           const countryObj = COUNTRIES.find(c => c.name === shippingInfo.country);
-                          const prefix = countryObj ? countryObj.prefix + " " : "";
+                          const prefix = countryObj ? countryObj.prefix : "";
+                          const prefixWithSpace = prefix ? prefix + " " : "";
                           
-                          if (input.length < prefix.length) {
-                            setShippingInfo({ ...shippingInfo, phone: prefix });
+                          // Handle deleting the prefix
+                          if (prefix && input.length < prefix.length) {
+                            setShippingInfo({ ...shippingInfo, phone: prefixWithSpace });
                             return;
                           }
-                          if (!input.startsWith(prefix)) return;
 
-                          const suffix = input.slice(prefix.length).replace(/[^\d]/g, '');
+                          // If the user deleted the space but kept the prefix
+                          if (prefix && input === prefix) {
+                             setShippingInfo({ ...shippingInfo, phone: prefixWithSpace });
+                             return;
+                          }
+
+                          // Ensure it starts with the prefix (at least without space)
+                          if (prefix && !input.startsWith(prefix)) return;
+
+                          // Extract suffix (everything after prefix and potentially space)
+                          let suffix = "";
+                          if (input.startsWith(prefixWithSpace)) {
+                            suffix = input.slice(prefixWithSpace.length);
+                          } else if (input.startsWith(prefix)) {
+                            suffix = input.slice(prefix.length);
+                          }
+                          
+                          suffix = suffix.replace(/[^\d]/g, '');
+
                           if (suffix.length <= 15) { // Global phone limit approx
                             setShippingInfo({
                               ...shippingInfo,
-                              phone: prefix + suffix
+                              phone: prefixWithSpace + suffix
                             });
                           }
                         }}
