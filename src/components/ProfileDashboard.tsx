@@ -82,7 +82,12 @@ interface Profile {
 interface ProfileDashboardProps {
   user: any;
   purchasedProducts: Order[];
-  onProfileUpdate: (data: { full_name?: string, avatar_url?: string, custom_cursor_enabled?: boolean }) => void;
+  onProfileUpdate: (data: { 
+    full_name?: string, 
+    avatar_url?: string, 
+    custom_cursor_enabled?: boolean,
+    saved_address?: any 
+  }) => void;
   onRefundRequest: (order: Order) => void;
   onLogout: () => void;
   formatPrice?: (price: number) => string;
@@ -367,8 +372,12 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
       setIsEditingSavedAddress(false);
       toast.success('Endereço guardado com sucesso!', { id: tid });
       
-      // Update app state if needed
-      onProfileUpdate({ full_name: editForm.full_name }); // Just to trigger any refresh
+      // Update app state with the new address immediately
+      onProfileUpdate({ 
+        full_name: profile?.full_name,
+        avatar_url: profile?.avatar_url,
+        saved_address: savedAddressForm 
+      });
     } catch (err: any) {
       toast.error(err.message, { id: tid });
     } finally {

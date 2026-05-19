@@ -2414,18 +2414,25 @@ export default function App() {
 
   // Pre-fill shipping info from profile if available
   useEffect(() => {
-    if (view === "shipping" && user && profile?.saved_address) {
-      const address = profile.saved_address;
+    if (view === "shipping" && user && profile) {
+      // Use profile.saved_address if it exists, otherwise it might be empty
+      const address = profile.saved_address || {};
       
-      // Only fill if current fields are empty to avoid overwriting user changes
-      setShippingInfo(prev => ({
-        ...prev,
-        fullName: prev.fullName || address.full_name || profile.full_name || "",
-        address: prev.address || address.address || "",
-        city: prev.city || address.city || "",
-        postalCode: prev.postalCode || address.zip || "",
-        phone: prev.phone && prev.phone !== "+351 " ? prev.phone : (address.phone || prev.phone),
-      }));
+      setShippingInfo(prev => {
+        // If they are already filled, don't overwrite user input unless they were empty
+        const shouldUpdate = !prev.address || prev.address === "";
+        
+        if (!shouldUpdate) return prev;
+
+        return {
+          ...prev,
+          fullName: address.full_name || prev.fullName || profile.full_name || user.user_metadata?.full_name || "",
+          address: address.address || prev.address || "",
+          city: address.city || prev.city || "",
+          postalCode: address.zip || prev.postalCode || "",
+          phone: (address.phone && address.phone !== "") ? address.phone : prev.phone,
+        };
+      });
       
       if (address.address) {
         toast.info("Endereço predefinido aplicado.", { 
@@ -2631,11 +2638,25 @@ export default function App() {
   }, []);
 
   const fetchProfile = async (userObj: SupabaseUser) => {
-    const { data, error } = await supabase
+    // Try to fetch with all columns first
+    let { data, error } = await supabase
       .from("profiles")
       .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin, is_employee, saved_address")
       .eq("id", userObj.id)
       .single();
+
+    // Fallback if saved_address column doesn't exist yet (prevents app crash)
+    if (error && error.message && (error.message.includes('saved_address') || error.message.includes('column'))) {
+      console.warn("saved_address column missing, retrying without it...");
+      const { data: retryData, error: retryError } = await supabase
+        .from("profiles")
+        .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin, is_employee")
+        .eq("id", userObj.id)
+        .single();
+      
+      data = retryData;
+      error = retryError;
+    }
 
     // Get product count for this user
     const { count: pCount } = await supabase
