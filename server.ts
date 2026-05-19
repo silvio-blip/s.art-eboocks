@@ -339,6 +339,10 @@ const initDB = async () => {
         try { await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" }); } catch(e) {}
         try { await supabase.rpc('exec_sql', { sql: "COMMENT ON TABLE products IS 'Refreshed at " + new Date().toISOString() + "';" }); } catch(e) {}
         
+        // Log product count for debugging
+        const { count } = await supabase.from('products').select('*', { count: 'exact', head: true });
+        console.log(`[INIT] DATABASE STATUS: Found ${count || 0} products in 'products' table.`);
+
         console.log('[INIT] Database schema verification and refresh targeted using exec_sql.');
       } catch(e) { 
         console.error('[INIT] Error ensuring product columns using exec_sql:', e);

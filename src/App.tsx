@@ -2099,7 +2099,12 @@ export default function App() {
 
   // Initialize from URL or LocalStorage
   useEffect(() => {
-    if (products.length === 0 || isInitialized) return;
+    if (isInitialized) return;
+
+    // We can initialize even with 0 products after fetchProducts has finished at least once
+    // but the local loadingProducts state is in fetchProducts.
+    // Let's use a simpler check: if products are loaded (even if empty)
+    if (loadingProducts && products.length === 0) return;
 
     const params = new URLSearchParams(window.location.search);
     const urlProduct = params.get("product");
@@ -2168,7 +2173,7 @@ export default function App() {
     
     setIsInitialized(true);
     setLoading(false); // Only stop loading when initialized
-  }, [products.length, isInitialized]);
+  }, [products.length, isInitialized, loadingProducts]);
 
   const handleBack = () => {
     if (window.history.length > 1) {
@@ -2993,6 +2998,7 @@ export default function App() {
 
   const fetchProducts = async () => {
     setLoadingProducts(true);
+    console.log("[DEBUG] Chamando fetchProducts...");
     try {
       const { data: dbProducts, error: dbError } = await supabase
         .from("products")
@@ -3005,10 +3011,12 @@ export default function App() {
         return;
       }
 
+      console.log(`[DEBUG] fetchProducts retornou ${dbProducts?.length || 0} produtos.`);
+
       const productsWithPvp = (dbProducts || []).map(p => ({
         ...p,
         pvp: p.price || 0,
-        is_active: p.is_active === undefined ? true : p.is_active, 
+        is_active: (p.is_active === undefined || p.is_active === null) ? true : p.is_active, 
         supabase_id: p.id
       }));
 
@@ -3299,6 +3307,10 @@ export default function App() {
       </Dialog>
 
       <main className={`overflow-x-hidden ${view === "home" ? "w-full" : "pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full"}`}>
+        {/* Debug info - hidden by default unless we know what to look for */}
+        <div className="fixed bottom-0 left-0 z-[9999] opacity-10 hover:opacity-100 transition-opacity p-2 text-[8px] font-mono text-white pointer-events-none">
+          P: {products.length} | L: {loadingProducts ? "TRUE" : "FALSE"} | S: {view}
+        </div>
         <AnimatePresence mode="wait">
           {view === "reset-password" && (
             <motion.div
