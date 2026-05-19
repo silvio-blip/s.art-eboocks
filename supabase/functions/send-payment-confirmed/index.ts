@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createTransport } from "npm:nodemailer";
-import { jsPDF } from "npm:jspdf";
 
 const SMTP_HOST = Deno.env.get("SMTP_HOSTNAME");
 const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") || "465");
@@ -19,76 +18,27 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
   
   try {
-    const { orderId, email, customerName, customerAvatar, product } = await req.json();
+    const { orderId, email, customerName, customerAvatar, product, invoiceUrl } = await req.json();
     const orderRef = orderId ? orderId.slice(0, 8).toUpperCase() : "";
 
-    // 1. Gerar o PDF da Fatura
-    const doc = new jsPDF();
+    let pdfBuffer: Uint8Array | null = null;
     
-    // Cabeçalho Premium
-    doc.setFillColor(10, 10, 10);
-    doc.rect(0, 0, 210, 40, 'F');
-    
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("times", "bold");
-    doc.setFontSize(28);
-    doc.text("S.art", 105, 25, { align: "center" });
-    
-    // Informações da Fatura
-    doc.setTextColor(0, 0, 0);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text("FATURA / INVOICE", 20, 60);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Data: ${new Date().toLocaleDateString('pt-PT')}`, 150, 60);
-    doc.text(`Pedido: #${orderRef}`, 20, 70);
-    doc.text(`ID Transação: ${orderId}`, 20, 75);
-    
-    // Detalhes do Cliente
-    doc.setTextColor(0, 0, 0);
-    doc.setFont("helvetica", "bold");
-    doc.text("DESTINATÁRIO", 20, 90);
-    doc.setFont("helvetica", "normal");
-    doc.text(customerName || "Cliente Premium", 20, 95);
-    doc.text(email || "", 20, 100);
-    
-    // Tabela de Produtos
-    doc.setFillColor(245, 245, 245);
-    doc.rect(20, 115, 170, 10, 'F');
-    doc.setFont("helvetica", "bold");
-    doc.text("Item / Descrição", 25, 122);
-    doc.text("Referência", 100, 122);
-    doc.text("Preço", 170, 122, { align: "right" });
-    
-    // Conteúdo da Tabela
-    doc.setFont("helvetica", "normal");
-    doc.text(product?.name || "Peça Exclusiva S.art", 25, 135);
-    doc.text(product?.id?.slice(0, 10) || "N/A", 100, 135);
-    doc.text(`€${product?.price || "0.00"}`, 170, 135, { align: "right" });
-    
-    doc.line(20, 145, 190, 145);
-    
-    // Totais
-    doc.setFont("helvetica", "bold");
-    doc.text("SUBTOTAL", 140, 155);
-    doc.text(`€${product?.price || "0.00"}`, 170, 155, { align: "right" });
-    
-    doc.text("TOTAL PAGO", 140, 165);
-    doc.setTextColor(201, 147, 114); // #c99372
-    doc.text(`€${product?.price || "0.00"}`, 170, 165, { align: "right" });
-    
-    // Rodapé
-    doc.setTextColor(150, 150, 150);
-    doc.setFontSize(8);
-    doc.text("Obrigado pela sua preferência por S.art Boutique.", 105, 280, { align: "center" });
-    doc.text("Este documento é um comprovativo eletrónico de pagamento.", 105, 285, { align: "center" });
-
-    // Converter para Buffer para o Nodemailer
-    const pdfOutput = doc.output('arraybuffer');
-    const pdfBuffer = new Uint8Array(pdfOutput);
+    // Fetch Invoice from Stripe if URL provided
+    if (invoiceUrl) {
+      try {
+        console.log(`[INFO] Fetching PDF from: ${invoiceUrl}`);
+        const pdfRes = await fetch(invoiceUrl);
+        if (pdfRes.ok) {
+          const arrayBuffer = await pdfRes.arrayBuffer();
+          pdfBuffer = new Uint8Array(arrayBuffer);
+          console.log(`[INFO] PDF successfully downloaded (${pdfBuffer.length} bytes)`);
+        } else {
+          console.error(`[ERROR] Failed to download PDF. Status: ${pdfRes.status}`);
+        }
+      } catch (err) {
+        console.error(`[ERROR] Error fetching Stripe PDF: ${err.message}`);
+      }
+    }
 
     const avatarHtml = customerAvatar 
       ? `<img src="${customerAvatar}" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid #c99372; margin-bottom: 10px;" />`
@@ -98,17 +48,20 @@ serve(async (req) => {
       ? `<img src="${product.image}" style="width: 100%; max-width: 250px; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);" />`
       : "";
 
+    const attachments = [];
+    if (pdfBuffer) {
+      attachments.push({
+        filename: `fatura-${orderRef}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf'
+      });
+    }
+
     await transporter.sendMail({
       from: `"S.art Boutique" <${SMTP_USER}>`,
       to: email,
       subject: `✨ Pagamento Confirmado! Pedido #${orderRef}`,
-      attachments: [
-        {
-          filename: `fatura-${orderRef}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        }
-      ],
+      attachments,
       html: `
 <!DOCTYPE html>
 <html lang="pt-PT">

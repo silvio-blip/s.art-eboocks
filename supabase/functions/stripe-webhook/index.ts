@@ -150,6 +150,18 @@ serve(async (req) => {
             customerName = session.customer_details?.name || "Cliente";
           }
 
+          // Get Stripe Invoice URL if available
+          let invoiceUrl = null;
+          if (session.invoice) {
+            try {
+              const invoice = await stripe.invoices.retrieve(session.invoice as string);
+              invoiceUrl = invoice.invoice_pdf;
+              console.log(`[STRIPE] Invoice PDF found: ${invoiceUrl}`);
+            } catch (invoiceErr) {
+              console.error("[STRIPE_ERROR] Failed to retrieve invoice:", invoiceErr);
+            }
+          }
+
           const emailResponse = await fetch(functionUrl, {
             method: "POST",
             headers: {
@@ -160,6 +172,7 @@ serve(async (req) => {
               orderId: order.id,
               email: order.customer_email || session.customer_details?.email,
               customerName: customerName.trim(),
+              invoiceUrl: invoiceUrl, // Send the URL to the email function
               product: {
                 id: order.product?.id,
                 name: order.product?.title,
