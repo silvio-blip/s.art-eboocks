@@ -2079,7 +2079,7 @@ export default function App() {
     localStorage.setItem("sart_navigation_state", JSON.stringify({ view, productId: detailProduct?.id, scroll: homeScrollPosRef.current }));
   }, [view, detailProduct, isNavigatingByHistory, isInitialized]);
 
-  // UseEffect for Popstate (Browser Back/Forward)
+  // Handle browser back/forward buttons and tab focus correctly
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
       if (event && event.state) {
@@ -2088,28 +2088,80 @@ export default function App() {
         if (productId && products.length > 0) {
           const prod = products.find(p => p.id === productId);
           if (prod) setDetailProduct(prod);
+        } else {
+          setDetailProduct(null);
         }
         setView(savedView || "home");
-        setTimeout(() => setIsNavigatingByHistory(false), 200);
+        // Faster reset of history flag to prevent blocking click-based navigation
+        setTimeout(() => setIsNavigatingByHistory(false), 50);
       }
     };
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        console.log("[SYSTEM] Aba focada. Verificando integridade dos dados...");
+        
+        try {
+          // Check if session is still valid
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session && !user) {
+            setUser(session.user);
+          } else if (!session && user) {
+            // Session lost or expired while away
+            console.warn("[SYSTEM] Sessão expirada durante inatividade.");
+            setUser(null);
+          }
+
+          // Refresh products to ensure we have the latest stock/prices
+          await fetchProducts();
+          
+          if (user || session?.user) {
+            fetchDashboardData((user || session?.user)!.id);
+          }
+        } catch (e) {
+          console.error("[SYSTEM] Erro no heartbeat de visibilidade:", e);
+        }
+      }
+    };
+
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [products]);
+    window.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [products, user]);
 
   // Initialize from URL or LocalStorage
   useEffect(() => {
     if (isInitialized) return;
 
-    // We can initialize even with 0 products after fetchProducts has finished at least once
-    // but the local loadingProducts state is in fetchProducts.
-    // Let's use a simpler check: if products are loaded (even if empty)
+    // Strict safety timeout: absolute limit of 6 seconds before showing UI
+    const safetyTimer = setTimeout(() => {
+      if (!isInitialized) {
+        console.warn("[INIT] Tempo limite de inicialização atingido. Forçando entrada.");
+        performInitialization();
+      }
+    }, 6000);
+
+    // We prefer waiting for products, as it defines which view it should be
+    // but we don't wait forever.
     if (loadingProducts && products.length === 0) return;
+
+    clearTimeout(safetyTimer);
+    performInitialization();
+  }, [products.length, isInitialized, loadingProducts]);
+
+  const performInitialization = () => {
+    if (isInitialized) return;
+    
+    console.log("[INIT] Sincronizando estado da aplicação...");
 
     const params = new URLSearchParams(window.location.search);
     const urlProduct = params.get("product");
     const urlView = params.get("v");
-    // First, handle Stripe Redirects (They have priority)
+    
+    // Check if Stripe is returning (prioritize)
     const status = params.get("payment_status");
     const sessionId = params.get("session_id");
     const isStripeReturn = !!(status || sessionId);
@@ -2143,8 +2195,8 @@ export default function App() {
     let targetView = urlView;
     let targetProductId = urlProduct;
 
-    // If no URL params AND not a Stripe return, try localStorage
-    if (!urlProduct && !urlView && !isStripeReturn) {
+    // Use persistence as fallback for non-defined URL states
+    if (!urlProduct && !urlView) {
       const persisted = localStorage.getItem("sart_navigation_state");
       if (persisted) {
         try {
@@ -2156,14 +2208,22 @@ export default function App() {
       }
     }
 
+    // Validation against loaded products
     if (targetProductId) {
       const prod = products.find(p => p.id === targetProductId);
       if (prod) {
         setDetailProduct(prod);
-        setSelectedProduct(prod); // Ensure selectedProduct is also synced
+        setSelectedProduct(prod);
+        // Ensure consistent view for products
         setView(targetView === "shipping" ? "shipping" : "product-detail");
-      } else {
+      } else if (products.length > 0) {
+        // Product requested but not found after load -> go home
+        console.warn(`[INIT] Produto ${targetProductId} não encontrado. Voltando ao catálogo.`);
         setView("home");
+      } else {
+        // Still 0 products but safety timeout triggered or no products in DB
+        // Maintain intent if possible
+        if (targetView) setView(targetView as any);
       }
     } else if (targetView) {
       setView(targetView as any);
@@ -2172,8 +2232,16 @@ export default function App() {
     }
     
     setIsInitialized(true);
-    setLoading(false); // Only stop loading when initialized
-  }, [products.length, isInitialized, loadingProducts]);
+    setLoading(false);
+    console.log("[INIT] Aplicação Inicializada. View:", targetView || "home");
+
+    // After initialization, handle potential scroll restoration
+    if (targetView === "home" && homeScrollPosRef.current > 0) {
+      setTimeout(() => {
+        window.scrollTo({ top: homeScrollPosRef.current, behavior: 'instant' as any });
+      }, 150);
+    }
+  };
 
   const handleBack = () => {
     if (window.history.length > 1) {
@@ -3307,10 +3375,6 @@ export default function App() {
       </Dialog>
 
       <main className={`overflow-x-hidden ${view === "home" ? "w-full" : "pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full"}`}>
-        {/* Debug info - hidden by default unless we know what to look for */}
-        <div className="fixed bottom-0 left-0 z-[9999] opacity-10 hover:opacity-100 transition-opacity p-2 text-[8px] font-mono text-white pointer-events-none">
-          P: {products.length} | L: {loadingProducts ? "TRUE" : "FALSE"} | S: {view}
-        </div>
         <AnimatePresence mode="wait">
           {view === "reset-password" && (
             <motion.div
