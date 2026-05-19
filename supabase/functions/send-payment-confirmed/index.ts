@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createTransport } from "npm:nodemailer";
+import { jsPDF } from "npm:jspdf";
 
 const SMTP_HOST = Deno.env.get("SMTP_HOSTNAME");
 const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") || "465");
 const SMTP_USER = Deno.env.get("SMTP_USER");
 const SMTP_PASS = Deno.env.get("SMTP_PASS");
-const SITE_URL = Deno.env.get("SITE_URL") || "https://sart-boutique.com";
+const SITE_URL = Deno.env.get("SITE_URL") || "https://sart-full.pt";
 
 const transporter = createTransport({
   host: SMTP_HOST,
@@ -16,64 +17,229 @@ const transporter = createTransport({
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+  
   try {
     const { orderId, email, customerName, customerAvatar, product } = await req.json();
     const orderRef = orderId ? orderId.slice(0, 8).toUpperCase() : "";
 
+    // 1. Gerar o PDF da Fatura
+    const doc = new jsPDF();
+    
+    // Cabeçalho Premium
+    doc.setFillColor(10, 10, 10);
+    doc.rect(0, 0, 210, 40, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("times", "bold");
+    doc.setFontSize(28);
+    doc.text("S.art", 105, 25, { align: "center" });
+    
+    // Informações da Fatura
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("FATURA / INVOICE", 20, 60);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Data: ${new Date().toLocaleDateString('pt-PT')}`, 150, 60);
+    doc.text(`Pedido: #${orderRef}`, 20, 70);
+    doc.text(`ID Transação: ${orderId}`, 20, 75);
+    
+    // Detalhes do Cliente
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "bold");
+    doc.text("DESTINATÁRIO", 20, 90);
+    doc.setFont("helvetica", "normal");
+    doc.text(customerName || "Cliente Premium", 20, 95);
+    doc.text(email || "", 20, 100);
+    
+    // Tabela de Produtos
+    doc.setFillColor(245, 245, 245);
+    doc.rect(20, 115, 170, 10, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.text("Item / Descrição", 25, 122);
+    doc.text("Referência", 100, 122);
+    doc.text("Preço", 170, 122, { align: "right" });
+    
+    // Conteúdo da Tabela
+    doc.setFont("helvetica", "normal");
+    doc.text(product?.name || "Peça Exclusiva S.art", 25, 135);
+    doc.text(product?.id?.slice(0, 10) || "N/A", 100, 135);
+    doc.text(`€${product?.price || "0.00"}`, 170, 135, { align: "right" });
+    
+    doc.line(20, 145, 190, 145);
+    
+    // Totais
+    doc.setFont("helvetica", "bold");
+    doc.text("SUBTOTAL", 140, 155);
+    doc.text(`€${product?.price || "0.00"}`, 170, 155, { align: "right" });
+    
+    doc.text("TOTAL PAGO", 140, 165);
+    doc.setTextColor(201, 147, 114); // #c99372
+    doc.text(`€${product?.price || "0.00"}`, 170, 165, { align: "right" });
+    
+    // Rodapé
+    doc.setTextColor(150, 150, 150);
+    doc.setFontSize(8);
+    doc.text("Obrigado pela sua preferência por S.art Boutique.", 105, 280, { align: "center" });
+    doc.text("Este documento é um comprovativo eletrónico de pagamento.", 105, 285, { align: "center" });
+
+    // Converter para Buffer para o Nodemailer
+    const pdfOutput = doc.output('arraybuffer');
+    const pdfBuffer = new Uint8Array(pdfOutput);
+
     const avatarHtml = customerAvatar 
-      ? `<img src="${customerAvatar}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #D4AF37; margin-bottom: 10px;" />`
+      ? `<img src="${customerAvatar}" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid #c99372; margin-bottom: 10px;" />`
       : "";
 
     const productImageHtml = product?.image
-      ? `<img src="${product.image}" style="width: 100%; max-width: 200px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 20px 0;" />`
+      ? `<img src="${product.image}" style="width: 100%; max-width: 250px; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1);" />`
       : "";
 
     await transporter.sendMail({
-      from: `"SArt Boutique" <${SMTP_USER}>`,
+      from: `"S.art Boutique" <${SMTP_USER}>`,
       to: email,
       subject: `✨ Pagamento Confirmado! Pedido #${orderRef}`,
+      attachments: [
+        {
+          filename: `fatura-${orderRef}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }
+      ],
       html: `
-        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; color: #1a1a1a; padding: 40px 20px; border: 1px solid #f0f0f0;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <div style="font-size: 24px; font-weight: 300; letter-spacing: 5px; color: #000; text-transform: uppercase; margin-bottom: 10px;">SArt Boutique</div>
-            <div style="height: 1px; width: 50px; background: #D4AF37; margin: 0 auto;"></div>
-          </div>
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S.art | Boutique Premium</title>
+    <style type="text/css">
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+        body { margin: 0 !important; padding: 0 !important; width: 100% !important; background-color: #0a0a0a; }
+        
+        @media screen and (max-width: 600px) {
+            .email-container { width: 100% !important; margin: auto !important; }
+            .hero-title { font-size: 24px !important; letter-spacing: 2px !important; }
+            .content-padding { padding: 30px 20px !important; }
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0a0a0a;">
+        <tr>
+            <td align="center" style="padding: 20px 0;">
+                <table border="0" cellpadding="0" cellspacing="0" width="600" class="email-container" style="background-color: #141414; border: 1px solid #222222;">
+                    
+                    <tr>
+                        <td align="center" style="padding: 30px 20px; border-bottom: 1px solid #2a2a2a;">
+                            <a href="${SITE_URL}" style="text-decoration: none; font-size: 28px; font-weight: bold; color: #ffffff; font-family: 'Times New Roman', Times, serif; letter-spacing: 1px;">
+                                S.art
+                            </a>
+                        </td>
+                    </tr>
 
-          <div style="text-align: center;">
-            ${avatarHtml}
-            <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 10px 0;">Olá, ${customerName}!</h1>
-            <p style="font-size: 16px; color: #666; line-height: 1.6;">O seu pagamento foi processado com sucesso. A sua peça exclusiva já está a ser preparada!</p>
-          </div>
+                    <tr>
+                        <td align="center" style="background-color: #1a1a1a; background-image: url('https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80'); background-size: cover; background-position: center;">
+                            <div style="background-color: rgba(0, 0, 0, 0.75); padding: 50px 20px; text-align: center;">
+                                <h1 class="hero-title" style="margin: 0; font-family: 'Times New Roman', Times, serif; font-size: 32px; font-weight: normal; color: #ffffff; letter-spacing: 3px; text-transform: uppercase;">
+                                    Pagamento Confirmado
+                                </h1>
+                                <table border="0" cellpadding="0" cellspacing="0" align="center" style="margin-top: 15px;">
+                                    <tr>
+                                        <td align="center" style="background-color: #c99372; padding: 6px 15px;">
+                                            <span style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; font-weight: bold; color: #000000; letter-spacing: 2px; text-transform: uppercase;">
+                                                Pedido #${orderRef}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
 
-          <div style="background: #fdfbf7; border: 1px solid #f1e9d6; border-radius: 12px; padding: 25px; margin: 30px 0; text-align: center;">
-            <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: #9a8044; margin-bottom: 15px; font-weight: bold;">Detalhes da Encomenda</div>
-            
-            ${productImageHtml}
-            
-            <div style="font-size: 18px; font-weight: 800; margin-bottom: 5px;">${product?.name || "Produto SArt"}</div>
-            <div style="font-size: 12px; color: #999; margin-bottom: 15px;">REF: ${product?.id || "N/A"}</div>
-            
-            <div style="font-size: 24px; color: #D4AF37; font-weight: 900;">€${product?.price || "0.00"}</div>
-            
-            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
-              Pedido ID: <span style="font-family: monospace;">${orderId}</span>
-            </div>
-          </div>
+                    <tr>
+                        <td align="center" class="content-padding" style="padding: 40px; color: #cccccc; font-size: 16px; line-height: 1.6; text-align: center;">
+                            
+                            ${avatarHtml}
+                            
+                            <p style="margin-top: 5px; color: #ffffff; font-size: 20px;">Olá, <strong>${customerName}</strong>!</p>
+                            
+                            <p style="margin-bottom: 35px; font-size: 15px; color: #aaaaaa;">
+                                O seu pagamento foi processado com sucesso. A sua peça exclusiva de arte e design já está a ser meticulosamente preparada pela nossa equipa na <strong>Boutique S.art</strong>.
+                            </p>
+                            
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; margin-bottom: 35px;">
+                                <tr>
+                                    <td align="center" style="padding: 30px 20px;">
+                                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #c99372; margin-bottom: 20px; font-weight: bold;">Detalhes da Peça</div>
+                                        
+                                        ${productImageHtml}
+                                        
+                                        <div style="font-size: 20px; font-weight: normal; color: #ffffff; margin-bottom: 5px; font-family: 'Times New Roman', Times, serif; letter-spacing: 1px;">
+                                            ${product?.name || "Peça Exclusiva S.art"}
+                                        </div>
+                                        
+                                        <div style="font-size: 12px; color: #777777; margin-bottom: 15px;">REF: ${product?.id || "N/A"}</div>
+                                        
+                                        <div style="font-size: 22px; color: #c99372; font-weight: normal; letter-spacing: 1px;">
+                                            €${product?.price || "0.00"}
+                                        </div>
+                                        
+                                        <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 12px; color: #666666;">
+                                            ID da Transação: <span style="font-family: monospace; color: #888888;">${orderId}</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
 
-          <div style="text-align: center; margin: 40px 0;">
-            <a href="${SITE_URL}/profile" style="background: #000; color: #fff; padding: 18px 40px; text-decoration: none; border-radius: 0; font-weight: bold; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; display: inline-block;">Acompanhar Pedido</a>
-          </div>
+                            <p style="margin-bottom: 25px; font-size: 13px; color: #888888;">Anexamos a este e-mail a fatura detalhada da sua compra para os seus registos.</p>
 
-          <div style="text-align: center; font-size: 12px; color: #999; margin-top: 60px;">
-            <p>Se tiver alguma dúvida, responda a este e-mail ou visite a nossa central de ajuda.</p>
-            <p style="margin-top: 20px; letter-spacing: 1px;">© 2026 SART BOUTIQUE | PORTO - PORTUGAL</p>
-          </div>
-        </div>
+                            <table border="0" cellpadding="0" cellspacing="0" align="center" style="width: 100%;">
+                                <tr>
+                                    <td align="center">
+                                        <div style="display: inline-block; border-radius: 30px; background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.4);">
+                                            <a href="${SITE_URL}/profile" target="_blank" style="display: inline-block; padding: 14px 30px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: bold; color: #ffffff; text-decoration: none; letter-spacing: 2px; text-transform: uppercase; border-radius: 30px;">
+                                                Acompanhar Pedido
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td align="center" style="padding: 0 40px;">
+                            <hr style="border: 0; border-top: 1px solid #2a2a2a; margin: 0;">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td align="center" style="padding: 30px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #777777;">
+                            <p style="margin: 0 0 10px 0;">Se tiver alguma dúvida sobre a sua peça, basta responder a este e-mail.</p>
+                            <p style="margin: 0;">&copy; ${new Date().getFullYear()} S.art | Boutique</p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
       `,
     });
 
     return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
   } catch (e) {
+    console.error("Erro na função send-payment-confirmed:", e);
     return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });
+

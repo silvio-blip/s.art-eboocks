@@ -136,6 +136,56 @@ serve(async (req) => {
         return new Response("Order not found", { status: 404 });
       }
 
+      // Trigger Payment Confirmation Email with Invoice (if not already sent)
+      if (!order.email_paid_sent) {
+        try {
+          const functionUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/send-payment-confirmed`;
+          const functionKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+          let customerName = "Cliente";
+          try {
+            const details = typeof order.shipping_details === 'string' ? JSON.parse(order.shipping_details) : order.shipping_details;
+            customerName = details?.fullName || details?.name || (details?.firstName ? `${details.firstName} ${details.lastName || ""}` : session.customer_details?.name || "Cliente");
+          } catch (e) {
+            customerName = session.customer_details?.name || "Cliente";
+          }
+
+          const emailResponse = await fetch(functionUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${functionKey}`
+            },
+            body: JSON.stringify({
+              orderId: order.id,
+              email: order.customer_email || session.customer_details?.email,
+              customerName: customerName.trim(),
+              product: {
+                id: order.product?.id,
+                name: order.product?.title,
+                price: order.product?.price || order.total_amount,
+                image: order.product?.image_url
+              }
+            })
+          });
+
+          if (emailResponse.ok) {
+            await supabase
+              .from("orders")
+              .update({ email_paid_sent: true })
+              .eq("id", orderId);
+            console.log(`[EMAIL] Payment confirmation email triggered for order ${orderId}`);
+          } else {
+            const errorText = await emailResponse.text();
+            console.error(`[EMAIL_ERROR] Function returned error: ${errorText}`);
+          }
+        } catch (emailErr) {
+          console.error("[EMAIL_ERROR] Failed to trigger payment confirmation email:", emailErr);
+        }
+      } else {
+        console.log(`[EMAIL] Payment confirmation email skipped (already sent) for order ${orderId}`);
+      }
+
       // 100% Automated Fulfillment Strategy
       if (order.product?.provider === "aliexpress" && order.product?.aliexpress_id) {
         console.log(`[AUTOMATION] Starting International fulfillment for Order ${orderId}`);
