@@ -1236,24 +1236,40 @@ async function triggerOrderNotification(orderId: string, status: string, shippin
       }
     }
 
-    // 5. Preparar Payload EXATAMENTE como no teste administrativo que funciona
-    const payload = {
-      to: targetEmail,
-      subject: subject,
-      body: emailBody,
-      name: customerName
-    };
+    // 5. Preparar Payload e Invocação de Edge Function
+    let invokeData, invokeErr;
 
-    console.log(`[AUTOMAÇÃO MONITOR] Chamando send-custom-email via Supabase Invoke...`);
-    
-    // USANDO O MÉTODO "OFICIAL" QUE O USUÁRIO DISSE QUE FUNCIONA NO TESTE
-    const { data: invokeData, error: invokeErr } = await supabase.functions.invoke('send-custom-email', {
-      body: payload
-    });
+    if (flagField === 'email_paid_sent') {
+      // Para pagamentos confirmados, usamos a função específica que gera faturas PDF
+      console.log(`[AUTOMAÇÃO MONITOR] Chamando send-payment-confirmed (Gerador de PDF de Fatura)...`);
+      const res = await supabase.functions.invoke('send-payment-confirmed', {
+        body: {
+          orderId: orderId,
+          email: targetEmail,
+          customerName: customerName
+        }
+      });
+      invokeData = res.data;
+      invokeErr = res.error;
+    } else {
+      // Para as outras notificações, usamos o e-mail customizado genérico
+      const payload = {
+        to: targetEmail,
+        subject: subject,
+        body: emailBody,
+        name: customerName
+      };
+
+      console.log(`[AUTOMAÇÃO MONITOR] Chamando send-custom-email via Supabase Invoke...`);
+      const res = await supabase.functions.invoke('send-custom-email', {
+        body: payload
+      });
+      invokeData = res.data;
+      invokeErr = res.error;
+    }
 
     if (invokeErr) {
-      console.error(`[AUTOMAÇÃO MONITOR] ❌ ERRO AO INVOCAR SEND-CUSTOM-EMAIL:`, JSON.stringify(invokeErr));
-      // Se der erro, tentaremos logar o erro detalhado se disponível
+      console.error(`[AUTOMAÇÃO MONITOR] ❌ ERRO AO INVOCAR FUNÇÃO:`, JSON.stringify(invokeErr));
     } else {
       console.log(`[AUTOMAÇÃO MONITOR] ✅ SUCESSO! Resposta da Edge Function:`, JSON.stringify(invokeData));
       

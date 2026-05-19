@@ -77,6 +77,7 @@ interface Profile {
     zip?: string;
     phone?: string;
     country?: string;
+    identification?: string;
   };
 }
 
@@ -138,7 +139,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     city: '',
     zip: '',
     phone: '',
-    country: 'Portugal'
+    country: 'Portugal',
+    identification: ''
   });
   const [isSavingSavedAddress, setIsSavingSavedAddress] = useState(false);
 
@@ -197,7 +199,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         city: profileData.saved_address?.city || '',
         zip: profileData.saved_address?.zip || '',
         phone: profileData.saved_address?.phone || '',
-        country: profileData.saved_address?.country || 'Portugal'
+        country: profileData.saved_address?.country || 'Portugal',
+        identification: profileData.saved_address?.identification || ''
       });
 
       if (!data.custom_id) {
@@ -642,17 +645,56 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">País</label>
                         <select 
                           value={savedAddressForm.country} 
-                          onChange={e => setSavedAddressForm({...savedAddressForm, country: e.target.value})}
+                          onChange={e => setSavedAddressForm({
+                            ...savedAddressForm, 
+                            country: e.target.value,
+                            identification: '' // Reset when country changes
+                          })}
                           className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
                         >
                           <option value="Portugal">Portugal</option>
                           <option value="Brasil">Brasil</option>
                           <option value="Espanha">Espanha</option>
                           <option value="Estados Unidos">Estados Unidos</option>
+                          <option value="Alemanha">Alemanha</option>
+                          <option value="Itália">Itália</option>
                           <option value="França">França</option>
                           <option value="Reino Unido">Reino Unido</option>
+                          <option value="Holanda">Holanda</option>
+                          <option value="Canadá">Canadá</option>
+                          <option value="Austrália">Austrália</option>
+                          <option value="Japão">Japão</option>
+                          <option value="Coreia do Sul">Coreia do Sul</option>
+                          <option value="Chile">Chile</option>
+                          <option value="México">México</option>
                         </select>
                       </div>
+
+                      {/* Dynamic Identification Field */}
+                      {(savedAddressForm.country === 'Brasil' || 
+                        savedAddressForm.country === 'Espanha' || 
+                        savedAddressForm.country === 'Itália' ||
+                        savedAddressForm.country === 'México' ||
+                        savedAddressForm.country === 'Chile' ||
+                        savedAddressForm.country === 'Coreia do Sul') && (
+                        <div className="space-y-2">
+                          <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">
+                            {savedAddressForm.country === 'Brasil' ? 'CPF' : 
+                             savedAddressForm.country === 'Espanha' ? 'DNI/NIE' : 
+                             savedAddressForm.country === 'Itália' ? 'Codice Fiscale' :
+                             savedAddressForm.country === 'México' ? 'RFC' :
+                             savedAddressForm.country === 'Chile' ? 'RUT' :
+                             'ID de Identificação'}
+                          </label>
+                          <input 
+                            type="text" 
+                            placeholder={savedAddressForm.country === 'Brasil' ? "000.000.000-00" : "Identificação"}
+                            value={savedAddressForm.identification} 
+                            onChange={e => setSavedAddressForm({...savedAddressForm, identification: e.target.value})}
+                            className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                          />
+                        </div>
+                      )}
                       <div className="space-y-2">
                         <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Código Postal</label>
                         <input 
@@ -690,6 +732,15 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                    {profile.saved_address.address}<br />
                                    {profile.saved_address.zip} {profile.saved_address.city}<br />
                                    {profile.saved_address.country || 'Portugal'}
+                                   {profile.saved_address.identification && (
+                                     <>
+                                       <br />
+                                       <span className="text-[10px] opacity-60 uppercase tracking-tighter mr-1">
+                                         {profile.saved_address.country === 'Brasil' ? 'CPF: ' : 'ID: '}
+                                       </span>
+                                       {profile.saved_address.identification}
+                                     </>
+                                   )}
                                  </p>
                                </div>
                             </div>

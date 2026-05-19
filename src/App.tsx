@@ -2412,6 +2412,7 @@ export default function App() {
       zip?: string;
       phone?: string;
       country?: string;
+      identification?: string;
     };
   } | null>(null);
   const theme = "dark";
@@ -2448,6 +2449,11 @@ export default function App() {
 
         if (address.country && (newInfo.country !== address.country)) {
           newInfo.country = address.country;
+          updated = true;
+        }
+
+        if (!newInfo.identification && address.identification) {
+          newInfo.identification = address.identification;
           updated = true;
         }
 
