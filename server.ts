@@ -207,7 +207,10 @@ const initDB = async () => {
         { name: 'aliexpress_id', type: 'TEXT' },
         { name: 'fulfillment_error', type: 'TEXT' },
         { name: 'shipping_tracking_code', type: 'TEXT' },
-        { name: 'shipping_tracking_url', type: 'TEXT' }
+        { name: 'shipping_tracking_url', type: 'TEXT' },
+        { name: 'subtotal', type: 'DECIMAL(10,2) DEFAULT 0' },
+        { name: 'shipping_cost', type: 'DECIMAL(10,2) DEFAULT 0' },
+        { name: 'discount_amount', type: 'DECIMAL(10,2) DEFAULT 0' }
       ];
 
       for (const col of columnsToEnsure) {
@@ -448,6 +451,9 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
         payment_status: 'paid',
         shipping_status: 'pending',
         total_amount: session.amount_total ? session.amount_total / 100 : 0,
+        subtotal: metadata.subtotal ? parseFloat(metadata.subtotal) : 0,
+        shipping_cost: metadata.shipping_cost ? parseFloat(metadata.shipping_cost) : 0,
+        discount_amount: metadata.discount_amount ? parseFloat(metadata.discount_amount) : 0,
         stripe_session_id: session.id,
         stripe_payment_intent: session.payment_intent as string,
         shipping_details: customerDataRaw,
@@ -3217,7 +3223,10 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
         product_id: String(product.id),
         quantity: String(qty),
         selected_options: JSON.stringify(selectedOptions || {}),
-        currency: currency || 'EUR'
+        currency: currency || 'EUR',
+        subtotal: String(qty * basePrice),
+        shipping_cost: product.free_shipping ? "0" : String(shippingFee / 100),
+        discount_amount: String((qty * (Math.round(basePrice * 100) - unitAmount)) / 100)
       }
     });
 
