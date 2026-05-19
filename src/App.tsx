@@ -2132,6 +2132,39 @@ export default function App() {
     };
   }, [products, user]);
 
+  // Keep detailProduct and selectedProduct matched with the latest version in products
+  useEffect(() => {
+    if (products.length > 0) {
+      if (detailProduct) {
+        const found = products.find(p => p.id === detailProduct.id);
+        if (found && JSON.stringify(found) !== JSON.stringify(detailProduct)) {
+          console.log("[REALTIME] Sincronizando detailProduct com versão mais recente:", found.title);
+          setDetailProduct(found);
+        }
+      }
+      if (selectedProduct) {
+        const found = products.find(p => p.id === selectedProduct.id);
+        if (found && JSON.stringify(found) !== JSON.stringify(selectedProduct)) {
+          console.log("[REALTIME] Sincronizando selectedProduct com versão mais recente:", found.title);
+          setSelectedProduct(found);
+        }
+      }
+    }
+  }, [products]);
+
+  // Heartbeat do banco de dados (Self-healing background sync de segurança a cada 30 segundos)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log("[HEARTBEAT] Verificando integridade dos dados e novas atualizações...");
+      fetchProducts().catch(err => console.error("[HEARTBEAT] Erro de sinc do catálogo:", err));
+      if (user) {
+        fetchDashboardData(user.id).catch(err => console.error("[HEARTBEAT] Erro de sinc do painel:", err));
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [user]);
+
   // Initialize from URL or LocalStorage
   useEffect(() => {
     if (isInitialized) return;
