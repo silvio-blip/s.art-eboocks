@@ -70,6 +70,13 @@ interface Profile {
   is_admin?: boolean;
   is_employee?: boolean;
   products_count?: number;
+  saved_address?: {
+    full_name?: string;
+    address?: string;
+    city?: string;
+    zip?: string;
+    phone?: string;
+  };
 }
 
 interface ProfileDashboardProps {
@@ -118,6 +125,15 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     email: ''
   });
   const [isUpdatingAddress, setIsUpdatingAddress] = useState(false);
+  const [isEditingSavedAddress, setIsEditingSavedAddress] = useState(false);
+  const [savedAddressForm, setSavedAddressForm] = useState({
+    full_name: '',
+    address: '',
+    city: '',
+    zip: '',
+    phone: ''
+  });
+  const [isSavingSavedAddress, setIsSavingSavedAddress] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -156,7 +172,8 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         notification_email: data.notification_email || user.email || '',
         is_admin: data.is_admin,
         is_employee: data.is_employee,
-        products_count: pCount || 0
+        products_count: pCount || 0,
+        saved_address: data.saved_address || {}
       };
 
       setProfile(profileData);
@@ -165,6 +182,14 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
         description: profileData.description,
         avatar_url: profileData.avatar_url,
         notification_email: profileData.notification_email,
+      });
+
+      setSavedAddressForm({
+        full_name: profileData.saved_address?.full_name || '',
+        address: profileData.saved_address?.address || '',
+        city: profileData.saved_address?.city || '',
+        zip: profileData.saved_address?.zip || '',
+        phone: profileData.saved_address?.phone || ''
       });
 
       if (!data.custom_id) {
@@ -321,6 +346,33 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     } catch (err: any) {
       console.error('Final error in handleSaveProfile:', err);
       toast.error(err.message || 'Erro ao salvar perfil.', { id: toastId });
+    }
+  };
+
+  const handleSaveSavedAddress = async () => {
+    if (!user) return;
+    setIsSavingSavedAddress(true);
+    const tid = toast.loading('A guardar endereço predefinido...');
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          saved_address: savedAddressForm
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setProfile(prev => prev ? { ...prev, saved_address: savedAddressForm } : null);
+      setIsEditingSavedAddress(false);
+      toast.success('Endereço guardado com sucesso!', { id: tid });
+      
+      // Update app state if needed
+      onProfileUpdate({ full_name: editForm.full_name }); // Just to trigger any refresh
+    } catch (err: any) {
+      toast.error(err.message, { id: tid });
+    } finally {
+      setIsSavingSavedAddress(false);
     }
   };
 
@@ -517,6 +569,128 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     <p className="text-sm text-white/50 leading-relaxed font-serif italic bg-white/5 p-6 border-l-2 border-luxury-gold/30">
                       {profile?.description || 'A sua voz artística ainda não foi manifestada. Edite o seu perfil para partilhar a sua visão.'}
                     </p>
+                  )}
+                </div>
+
+                {/* Predefined Shipping Address */}
+                <div className="md:col-span-2 pt-8 border-t border-white/5 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[9px] uppercase tracking-[0.4em] text-luxury-gold font-black block">Endereço de Entrega Predefinido</label>
+                    <button 
+                      onClick={() => isEditingSavedAddress ? handleSaveSavedAddress() : setIsEditingSavedAddress(true)}
+                      className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold transition-colors flex items-center gap-2"
+                    >
+                      {isEditingSavedAddress ? <><Save size={12} /> GUARDAR</> : <><Edit size={12} /> ALTERAR</>}
+                    </button>
+                  </div>
+                  
+                  {isEditingSavedAddress ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white/5 p-6 border border-white/10 animate-in fade-in duration-500">
+                      <div className="space-y-2">
+                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Nome de Recibo</label>
+                        <input 
+                          type="text" 
+                          placeholder="Nome completo para envio"
+                          value={savedAddressForm.full_name} 
+                          onChange={e => setSavedAddressForm({...savedAddressForm, full_name: e.target.value})}
+                          className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Telefone</label>
+                        <input 
+                          type="text" 
+                          placeholder="+351 912 345 678"
+                          value={savedAddressForm.phone} 
+                          onChange={e => setSavedAddressForm({...savedAddressForm, phone: e.target.value})}
+                          className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none font-mono"
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Morada</label>
+                        <input 
+                          type="text" 
+                          placeholder="Rua, Número, Andar..."
+                          value={savedAddressForm.address} 
+                          onChange={e => setSavedAddressForm({...savedAddressForm, address: e.target.value})}
+                          className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Cidade</label>
+                        <input 
+                          type="text" 
+                          placeholder="Lisboa"
+                          value={savedAddressForm.city} 
+                          onChange={e => setSavedAddressForm({...savedAddressForm, city: e.target.value})}
+                          className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Código Postal</label>
+                        <input 
+                          type="text" 
+                          placeholder="1000-001"
+                          value={savedAddressForm.zip} 
+                          onChange={e => setSavedAddressForm({...savedAddressForm, zip: e.target.value})}
+                          className="w-full bg-black border border-white/10 p-3 text-xs text-white focus:border-luxury-gold outline-none font-mono"
+                        />
+                      </div>
+                      <div className="md:col-span-2 pt-4">
+                        <Button 
+                          onClick={handleSaveSavedAddress}
+                          className="w-full bg-luxury-gold text-black rounded-none h-12 text-[10px] font-black uppercase tracking-[0.3em]"
+                          disabled={isSavingSavedAddress}
+                        >
+                          {isSavingSavedAddress ? 'A GUARDAR...' : 'CONFIRMAR ENDEREÇO PREDEFINIDO'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 bg-white/5 border border-white/10 group hover:border-luxury-gold/30 transition-all duration-500 relative overflow-hidden">
+                       <MapPin className="absolute -right-4 -bottom-4 w-24 h-24 text-white/[0.03] group-hover:text-luxury-gold/[0.05] transition-colors" />
+                       
+                       {profile?.saved_address?.address ? (
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-4">
+                               <div>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Destinatário</p>
+                                 <p className="text-sm text-white font-serif italic">{profile.saved_address.full_name || 'N/A'}</p>
+                               </div>
+                               <div>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Localização</p>
+                                 <p className="text-sm text-white/80 leading-relaxed font-serif">
+                                   {profile.saved_address.address}<br />
+                                   {profile.saved_address.zip} {profile.saved_address.city}
+                                 </p>
+                               </div>
+                            </div>
+                            <div className="space-y-4">
+                               <div>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Contacto</p>
+                                 <p className="text-sm text-white font-mono">{profile.saved_address.phone || 'N/A'}</p>
+                               </div>
+                               <div>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Estado</p>
+                                 <div className="flex items-center gap-2">
+                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                   <p className="text-[9px] text-emerald-500 font-black uppercase tracking-widest">Pronto para Checkout</p>
+                                 </div>
+                               </div>
+                            </div>
+                         </div>
+                       ) : (
+                         <div className="py-8 text-center space-y-4">
+                            <p className="text-xs text-white/40 font-serif italic">Ainda não definiu um endereço predefinido para as suas aquisições.</p>
+                            <Button 
+                              onClick={() => setIsEditingSavedAddress(true)}
+                              className="bg-transparent border border-white/20 text-white rounded-none text-[8px] uppercase tracking-widest font-black hover:border-luxury-gold hover:text-luxury-gold"
+                            >
+                              CONFIGURAR AGORA
+                            </Button>
+                         </div>
+                       )}
+                    </div>
                   )}
                 </div>
 

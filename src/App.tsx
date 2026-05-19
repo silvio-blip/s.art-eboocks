@@ -1671,7 +1671,7 @@ const ProductDetailsPage = ({
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={async () => {
-            const url = `${window.location.origin}${window.location.pathname}?product=${product.id}`;
+            const url = `${window.location.origin}/?v=product-detail&product=${product.id}`;
             
             const shareData: any = {
               title: `S.art | Boutique Premium`,
@@ -2015,6 +2015,7 @@ export default function App() {
     const v = params.get("v");
     const status = params.get("payment_status");
     const sessionId = params.get("session_id");
+    const productId = params.get("product");
 
     if (status === "cancel") return "cancelled";
     if (sessionId) return "success";
@@ -2022,6 +2023,10 @@ export default function App() {
     if (v && ["home", "dashboard", "success", "cancelled", "admin", "reset-password", "terms", "product-detail", "shipping"].includes(v)) {
       return v as any;
     }
+    
+    // If we have a product ID but no view, default to product-detail
+    if (productId && !v) return "product-detail";
+    
     return "home";
   };
 
@@ -2096,8 +2101,37 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const urlProduct = params.get("product");
     const urlView = params.get("v");
-    const isStripeReturn = params.get("payment_status") || params.get("session_id");
-    
+    // First, handle Stripe Redirects (They have priority)
+    const status = params.get("payment_status");
+    const sessionId = params.get("session_id");
+    const isStripeReturn = !!(status || sessionId);
+
+    if (status === "cancel") {
+      setView("cancelled");
+      localStorage.removeItem("sart_navigation_state");
+      localStorage.removeItem('sart_pending_checkout');
+      window.history.replaceState({}, "", window.location.pathname);
+      setIsInitialized(true);
+      setLoading(false);
+      return;
+    }
+
+    if (sessionId) {
+      window.history.replaceState({}, "", window.location.pathname);
+      localStorage.removeItem("sart_navigation_state");
+      const pending = localStorage.getItem('sart_pending_checkout');
+      if (pending) {
+        try {
+          const { product } = JSON.parse(pending);
+          if (product) setSuccessProduct(product);
+        } catch (e) {}
+      }
+      setView("success");
+      setIsInitialized(true);
+      setLoading(false);
+      return;
+    }
+
     let targetView = urlView;
     let targetProductId = urlProduct;
 
@@ -2118,17 +2152,20 @@ export default function App() {
       const prod = products.find(p => p.id === targetProductId);
       if (prod) {
         setDetailProduct(prod);
-        setView("product-detail");
+        setSelectedProduct(prod); // Ensure selectedProduct is also synced
+        setView(targetView === "shipping" ? "shipping" : "product-detail");
       } else {
-        // Se o produto não for encontrado após o carregamento, volta para a home para não ficar preso
         setView("home");
       }
     } else if (targetView) {
       setView(targetView as any);
+    } else {
+      setView("home");
     }
     
     setIsInitialized(true);
-  }, [products.length, loading, isInitialized]);
+    setLoading(false); // Only stop loading when initialized
+  }, [products.length, isInitialized]);
 
   const handleBack = () => {
     if (window.history.length > 1) {
@@ -2365,9 +2402,41 @@ export default function App() {
     is_admin?: boolean;
     is_employee?: boolean;
     products_count?: number;
+    saved_address?: {
+      full_name?: string;
+      address?: string;
+      city?: string;
+      zip?: string;
+      phone?: string;
+    };
   } | null>(null);
   const theme = "dark";
 
+  // Pre-fill shipping info from profile if available
+  useEffect(() => {
+    if (view === "shipping" && user && profile?.saved_address) {
+      const address = profile.saved_address;
+      
+      // Only fill if current fields are empty to avoid overwriting user changes
+      setShippingInfo(prev => ({
+        ...prev,
+        fullName: prev.fullName || address.full_name || profile.full_name || "",
+        address: prev.address || address.address || "",
+        city: prev.city || address.city || "",
+        postalCode: prev.postalCode || address.zip || "",
+        phone: prev.phone && prev.phone !== "+351 " ? prev.phone : (address.phone || prev.phone),
+      }));
+      
+      if (address.address) {
+        toast.info("Endereço predefinido aplicado.", { 
+          icon: '🏠',
+          duration: 3000,
+          id: 'address-autofill'
+        });
+      }
+    }
+  }, [view, user, profile]);
+  
   const [displayText, setDisplayText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [typingSpeed, setTypingSpeed] = useState(200);
@@ -2548,7 +2617,6 @@ export default function App() {
       });
 
     fetchProducts();
-    checkUrlParams();
 
     // Fallback: Se após 5 segundos ainda estiver a carregar, forçar a entrada na UI
     const loadingTimeout = setTimeout(() => {
@@ -2565,7 +2633,7 @@ export default function App() {
   const fetchProfile = async (userObj: SupabaseUser) => {
     const { data, error } = await supabase
       .from("profiles")
-      .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin, is_employee")
+      .select("theme, full_name, avatar_url, welcomed, custom_id, is_admin, is_employee, saved_address")
       .eq("id", userObj.id)
       .single();
 
@@ -2649,7 +2717,8 @@ export default function App() {
         avatar_url: finalAvatar || googleAvatar || "", 
         is_admin: data.is_admin || false,
         is_employee: data.is_employee || false,
-        products_count: pCount || 0
+        products_count: pCount || 0,
+        saved_address: data.saved_address || {}
       });
 
       // Só envia e-mail se ainda não foi marcado como welcomed
@@ -2875,7 +2944,7 @@ export default function App() {
       const productsWithPvp = (dbProducts || []).map(p => ({
         ...p,
         pvp: p.price || 0,
-        is_active: p.is_active === undefined ? true : p.is_active, // Default to true if field missing
+        is_active: p.is_active === undefined ? true : p.is_active, 
         supabase_id: p.id
       }));
 
@@ -2884,7 +2953,7 @@ export default function App() {
       console.error("Erro no fetchProducts:", err);
     } finally {
       setLoadingProducts(false);
-      setLoading(false);
+      // We don't set loading to false here; we wait for isInitialized effect
     }
   };
 
@@ -3697,28 +3766,36 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "product-detail" && detailProduct && (
-            <ProductDetailsPage
-              product={detailProduct}
-              onBack={handleBack}
-              onConfirm={handleDetailConfirm}
-              isProcessing={detailLoading}
-              quantity={quantity}
-              setQuantity={setQuantity}
-              formatPrice={formatPrice}
-            />
+          {view === "product-detail" && (
+            detailProduct ? (
+              <ProductDetailsPage
+                product={detailProduct}
+                onBack={handleBack}
+                onConfirm={handleDetailConfirm}
+                isProcessing={detailLoading}
+                quantity={quantity}
+                setQuantity={setQuantity}
+                formatPrice={formatPrice}
+              />
+            ) : (
+              <div className="py-40 flex flex-col items-center justify-center space-y-6">
+                <Loader2 className="animate-spin text-luxury-gold" size={40} />
+                <p className="text-[10px] uppercase tracking-[0.4em] text-white/20 font-black">Identificando Peça...</p>
+              </div>
+            )
           )}
 
-          {view === "shipping" && selectedProduct && (
-            <div className="max-w-4xl mx-auto py-12 animate-in fade-in duration-700">
-              <div className="mb-12 space-y-4 text-center">
-                <h2 className="text-4xl md:text-5xl font-serif text-luxury-foreground">
-                  Finalizar Aquisição
-                </h2>
-                <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-foreground/40">
-                  Precisamos da sua morada para a entrega física S.art
+          {view === "shipping" && (
+            selectedProduct ? (
+              <div className="max-w-4xl mx-auto py-12 animate-in fade-in duration-700">
+                <div className="mb-12 space-y-4 text-center">
+                  <h2 className="text-4xl md:text-5xl font-serif text-luxury-foreground">
+                    Finalizar Aquisição
+                  </h2>
+                  <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-foreground/40">
+                    Precisamos da sua morada para a entrega física S.art
+                  </div>
                 </div>
-              </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-5 gap-12">
                 <div className="lg:col-span-3 space-y-8">
@@ -4047,7 +4124,18 @@ export default function App() {
                 </div>
               </div>
             </div>
-          )}
+          ) : (
+            <div key="shipping-loader" className="py-40 flex flex-col items-center justify-center space-y-6">
+              <Loader2 className="animate-spin text-luxury-gold" size={40} />
+              <p className="text-[10px] uppercase tracking-[0.4em] text-white/20 font-black">Restaurando Checkout...</p>
+              <button 
+                onClick={() => setView('home')} 
+                className="text-luxury-gold text-[10px] uppercase border border-luxury-gold/20 px-6 py-3 mt-4 hover:bg-luxury-gold hover:text-black transition-all font-bold tracking-widest"
+              >
+                Voltar à Boutique
+              </button>
+            </div>
+          ))}
 
           {view === "dashboard" && user && (
             <ProfileDashboard
