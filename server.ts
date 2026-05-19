@@ -3193,6 +3193,7 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     const session = await stripe.checkout.sessions.create({
       line_items: lineItems,
       mode: 'payment',
+      invoice_creation: { enabled: true },
       success_url: `${baseUrl}?payment_status=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}?payment_status=cancel`,
       customer_email: customer.email,

@@ -100,14 +100,14 @@ serve(async (req) => {
     let event;
 
     try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret || "");
+      event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret || "");
     } catch (err) {
       console.error(`Webhook signature verification failed: ${err.message}`);
       return new Response(`Webhook Error: ${err.message}`, { status: 400 });
     }
 
     if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
+      const session = event.data.object as Stripe.Checkout.Session;
       const orderId = session.metadata?.order_id;
 
       if (!orderId) {
