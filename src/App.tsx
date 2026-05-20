@@ -2456,12 +2456,16 @@ export default function App() {
 
   useEffect(() => {
     if (view === "home") {
-      if (isNavigatingByHistory) {
-        // Use a slightly longer delay to ensure products are fully loaded and layout is stable
-        const timer = setTimeout(() => {
-          window.scrollTo({ top: homeScrollPosRef.current, behavior: "instant" });
-        }, 150); // Increased delay for better stability
-        return () => clearTimeout(timer);
+      const scrollPos = homeScrollPosRef.current;
+      if (scrollPos > 0) {
+        // Use staged, resilient timeouts to handle exit/element fade transitions (typically lasts 300ms-600ms inside AnimatePresence) 
+        // across any desktop or mobile size without snapping content or breaking layout heights.
+        const timers = [50, 150, 300, 500, 750, 1000].map(delay => {
+          return setTimeout(() => {
+            window.scrollTo({ top: scrollPos, behavior: "instant" });
+          }, delay);
+        });
+        return () => timers.forEach(clearTimeout);
       } else {
         window.scrollTo({ top: 0, behavior: "instant" });
       }
