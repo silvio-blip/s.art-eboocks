@@ -264,10 +264,12 @@ export default function AdminDashboard({
       }
 
       // 2. Search filter
-      const titleMatches = (p.title || "").toLowerCase().includes(productSearch.toLowerCase());
-      const categoryMatches = (p.category || "").toLowerCase().includes(productSearch.toLowerCase());
-      const idMatches = (p.aliexpress_id || "").toString().toLowerCase().includes(productSearch.toLowerCase());
-      if (!titleMatches && !categoryMatches && !idMatches) return false;
+      const searchLower = productSearch.toLowerCase().trim();
+      const titleMatches = (p.title || "").toLowerCase().includes(searchLower);
+      const categoryMatches = (p.category || "").toLowerCase().includes(searchLower);
+      const idMatches = (p.aliexpress_id || "").toString().toLowerCase().includes(searchLower);
+      const uuidMatches = (p.id || "").toLowerCase().includes(searchLower);
+      if (!titleMatches && !categoryMatches && !idMatches && !uuidMatches) return false;
 
       // 3. Status filter (Featured/Standard)
       const isFeatured = !!p.is_featured;

@@ -3885,9 +3885,16 @@ export default function App() {
                         .filter((p) => {
                           const title = p.title || "";
                           const desc = p.description || "";
+                          const id = p.id || "";
+                          const category = p.category || "";
                           const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
                           const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
-                          const matchesSearch = title.toLowerCase().includes(searchQuery.toLowerCase()) || desc.toLowerCase().includes(searchQuery.toLowerCase());
+                          const query = searchQuery.toLowerCase().trim();
+                          const matchesSearch = 
+                            id.toLowerCase().includes(query) ||
+                            title.toLowerCase().includes(query) ||
+                            desc.toLowerCase().includes(query) ||
+                            category.toLowerCase().includes(query);
                           const isActive = p.is_active !== false;
                           return matchesCategory && matchesPrice && matchesSearch && isActive;
                         })
@@ -3913,7 +3920,12 @@ export default function App() {
                   {!loadingProducts && products.filter((p) => {
                     const matchesCategory = selectedCategory === "Todos" || p.category === selectedCategory;
                     const matchesPrice = p.pvp >= minPrice && p.pvp <= maxPrice;
-                    const matchesSearch = (p.title || "").toLowerCase().includes(searchQuery.toLowerCase()) || (p.description || "").toLowerCase().includes(searchQuery.toLowerCase());
+                    const query = searchQuery.toLowerCase().trim();
+                    const matchesSearch = 
+                      (p.id || "").toLowerCase().includes(query) ||
+                      (p.title || "").toLowerCase().includes(query) ||
+                      (p.description || "").toLowerCase().includes(query) ||
+                      (p.category || "").toLowerCase().includes(query);
                     const isActive = p.is_active !== false;
                     return matchesCategory && matchesPrice && matchesSearch && isActive;
                   }).length === 0 && (
