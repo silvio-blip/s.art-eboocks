@@ -3282,7 +3282,13 @@ if (process.env.NODE_ENV !== 'production') {
           
           const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
           const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
-          const fullUrl = `https://sart-full.pt${req.originalUrl}`; // Example domain
+          
+          // Resolve host and protocol dynamically so crawler validators (e.g. Facebook, WhatsApp)
+          // see a matched og:url matching the exact crawled hostname
+          const host = req.get('host') || 'sart-full.pt';
+          const protocol = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https' ? 'https' : 'http';
+          const fullUrl = `${protocol}://${host}${req.originalUrl}`;
+          
           const hydratedHtml = await getHydratedHtml(transformedHtml, product, fullUrl);
           
           return res.status(200).set({ 'Content-Type': 'text/html' }).end(hydratedHtml);
@@ -3448,15 +3454,19 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   metaMappings.forEach(meta => {
     const attr = meta.isProperty ? 'property' : 'name';
     
-    // Improved regex to find meta tag with either order of attributes and handle single/double quotes
-    // and handle optional space before closing slash
-    const regex = new RegExp(`<meta\\s+[^>]*${attr}="${meta.property}"[^>]*content=".*?"[^>]*\/?>|<meta\\s+[^>]*content=".*?"[^>]*${attr}="${meta.property}"[^>]*\/?>`, 'g');
+    // Resilient non-greedy case-insensitive regex supporting both single and double quotes
+    const regex = new RegExp(
+      `<meta\\s+[^>]*?${attr}=['"]${meta.property}['"][^>]*?content=['"].*?['"][^>]*?\\/?>|<meta\\s+[^>]*?content=['"].*?['"][^>]*?${attr}=['"]${meta.property}['"][^>]*?\\/?>`,
+      'gi'
+    );
     
-    if (hydrated.match(regex)) {
-      hydrated = hydrated.replace(regex, `<meta ${attr}="${meta.property}" content="${meta.content}" />`);
+    const newTag = `<meta ${attr}="${meta.property}" content="${meta.content}" />`;
+    
+    if (regex.test(hydrated)) {
+      hydrated = hydrated.replace(regex, newTag);
     } else {
       // Append to head if not found, just before </head>
-      hydrated = hydrated.replace('</head>', `<meta ${attr}="${meta.property}" content="${meta.content}" />\n</head>`);
+      hydrated = hydrated.replace('</head>', `${newTag}\n</head>`);
     }
   });
 
