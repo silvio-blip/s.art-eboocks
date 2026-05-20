@@ -20,7 +20,25 @@ const formatEur = (value) => {
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+  const allowedOrigins = [
+    "https://sart-full.pt",
+    "http://localhost:3000",
+    "https://localhost:3000"
+  ];
+  const reqOrigin = req.headers.get("origin") || "";
+  const isAllowed = allowedOrigins.includes(reqOrigin) || 
+                    reqOrigin.endsWith(".run.app") || 
+                    reqOrigin.includes("localhost:");
+  
+  const corsHeaders = {
+    "Access-Control-Allow-Origin": isAllowed ? reqOrigin : "https://sart-full.pt",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-client-info",
+  };
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
   
   try {
     const json = await req.json();
@@ -361,9 +379,36 @@ Deno.serve(async (req) => {
       `,
     });
 
-    return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
-  } catch (e) {
+    return new Response(JSON.stringify({ success: true }), { 
+      headers: { 
+        ...corsHeaders,
+        "Content-Type": "application/json" 
+      } 
+    });
+  } catch (e: any) {
     console.error('[ERRO FATAL]', e);
-    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+    // Sanitize error reporting: prevent exposing schemas, internal queries, or table relations
+    let webMessage = "Ocorreu um erro interno ao processar a confirmação do pagamento.";
+    const lowerMessage = (e.message || "").toLowerCase();
+    
+    // If the error message is clean (doesn't contain PostgreSQL internals), allow returning it
+    if (e.message && 
+        !lowerMessage.includes("schema") && 
+        !lowerMessage.includes("relation") && 
+        !lowerMessage.includes("column") && 
+        !lowerMessage.includes("table") && 
+        !lowerMessage.includes("select") && 
+        !lowerMessage.includes("insert") && 
+        !lowerMessage.includes("postgres")) {
+      webMessage = e.message;
+    }
+    
+    return new Response(JSON.stringify({ error: webMessage }), { 
+      status: 500, 
+      headers: { 
+        ...corsHeaders,
+        "Content-Type": "application/json" 
+      } 
+    });
   }
 });

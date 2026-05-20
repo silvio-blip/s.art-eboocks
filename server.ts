@@ -3127,14 +3127,35 @@ apiRouter.use((err: any, req: express.Request, res: express.Response, next: expr
 apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   try {
     const { product, customer, baseUrl, selectedOptions, couponCode, currency } = req.body;
-    const qty = Math.max(1, customer.quantity || 1);
+    const qty = Math.max(1, customer?.quantity || 1);
     
     if (!stripe) {
       console.warn("[CHECKOUT] STRIPE_SECRET_KEY não configurada. Por favor, configure a chave live nas definições.");
       return res.status(400).json({ error: "O sistema de pagamentos não está configurado." });
     }
 
-    let basePrice = product.pvp || product.price;
+    const productId = product?.id;
+    if (!productId) {
+      return res.status(400).json({ error: "O ID do produto é obrigatório." });
+    }
+
+    const supabase = getSupabase();
+    const { data: dbProduct, error: productFetchError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .maybeSingle();
+
+    if (productFetchError || !dbProduct) {
+      console.error("[CHECKOUT ERROR] Produto não encontrado no banco:", productFetchError);
+      return res.status(404).json({ error: "Produto inválido ou indisponível." });
+    }
+
+    // Secure base price from verified database item
+    const basePrice = (dbProduct.pvp !== undefined && dbProduct.pvp !== null && dbProduct.pvp !== 0) 
+      ? dbProduct.pvp 
+      : dbProduct.price;
+
     let unitAmount = Math.round(basePrice * 100);
     let shippingFee = 115; // 1.15 EUR in cents
 
@@ -3148,8 +3169,6 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     
     // Apply Coupon
     if (couponCode) {
-        const supabase = getSupabase();
-        
         // 1. Fetch Coupon
         const { data: coupon, error: couponError } = await supabase
             .from('coupons')
@@ -3192,17 +3211,19 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
       price_data: {
         currency: (currency || 'eur').toLowerCase(),
         product_data: {
-          name: product.title,
-          description: (product.description && product.description.trim() !== "") ? product.description.substring(0, 120) : undefined,
-          images: product.image_url ? [product.image_url] : [],
+          name: dbProduct.title || "Produto",
+          description: (dbProduct.description && dbProduct.description.trim() !== "") ? dbProduct.description.substring(0, 120) : undefined,
+          images: dbProduct.image_url ? [dbProduct.image_url] : [],
         },
         unit_amount: unitAmount,
       },
       quantity: qty,
     }];
 
+    const freeShipping = !!dbProduct.free_shipping;
+
     // Add shipping fee if not free shipping
-    if (!product.free_shipping) {
+    if (!freeShipping) {
       lineItems.push({
         price_data: {
           currency: (currency || 'eur').toLowerCase(),
@@ -3224,12 +3245,12 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
       customer_email: customer.email,
       metadata: {
         customer_data: JSON.stringify(customer),
-        product_id: String(product.id),
+        product_id: String(dbProduct.id),
         quantity: String(qty),
         selected_options: JSON.stringify(selectedOptions || {}),
         currency: currency || 'EUR',
         subtotal: String(qty * basePrice),
-        shipping_cost: product.free_shipping ? "0" : String(shippingFee / 100),
+        shipping_cost: freeShipping ? "0" : String(shippingFee / 100),
         discount_amount: String((qty * (Math.round(basePrice * 100) - unitAmount)) / 100)
       }
     });
