@@ -2099,7 +2099,7 @@ export default function App() {
 
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible') {
-        console.log("[SYSTEM] Aba focada. Verificando integridade dos dados...");
+        console.log("[SYSTEM] Aba focada. Verificando integridade da sessão do utilizador...");
         
         try {
           // Check if session is still valid
@@ -2111,9 +2111,6 @@ export default function App() {
             console.warn("[SYSTEM] Sessão expirada durante inatividade.");
             setUser(null);
           }
-
-          // Refresh products to ensure we have the latest stock/prices
-          await fetchProducts();
           
           if (user || session?.user) {
             fetchDashboardData((user || session?.user)!.id);
@@ -2156,14 +2153,19 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(() => {
       console.log("[HEARTBEAT] Verificando integridade dos dados e novas atualizações...");
-      fetchProducts().catch(err => console.error("[HEARTBEAT] Erro de sinc do catálogo:", err));
+      // Realtime subscription handles updates. We only fetch products as a safety fallback
+      // if the catalog somehow became completely empty.
+      if (products.length === 0) {
+        console.log("[HEARTBEAT] Lista de produtos vazia detetada. Recuperando catálogo...");
+        fetchProducts().catch(err => console.error("[HEARTBEAT] Erro de sinc do catálogo:", err));
+      }
       if (user) {
         fetchDashboardData(user.id).catch(err => console.error("[HEARTBEAT] Erro de sinc do painel:", err));
       }
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, products.length]);
 
   // Initialize from URL or LocalStorage
   useEffect(() => {
@@ -3120,6 +3122,11 @@ export default function App() {
         is_active: (p.is_active === undefined || p.is_active === null) ? true : p.is_active, 
         supabase_id: p.id
       }));
+
+      if (productsWithPvp.length === 0 && products.length > 0) {
+        console.warn("[WARNING] Ignorando atualização de produtos vazia em background para evitar que a montra desapareça.");
+        return;
+      }
 
       setProducts(productsWithPvp);
     } catch (err) {
