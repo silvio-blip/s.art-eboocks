@@ -1105,20 +1105,32 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
       .maybeSingle();
 
     // Processamento e conversão de dados reais obtidos pela extensão de forma 100% automática e de altíssima fidelidade
-    const finalTitle = title || existing?.title || "Produto Importado Elegante";
+    let finalTitle = title || existing?.title || "Produto Importado Elegante";
     
     // Tratamento adaptativo da descrição (não deixar vazio e respeitar descrições reais com mais de 3 caracteres)
-    const finalDescription = (descriptionText && descriptionText.trim().length > 3) 
+    let finalDescription = (descriptionText && descriptionText.trim().length > 3) 
       ? descriptionText 
       : (existing?.description || metaDescription || `Excelente produto importado diretamente da plataforma ${source} através do plug-in de importação automática CyberExtract.`);
 
-    const finalColors = (Array.isArray(extractedCores) && extractedCores.length > 0)
+    let finalColors = (Array.isArray(extractedCores) && extractedCores.length > 0)
       ? extractedCores.join(", ") 
       : (existing?.colors || "");
 
-    const finalSizes = (Array.isArray(extractedTamanhos) && extractedTamanhos.length > 0)
+    let finalSizes = (Array.isArray(extractedTamanhos) && extractedTamanhos.length > 0)
       ? extractedTamanhos.join(", ") 
       : (existing?.sizes || "");
+
+    // Organização de Atributos com IA (modelo mais leve possível: gemini-3.5-flash) - se disponível
+    if (process.env.GEMINI_API_KEY) {
+      console.log('[CYBEREXTRACT-AI] Chave de API ativa. Organizando automaticamente os campos do produto...');
+      const cleanAiResult = await organizeProductWithAI(finalTitle, finalDescription, finalColors, finalSizes);
+      if (cleanAiResult) {
+        finalTitle = cleanAiResult.title || finalTitle;
+        finalDescription = cleanAiResult.description || finalDescription;
+        finalColors = cleanAiResult.colors || finalColors;
+        finalSizes = cleanAiResult.sizes || finalSizes;
+      }
+    }
 
     // Unificar fotos adicionais provenientes do carrossel oficial da página e das miniaturas de variações
     let extraImagesList: string[] = [];
@@ -1981,6 +1993,127 @@ adminRouter.put('/users/:id/role', async (req, res) => {
 
     if (error) throw error;
     res.json(data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- HELPER DE INTELIGÊNCIA ARTIFICIAL ULTRA LEVE E ECONÔMICA (GEMINI-3.1-FLASH-LITE) ---
+let aiInstance: any = null;
+const getGeminiClient = () => {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn('[GEMINI] WARNING: GEMINI_API_KEY is not defined.');
+      return null;
+    }
+    aiInstance = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
+  }
+  return aiInstance;
+};
+
+async function organizeProductWithAI(rawTitle: string, rawDescription: string, rawColors: string, rawSizes: string) {
+  const ai = getGeminiClient();
+  if (!ai) {
+    console.log('[GEMINI] Gemini client not initialized. Skipping AI cleanup.');
+    return null;
+  }
+
+  try {
+    const prompt = `Clean and organize the following raw e-commerce product scraped fields.
+Instructions:
+1. Standardize and deduplicate items.
+2. Clean title: Make it brief, appealing, clear, without bracketed tags, provider internal codes, or useless noise. Keep it to max 70 characters.
+3. Clean description: Completely strip out any website/checkout UI noise (like "Subtotal", cart numbers, delivery/returns texts, "Finalizar compra", cookies, terms). Convert it into neat, well-structured, easy-to-read paragraphs or lists of key specifications and features.
+4. Colors & Sizes separation: Cleanly separate mixed-up colors and sizes.
+   - For colors: Extract ONLY actual color names (e.g., 'Bege claro', 'Preto', 'Branco'). Remove sizes or other words.
+   - For sizes: Extract ONLY actual sizes (e.g., 'S', 'M', 'L', 'XL', '140cm'). Remove colors or other words.
+5. All results must be in Portuguese (pt-PT).
+
+Input:
+- Raw Title: "${rawTitle}"
+- Raw Description: "${rawDescription}"
+- Raw Colors options: "${rawColors}"
+- Raw Sizes options: "${rawSizes}"`;
+
+    console.log('[GEMINI] Requesting product cleanup via gemini-flash-lite-latest with JSON schema...');
+
+    const response = await ai.models.generateContent({
+      model: "gemini-flash-lite-latest",
+      contents: prompt,
+      config: {
+        systemInstruction: "You are an elite, highly cost-effective e-commerce operations manager. You clean and separate scraped fields cleanly into structured Portuguese (pt-PT). Keep responses minimal and exact.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { 
+              type: Type.STRING, 
+              description: "Elegant and compact title (pt-PT)." 
+            },
+            description: { 
+              type: Type.STRING, 
+              description: "Polished markdown or plain-text description (pt-PT)." 
+            },
+            colors: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "Actual clean colors." 
+            },
+            sizes: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "Actual clean sizes." 
+            }
+          },
+          required: ["title", "description", "colors", "sizes"]
+        }
+      }
+    });
+
+    if (response && response.text) {
+      const parsed = JSON.parse(response.text.trim());
+      console.log('[GEMINI] AI product organization successful:', parsed);
+      return {
+        title: parsed.title,
+        description: parsed.description,
+        colors: Array.isArray(parsed.colors) ? parsed.colors.join(", ") : "",
+        sizes: Array.isArray(parsed.sizes) ? parsed.sizes.join(", ") : ""
+      };
+    }
+  } catch (err) {
+    console.error('[GEMINI] Error running AI product cleanup:', err);
+  }
+  return null;
+}
+
+// Endpoint de organização voluntária com AI (mínimo de quota possível)
+adminRouter.post('/products/organize', async (req, res) => {
+  try {
+    const { title, description, colors, sizes } = req.body;
+    if (!title) {
+      return res.status(400).json({ error: 'Título é obrigatório.' });
+    }
+
+    const cleaned = await organizeProductWithAI(
+      title,
+      description || "",
+      colors || "",
+      sizes || ""
+    );
+
+    if (cleaned) {
+      res.json({ success: true, ...cleaned });
+    } else {
+      res.status(500).json({ error: 'Erro no processamento do Gemini. Verifique a chave de API.' });
+    }
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

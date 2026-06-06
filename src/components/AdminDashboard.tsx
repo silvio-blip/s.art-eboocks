@@ -194,6 +194,51 @@ export default function AdminDashboard({
     "weekly",
   );
   const [uploading, setUploading] = useState(false);
+  const [aiOrganizing, setAiOrganizing] = useState(false);
+
+  const handleOrganizeWithAI = async () => {
+    if (!editingProduct) return;
+    setAiOrganizing(true);
+    const loadingToast = toast.loading("🤖 A Inteligência Artificial está a organizar os atributos...");
+    try {
+      const res = await fetch("/api/admin/products/organize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user.id
+        },
+        body: JSON.stringify({
+          title: editingProduct.title || "",
+          description: editingProduct.description || "",
+          colors: Array.isArray(editingProduct.colors) ? editingProduct.colors.join(", ") : (editingProduct.colors || ""),
+          sizes: Array.isArray(editingProduct.sizes) ? editingProduct.sizes.join(", ") : (editingProduct.sizes || "")
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Ocorreu um erro ao correr a IA.");
+      }
+
+      setEditingProduct({
+        ...editingProduct,
+        title: data.title || editingProduct.title,
+        description: data.description || editingProduct.description,
+        colors: data.colors || editingProduct.colors,
+        sizes: data.sizes || editingProduct.sizes,
+        sizes_enabled: data.sizes ? true : editingProduct.sizes_enabled,
+        colors_enabled: data.colors ? true : editingProduct.colors_enabled
+      });
+
+      toast.success("✨ Atributos e descrição organizados com sucesso!", { id: loadingToast });
+    } catch (err: any) {
+      console.error("[GEMINI CLIENT ERROR]", err);
+      toast.error(`Falha ao organizar com IA: ${err.message}`, { id: loadingToast });
+    } finally {
+      setAiOrganizing(false);
+    }
+  };
+
   const [orderSearch, setOrderSearch] = useState("");
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
@@ -2858,9 +2903,35 @@ export default function AdminDashboard({
                       </div>
 
                       <div className="space-y-6 p-6 bg-[#111] border border-white/10 rounded-sm">
-                          <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-bold flex items-center gap-2">
-                            <div className="w-1 h-1 bg-luxury-gold rounded-full" />
-                            Configuração do Ativo
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/5 pb-3 gap-3">
+                            <div className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-bold flex items-center gap-2">
+                              <div className="w-1 h-1 bg-luxury-gold rounded-full" />
+                              Configuração do Ativo
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleOrganizeWithAI}
+                              disabled={aiOrganizing}
+                              className={`text-[9px] uppercase tracking-wider font-bold py-1.5 px-3 border border-luxury-gold/50 rounded-sm transition-all focus:outline-none flex items-center justify-center gap-1.5 ${
+                                aiOrganizing 
+                                  ? "bg-white/5 text-white/40 border-white/10 cursor-not-allowed" 
+                                  : "text-luxury-gold hover:bg-luxury-gold hover:text-black hover:border-luxury-gold"
+                              }`}
+                            >
+                              {aiOrganizing ? (
+                                <>
+                                  <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  Organizando...
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-[11px]">✨</span> Organizar com IA (Mais Leve)
+                                </>
+                              )}
+                            </button>
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
