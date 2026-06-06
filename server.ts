@@ -1030,12 +1030,24 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
       return res.status(400).json({ error: 'Os dados do produto e a fonte (source) são obrigatórios.' });
     }
 
-    const { title, price, mainImage, variations, url } = product;
+    const { 
+      title, 
+      price, 
+      mainImage, 
+      variations, 
+      url,
+      extractedCores,
+      extractedTamanhos,
+      descriptionText,
+      metaDescription,
+      extraImages
+    } = product;
+
     if (!title || !url) {
       return res.status(400).json({ error: 'O título e o URL do produto são obrigatórios para a ingestão.' });
     }
 
-    console.log(`[CYBEREXTRACT] Recebida carga de extração automatizada de ${source} para: "${title}"`);
+    console.log(`[CYBEREXTRACT] Recebida carga de extração de ${source} para: "${title}"`);
 
     const supabase = getSupabase();
     const provider = String(source).toLowerCase() === 'temu' ? 'temu' : 'aliexpress';
@@ -1058,7 +1070,8 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
       } else {
         // Fallback robusto de links Temu
         try {
-          const path = new URL(url).pathname;
+          const urlObj = new URL(url);
+          const path = urlObj.pathname;
           const parts = path.split('/');
           const lastPart = parts[parts.length - 1];
           const nameMatch = lastPart.replace('.html', '').match(/([a-zA-Z0-9-]+)$/);
@@ -1087,16 +1100,62 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
     // Verificar existência prévia pelo aliexpress_id (externalId unificado)
     const { data: existing } = await supabase
       .from('products')
-      .select('id, title, description, price, metadata, image_url')
+      .select('id, title, description, price, metadata, image_url, colors, sizes, colors_enabled, sizes_enabled, extra_images')
       .eq('aliexpress_id', externalId)
       .maybeSingle();
 
+    // Processamento e conversão de dados reais obtidos pela extensão de forma 100% automática e de altíssima fidelidade
+    const finalTitle = title || existing?.title || "Produto Importado Elegante";
+    
+    // Tratamento adaptativo da descrição (não deixar vazio e respeitar descrições reais com mais de 3 caracteres)
+    const finalDescription = (descriptionText && descriptionText.trim().length > 3) 
+      ? descriptionText 
+      : (existing?.description || metaDescription || `Excelente produto importado diretamente da plataforma ${source} através do plug-in de importação automática CyberExtract.`);
+
+    const finalColors = (Array.isArray(extractedCores) && extractedCores.length > 0)
+      ? extractedCores.join(", ") 
+      : (existing?.colors || "");
+
+    const finalSizes = (Array.isArray(extractedTamanhos) && extractedTamanhos.length > 0)
+      ? extractedTamanhos.join(", ") 
+      : (existing?.sizes || "");
+
+    // Unificar fotos adicionais provenientes do carrossel oficial da página e das miniaturas de variações
+    let extraImagesList: string[] = [];
+    if (Array.isArray(extraImages)) {
+      extraImagesList.push(...extraImages);
+    }
+    if (Array.isArray(variations)) {
+      variations.forEach((v: any) => {
+        const u = v.imgUrl || v.image_url;
+        if (u && typeof u === 'string' && u.startsWith('http')) {
+          extraImagesList.push(u);
+        }
+      });
+    }
+
+    // Filtrar duplicados, URLs inválidas, imagem principal e limitar a até 15 fotos extras de alto padrão
+    const cleanImageUrl = mainImage || existing?.image_url || null;
+    const finalExtraImages = [...new Set(
+      extraImagesList
+        .map(urlStr => {
+          if (!urlStr) return "";
+          return urlStr.trim();
+        })
+        .filter(urlStr => urlStr && urlStr.startsWith("http") && urlStr !== cleanImageUrl)
+    )].slice(0, 15).join(", ");
+
     const commonData: any = {
       aliexpress_id: externalId,
-      title: (existing?.title && existing.title !== "Título não encontrado") ? existing.title : title,
-      description: existing?.description || `Produto de alta gama importado diretamente da plataforma ${source} via Extensão CyberExtract.`,
-      price: existing?.price || parsedPrice,
-      image_url: existing?.image_url || mainImage || null,
+      title: finalTitle,
+      description: finalDescription,
+      price: parsedPrice > 0 ? parsedPrice : (existing?.price || 0.01),
+      image_url: cleanImageUrl,
+      extra_images: finalExtraImages || existing?.extra_images || null,
+      colors: finalColors || null,
+      sizes: finalSizes || null,
+      colors_enabled: (!!finalColors && finalColors.trim().toLowerCase() !== "única" && finalColors.trim().toLowerCase() !== "único" && finalColors.trim().length > 0),
+      sizes_enabled: (!!finalSizes && finalSizes.trim().toLowerCase() !== "único" && finalSizes.trim().toLowerCase() !== "única" && finalSizes.trim().length > 0),
       provider: provider,
       admin_link: url,
       updated_at: new Date().toISOString(),
@@ -2492,74 +2551,150 @@ adminRouter.post('/products/import-temu-raw', async (req, res) => {
 
     console.log(`[TEMU BYPASS ENGINE] Analisando dados colados de Temu. Comprimento do texto: ${rawContent.length} caracteres...`);
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'A sua Chave de API do Gemini (GEMINI_API_KEY) está em falta ou não está configurada nos segredos das definições.' });
+    let title = "";
+    let basePrice = 0.01;
+    let description = "";
+    let imageUrl = "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=800";
+    let colors: string[] = [];
+    let sizes: string[] = [];
+
+    // 1. TENTAR EXTRAIR SE FOR CÓDIGO FONTE HTML (MÉTODOS JSON-LD e META-TAGS)
+    const jsonLdRegex = /<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi;
+    let matchJson;
+    while ((matchJson = jsonLdRegex.exec(rawContent)) !== null) {
+      try {
+        const parsed = JSON.parse(matchJson[1].trim());
+        const findProductNode = (obj: any): any => {
+          if (!obj) return null;
+          if (obj["@type"] === "Product" || obj["@type"] === "http://schema.org/Product") return obj;
+          if (Array.isArray(obj)) {
+            for (const item of obj) {
+              const result = findProductNode(item);
+              if (result) return result;
+            }
+          } else if (typeof obj === "object") {
+            if (obj["@graph"]) {
+              const result = findProductNode(obj["@graph"]);
+              if (result) return result;
+            }
+            for (const k in obj) {
+              if (typeof obj[k] === "object") {
+                const result = findProductNode(obj[k]);
+                if (result) return result;
+              }
+            }
+          }
+          return null;
+        };
+
+        const prod = findProductNode(parsed);
+        if (prod) {
+          if (prod.name || prod.title) title = prod.name || prod.title || "";
+          if (prod.description) description = prod.description || "";
+          if (typeof prod.image === "string") {
+            imageUrl = prod.image;
+          } else if (Array.isArray(prod.image) && prod.image.length > 0) {
+            imageUrl = prod.image[0];
+          }
+          
+          if (prod.offers) {
+            const offers = prod.offers;
+            if (Array.isArray(offers) && offers.length > 0) {
+              basePrice = parseFloat(String(offers[0].price || offers[0].lowPrice || "0"));
+            } else if (typeof offers === "object") {
+              basePrice = parseFloat(String(offers.price || offers.lowPrice || "0"));
+            }
+          }
+        }
+      } catch (e) {}
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
+    // Heurística secundária com Meta tags do HTML se disponíveis
+    if (!title) {
+      const titleMatch = rawContent.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i) ||
+                         rawContent.match(/<meta\s+name="title"\s+content="([^"]+)"/i) ||
+                         rawContent.match(/<title>([^<]+)<\/title>/i);
+      if (titleMatch) title = titleMatch[1];
+    }
+    if (!imageUrl || imageUrl.includes("unsplash")) {
+      const imgMatch = rawContent.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i) ||
+                       rawContent.match(/<meta\s+name="twitter:image"\s+content="([^"]+)"/i);
+      if (imgMatch) imageUrl = imgMatch[1];
+    }
+    if (basePrice <= 0.05) {
+      const priceMatch = rawContent.match(/<meta\s+property="og:price:amount"\s+content="([^"]+)"/i) ||
+                         rawContent.match(/<meta\s+property="product:price:amount"\s+content="([^"]+)"/i) ||
+                         rawContent.match(/<meta\s+property="goods:price"\s+content="([^"]+)"/i);
+      if (priceMatch) basePrice = parseFloat(priceMatch[1]);
+    }
+
+    // 2. EXTRAIR SE FOR TEXTO COPIADO COM CTRL+A (PROCESSAMENTO DE LINHAS DO DOCUMENTO)
+    const lines = rawContent.split("\n").map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+    
+    // Obter Preço a partir do Padrão Textual do E-Commerce
+    if (basePrice <= 0.05) {
+      for (const line of lines) {
+        const priceMatch = line.match(/(?:€|\$|R\$|£)\s*(\d+(?:[.,]\d{2})?)/i) || 
+                           line.match(/(\d+(?:[.,]\d{2})?)\s*(?:€|\$|R\$|£)/i);
+        if (priceMatch) {
+          basePrice = parseFloat(priceMatch[1].replace(",", "."));
+          if (basePrice > 0) break;
         }
       }
-    });
+    }
 
-    const parsedContent = rawContent.substring(0, 100000); // Truncamento preventivo generoso para ficar seguro de tokens
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: `Você é uma inteligência artificial especialista em raspagem profunda e estruturação de e-commerce internacional. 
-Por favor, analise a seguinte carga útil de dados que o usuário copiou da página do produto da Temu (pode ser o texto inteiro obtido via Ctrl+A ou o código fonte HTML da página).
-Extraia as informações do produto e retorne-as obrigatoriamente num objeto JSON estruturado perfeito.
-
-Regras de Extração:
-- Nome do produto limpo, profissional, traduzido se necessário e sem termos repetitivos de SEO exagerados.
-- Preço convertido em número decimal puro (ex: 29.90). Se houver preço com desconto, prefira o preço com desconto.
--Descrição breve em português contendo os benefícios do produto de forma luxuosa.
-- Se houver lista de opções de Varidades (cores, tamanhos, tipos), organize-as nos arrays correspondentes. Se não houver, deixe vazias.
-- Extraia a URL de imagem principal mais provável que corresponda à imagem do produto.
-
-Dados Colados:
-${parsedContent}`,
-      config: {
-        systemInstruction: "A sua resposta deve ser única e exclusivamente o objeto JSON perfeitamente formatado.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING, description: "Título profissional de alto padrão do produto." },
-            price: { type: Type.NUMBER, description: "Preço atual numérico em euros (ex: 15.99)." },
-            description: { type: Type.STRING, description: "Resumo explicativo sedutor e bem estruturado do produto." },
-            image_url: { type: Type.STRING, description: "URL direta absoluta da imagem principal do produto.", nullable: true },
-            colors: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Opções de cores ou modelos disponíveis." },
-            sizes: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Opções de tamanhos disponíveis." }
-          },
-          required: ["title", "price"]
+    // Obter Título a partir da primeira linha longa limpa que atue como cabeçalho de catálogo
+    if (!title) {
+      for (const line of lines) {
+        if (line.length >= 25 && line.length <= 160 && !line.includes("http") && !line.includes("www") && !line.includes("<") && !line.includes("{")) {
+          const lower = line.toLowerCase();
+          const noise = ["política", "privacidade", "termos", "cookies", "entrar", "carrinho", "temu", "portugal", "grátis", "envio", "devolu"];
+          const hasNoise = noise.some(n => lower.includes(n));
+          if (!hasNoise) {
+            title = line;
+            break;
+          }
         }
       }
-    });
-
-    const textOutput = response.text || '';
-    let extracted: any;
-    try {
-      extracted = JSON.parse(textOutput.trim());
-    } catch (parseError) {
-      console.error('[TEMU BYPASS ENGINE] Resposta crua recebida:', textOutput);
-      throw new Error('Não foi possível estruturar o JSON de resposta da IA. Por favor, tente copiar um bloco de texto diferente ou mais limpo.');
     }
 
-    if (!extracted.title || !extracted.price) {
-      throw new Error('A IA não conseguiu identificar os campos mínimos (Título e Preço) nessa colagem. Certifique-se de que selecionou e copiou a informação da página do produto.');
+    // Escanear tamanhos e dimensões textuais clássicas (S, M, L, XL, Calçado, cm)
+    const possibleSizes = ["S", "M", "L", "XL", "XXL", "XXXL", "2XL", "3XL", "4XL", "XS"];
+    for (const line of lines) {
+      const upperLine = line.toUpperCase().trim();
+      if (possibleSizes.includes(upperLine)) {
+        if (!sizes.includes(upperLine)) sizes.push(upperLine);
+      }
+      
+      const numMatch = upperLine.match(/^(\d{2})$/);
+      if (numMatch) {
+        const numVal = parseInt(numMatch[1], 10);
+        if (numVal >= 25 && numVal <= 50) {
+          if (!sizes.includes(numMatch[1])) sizes.push(numMatch[1]);
+        }
+      }
     }
 
-    const title = extracted.title;
-    const basePrice = Number(extracted.price) || 0.01;
-    const description = extracted.description || `Produto de alto requinte importado via Temu Logística.`;
-    const imageUrl = extracted.image_url || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=800";
-    const colors = Array.isArray(extracted.colors) ? extracted.colors : [];
-    const sizes = Array.isArray(extracted.sizes) ? extracted.sizes : [];
+    // Escanear cores aproximadas em português
+    const commonColors = [
+      "preto", "branco", "azul", "vermelho", "verde", "amarelo", "rosa", "cinza", "marrom", "castanho", "laranja", 
+      "roxo", "violeta", "bege", "lilás", "dourado", "prateado", "navy", "caqui", "creme", "grafite"
+    ];
+    for (const line of lines) {
+      const lowerLine = line.toLowerCase().trim();
+      if (commonColors.includes(lowerLine)) {
+        const capitalized = line.charAt(0).toUpperCase() + line.slice(1);
+        if (!colors.includes(capitalized)) colors.push(capitalized);
+      }
+    }
+
+    // Fallbacks gerais se nada for extraído
+    if (!title) title = "Produto Importado Temu";
+    if (basePrice <= 0) basePrice = 9.99;
+    if (!description) description = `Aproveite este fantástico item Temu. Produto importado de alta qualidade para o seu dia a dia.`;
+
+    // Limpar título
+    title = title.replace(/\s*-\s*Temu\s*Portugal/gi, "").replace(/\s*-\s*Temu/gi, "").trim();
 
     // Determinar ID externo único
     let externalId = '';

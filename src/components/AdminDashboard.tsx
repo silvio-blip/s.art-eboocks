@@ -2884,24 +2884,22 @@ export default function AdminDashboard({
                                   />
                                 </button>
                               </div>
-                              {editingProduct.sizes_enabled && (
-                                <div className="space-y-1 ml-2">
-                                  <label className="text-[8px] uppercase text-white/30 tracking-widest pl-1">
-                                    Lista de Tamanhos
-                                  </label>
-                                  <input
-                                    value={editingProduct.sizes || ""}
-                                    onChange={(e) =>
-                                      setEditingProduct({
-                                        ...editingProduct,
-                                        sizes: e.target.value,
-                                      })
-                                    }
-                                    className="w-full bg-transparent border-b border-white/10 py-2 text-xs outline-none focus:border-luxury-gold"
-                                    placeholder="S, M, L, XL (Vírgula para separar)"
-                                  />
-                                </div>
-                              )}
+                              <div className="space-y-1 ml-2">
+                                <label className="text-[8px] uppercase text-white/30 tracking-widest pl-1">
+                                  Lista de Tamanhos {editingProduct.sizes_enabled ? "(Ativa na Loja)" : "(Inativa na Loja)"}
+                                </label>
+                                <input
+                                  value={Array.isArray(editingProduct.sizes) ? editingProduct.sizes.join(', ') : (editingProduct.sizes || "")}
+                                  onChange={(e) =>
+                                    setEditingProduct({
+                                      ...editingProduct,
+                                      sizes: e.target.value,
+                                    })
+                                  }
+                                  className="w-full bg-transparent border-b border-white/10 py-2 text-xs outline-none focus:border-luxury-gold"
+                                  placeholder="S, M, L, XL (Vírgula para separar)"
+                                />
+                              </div>
                             </div>
 
                             <div className="space-y-4">
@@ -2924,24 +2922,22 @@ export default function AdminDashboard({
                                   />
                                 </button>
                               </div>
-                              {editingProduct.colors_enabled && (
-                                <div className="space-y-1 ml-2">
-                                  <label className="text-[8px] uppercase text-white/30 tracking-widest pl-1">
-                                    Opções de Cores
-                                  </label>
-                                  <input
-                                    value={editingProduct.colors || ""}
-                                    onChange={(e) =>
-                                      setEditingProduct({
-                                        ...editingProduct,
-                                        colors: e.target.value,
-                                      })
-                                    }
-                                    className="w-full bg-transparent border-b border-white/10 py-2 text-xs outline-none focus:border-luxury-gold"
-                                    placeholder="White / Black / Gold (Use '/' ou ',')"
-                                  />
-                                </div>
-                              )}
+                              <div className="space-y-1 ml-2">
+                                <label className="text-[8px] uppercase text-white/30 tracking-widest pl-1">
+                                  Opções de Cores {editingProduct.colors_enabled ? "(Ativas na Loja)" : "(Inativas na Loja)"}
+                                </label>
+                                <input
+                                  value={Array.isArray(editingProduct.colors) ? editingProduct.colors.join(', ') : (editingProduct.colors || "")}
+                                  onChange={(e) =>
+                                    setEditingProduct({
+                                      ...editingProduct,
+                                      colors: e.target.value,
+                                    })
+                                  }
+                                  className="w-full bg-transparent border-b border-white/10 py-2 text-xs outline-none focus:border-luxury-gold"
+                                  placeholder="White / Black / Gold (Use '/' ou ',')"
+                                />
+                              </div>
                             </div>
                           </div>
 
