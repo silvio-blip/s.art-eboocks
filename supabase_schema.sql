@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS products (
   provider TEXT DEFAULT 'aliexpress',
   metadata JSONB DEFAULT '{}'::jsonb,
   aliexpress_id TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS products_aliexpress_id_idx ON products (aliexpress_id) WHERE aliexpress_id IS NOT NULL;

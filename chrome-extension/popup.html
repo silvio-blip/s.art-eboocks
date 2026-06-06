@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <title>CyberExtract - AliExpress & Temu</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg-gradient: linear-gradient(135deg, #09090e 0%, #12121f 100%);
+      --accent-neon: #00f2fe; /* Cyber Cyan */
+      --accent-pink: #fe019a; /* Cyber Magenta */
+      --glass-bg: rgba(255, 255, 255, 0.03);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 20px;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    /* Cyber-Luxury Glassmorphic Container */
+    .container {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    /* Subtle background glow element */
+    .container::before {
+      content: '';
+      position: absolute;
+      top: -50px;
+      right: -50px;
+      width: 100px;
+      height: 100px;
+      background: radial-gradient(circle, rgba(0, 242, 254, 0.2) 0%, rgba(0, 0, 0, 0) 70%);
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 20px;
+      z-index: 1;
+      position: relative;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .logo-icon {
+      font-size: 24px;
+      filter: drop-shadow(0 0 8px var(--accent-neon));
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      margin: 0;
+      text-transform: uppercase;
+      background: linear-gradient(90deg, var(--accent-neon), var(--accent-pink));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* Platform Badge Detector - Dynamic */
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      margin-bottom: 20px;
+      justify-content: center;
+      transition: all 0.3s ease;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      box-shadow: 0 0 6px var(--text-muted);
+    }
+
+    /* Platform Specific Badge Styling via JS class mapping */
+    .status-badge.aliexpress {
+      border-color: rgba(254, 1, 154, 0.4);
+    }
+    .status-badge.aliexpress .status-dot {
+      background: var(--accent-pink);
+      box-shadow: 0 0 10px var(--accent-pink);
+    }
+
+    .status-badge.temu {
+      border-color: rgba(0, 242, 254, 0.4);
+    }
+    .status-badge.temu .status-dot {
+      background: var(--accent-neon);
+      box-shadow: 0 0 10px var(--accent-neon);
+    }
+
+    /* Cyber Button Action */
+    .btn-extract {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.1) 0%, rgba(254, 1, 154, 0.1) 100%);
+      border: 1px solid var(--accent-neon);
+      color: #ffffff;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .btn-extract::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--accent-neon) 0%, var(--accent-pink) 100%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: -1;
+    }
+
+    .btn-extract:hover::before {
+      opacity: 0.2;
+    }
+
+    .btn-extract:hover {
+      border-color: var(--accent-pink);
+      box-shadow: 0 0 15px rgba(254, 1, 154, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .btn-extract:active {
+      transform: translateY(1px);
+    }
+
+    /* Feedback Console Pane */
+    .console-pane {
+      margin-top: 15px;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      max-height: 100px;
+      overflow-y: auto;
+      text-align: left;
+    }
+
+    .console-line {
+      margin: 4px 0;
+      line-height: 1.4;
+      color: var(--text-muted);
+    }
+
+    .console-line.success {
+      color: var(--accent-neon);
+    }
+
+    .console-line.error {
+      color: var(--accent-pink);
+    }
+
+    .console-line.info {
+      color: #e5e7eb;
+    }
+
+    /* Custom Webkit scrollbar for premium console vibe */
+    .console-pane::-webkit-scrollbar {
+      width: 4px;
+    }
+    .console-pane::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .console-pane::-webkit-scrollbar-thumb {
+      background: var(--glass-border);
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="popup-container">
+    <header>
+      <div class="logo-container">
+        <span class="logo-icon">📡</span>
+        <h1>CyberExtract</h1>
+      </div>
+      <div class="subtitle">Multi-Platform Engine</div>
+    </header>
+
+    <!-- Platform detection status widget -->
+    <div class="status-badge" id="platform-badge">
+      <span class="status-dot"></span>
+      <span id="platform-text">A DETETAR PLATFORMA...</span>
+    </div>
+
+    <!-- Main action button -->
+    <button class="btn-extract" id="btn-extract" disabled>
+      <span>Extrair Produto</span>
+    </button>
+
+    <!-- Configuração de Conexão com o Backend -->
+    <div style="margin-top: 15px; text-align: left; background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: 12px; padding: 12px;">
+      <div style="font-size: 9px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; color: var(--text-muted); opacity: 0.8; margin-bottom: 6px; letter-spacing: 1px; display: flex; align-items: center; gap: 4px;">
+        <span>⚙️</span> CONEXÃO DE REDE BACKEND:
+      </div>
+      <input type="text" id="backend-url" style="width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.6); border: 1px solid var(--glass-border); border-radius: 6px; color: #00f2fe; font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 8px; outline: none; margin-bottom: 8px; transition: border-color 0.3s;" placeholder="URL: https://ais-dev-...run.app" />
+      <div style="display: flex; gap: 6px; justify-content: flex-end;">
+        <button id="btn-save-url" style="background: linear-gradient(135deg, rgba(0,242,254,0.15) 0%, rgba(254,1,154,0.15) 100%); border: 1px solid #00f2fe; color: #fff; font-size: 9px; font-weight: 600; padding: 5px 10px; border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.2s;">Gravar</button>
+      </div>
+    </div>
+
+    <!-- Interactive console output window -->
+    <div class="console-pane" id="console-pane">
+      <div class="console-line info">> Inicializando núcleo de extração...</div>
+      <div class="console-line info">> Pronto para capturar dados.</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

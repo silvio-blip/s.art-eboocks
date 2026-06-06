@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "AliTemu Extractor - Cyber Luxury Edition",
+  "version": "1.0.0",
+  "description": "Extração inteligente e premium de produtos do AliExpress e Temu.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.aliexpress.com/*",
+    "https://*.aliexpress.com/*",
+    "https://*.temu.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.aliexpress.com/*",
+        "https://*.temu.com/*"
+      ],
+      "js": ["content_script.js"]
+    }
+  ]
+}

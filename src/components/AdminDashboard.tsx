@@ -205,6 +205,10 @@ export default function AdminDashboard({
   const [importAliExpressId, setImportAliExpressId] = useState("");
   const [importMarkup, setImportMarkup] = useState<number>(10.00); // Default markup
   const [importing, setImporting] = useState(false);
+  const [temuRawContent, setTemuRawContent] = useState("");
+  const [temuUrl, setTemuUrl] = useState("");
+  const [temuMarkup, setTemuMarkup] = useState<number>(10.00);
+  const [importingTemu, setImportingTemu] = useState(false);
   const [isSyncingAllAliExpress, setIsSyncingAllAliExpress] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
@@ -771,6 +775,64 @@ export default function AdminDashboard({
       toast.error(e.message || "Erro ao conectar com API Internacional", { id: impToast });
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleImportTemuRaw = async () => {
+    if (!temuRawContent.trim()) {
+      toast.error("O texto do produto ou código-fonte copiado não pode estar vazio.");
+      return;
+    }
+
+    setImportingTemu(true);
+    const impToast = toast.loading("O cérebro do Gemini está a analisar, extrair e cadastrar o produto Temu...");
+
+    try {
+      const response = await fetch('/api/admin/products/import-temu-raw', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        },
+        body: JSON.stringify({
+          rawContent: temuRawContent,
+          url: temuUrl,
+          markup: temuMarkup
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha no processador Temu');
+      }
+
+      if (data._isUpdate) {
+        toast.success(`PRODUTO TEMU ATUALIZADO COM SUCESSO!\n"${data.title?.substring(0, 40)}..."`, { 
+          id: impToast, 
+          duration: 8000 
+        });
+      } else {
+        toast.success(`SUCESSO COMPLETO!\nNovo produto Temu criado de forma inteligente pelas lentes do Gemini:\n"${data.title?.substring(0, 40)}..."`, { 
+          id: impToast, 
+          duration: 8000 
+        });
+      }
+
+      setTemuRawContent("");
+      setTemuUrl("");
+      await fetchProducts();
+
+      setEditingProduct({
+        ...data,
+        pvp: data.price || 0
+      });
+
+      setIsProductCreateModalOpen(false);
+
+    } catch (e: any) {
+      toast.error(e.message || "Erro no processamento de IA", { id: impToast });
+    } finally {
+      setImportingTemu(false);
     }
   };
 
@@ -2229,13 +2291,13 @@ export default function AdminDashboard({
                       <Zap className="w-5 h-5 text-luxury-gold" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-serif text-white italic">International Boutique Sync</h3>
+                      <h3 className="text-lg font-serif text-white italic">International AliExpress Sync</h3>
                       <p className="text-[10px] uppercase tracking-widest text-luxury-gold/60 font-bold">Importação via Link ou ID</p>
                     </div>
                   </div>
                   <p className="text-xs text-zinc-500 leading-relaxed">
-                    Importe produtos diretamente de estoques internacionais. Cole o link do produto ou apenas o ID numérico.
-                    O sistema extrairá automaticamente a descrição, galeria de imagens e preços base.
+                    Importe produtos diretamente de estoques internacionais do AliExpress. Cole o link do produto ou apenas o ID numérico.
+                    O sistema extrairá automaticamente a descrição, galeria de imagens e preços base com as vossas margens.
                   </p>
                 </div>
 
@@ -2256,6 +2318,88 @@ export default function AdminDashboard({
                     className="h-14 px-8 bg-luxury-gold hover:bg-luxury-gold/80 text-black rounded-xl font-bold uppercase tracking-widest text-[10px] active:scale-95 transition-all shadow-lg shadow-luxury-gold/20"
                   >
                     {importing ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : "Sincronizar"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Importador Direto Temu (Bypass Cloudflare via IA - Sem Plugins) */}
+            <div className="bg-[#050505] border border-purple-500/20 p-8 rounded-[2rem] space-y-6 relative overflow-hidden group">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 blur-[80px] rounded-full -mr-32 -mt-32 group-hover:bg-purple-500/10 transition-colors duration-700" />
+              
+              <div className="relative z-10 space-y-6">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+                  <div className="max-w-2xl space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-purple-500/10 rounded-xl border border-purple-500/20">
+                        <Zap className="w-5 h-5 text-purple-400 animate-pulse" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-serif text-white italic">Importador Especial Temu Inteligente</h3>
+                        <p className="text-[10px] uppercase tracking-widest text-purple-400 font-bold">Extração Segura via IA — Sem Extensões ou Bloqueios</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-400 leading-relaxed">
+                      Selecione todas as informações da tela do produto da Temu no seu navegador (<kbd className="bg-zinc-800 text-zinc-200 px-1 rounded font-mono text-[10px]">Ctrl + A</kbd> para selecionar tudo e depois <kbd className="bg-zinc-800 text-zinc-200 px-1 rounded font-mono text-[10px]">Ctrl + C</kbd> para copiar), e cole no campo abaixo! O nosso cérebro artificial Gemini lerá o texto copiado, extrairá o título perfeito, preço de custo, foto e variedades instantaneamente.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="md:col-span-3 space-y-2">
+                    <label className="text-[9px] uppercase tracking-widest text-zinc-400 font-bold">Link do Produto na Temu (Opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Cole aqui o link do produto na Temu para fins de registo no inventário"
+                      value={temuUrl}
+                      onChange={(e) => setTemuUrl(e.target.value)}
+                      className="w-full h-12 bg-white/[0.03] border border-white/5 rounded-xl px-4 text-white font-mono text-[10px] tracking-widest outline-none focus:border-purple-500/30 transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[9px] uppercase tracking-widest text-zinc-400 font-bold">Acréscimo / Margem (€)</label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-purple-400/40" />
+                      <input
+                        type="number"
+                        placeholder="Margem"
+                        value={temuMarkup}
+                        onChange={(e) => setTemuMarkup(parseFloat(e.target.value) || 0)}
+                        className="w-full h-12 bg-white/[0.03] border border-white/5 rounded-xl pl-10 pr-4 text-white font-mono text-[10px] tracking-widest outline-none focus:border-purple-500/30 transition-all font-bold text-purple-300"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[9px] uppercase tracking-widest text-zinc-400 font-bold block">
+                    Texto Selecionado / Código Fonte Copiado da Temu <span className="text-purple-400 font-black">*</span>
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Abra o produto na Temu no seu ecrã, pressione Ctrl+A para selecionar a página inteira, copie e cole tudo aqui de forma simples!"
+                    value={temuRawContent}
+                    onChange={(e) => setTemuRawContent(e.target.value)}
+                    className="w-full bg-white/[0.01] border border-purple-500/10 rounded-2xl p-4 text-white font-mono text-[10px] tracking-wider outline-none focus:border-purple-500/30 transition-all resize-none luxury-scrollbar"
+                  />
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleImportTemuRaw}
+                    disabled={importingTemu || !temuRawContent}
+                    className="h-14 px-10 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold uppercase tracking-widest text-[10px] active:scale-95 transition-all shadow-lg shadow-purple-600/20 flex items-center gap-2"
+                  >
+                    {importingTemu ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                        <span>Extraindo com Gemini...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Extrair e Cadastrar via IA</span>
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

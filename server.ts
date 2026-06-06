@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import Stripe from 'stripe';
 import CryptoJS from 'crypto-js';
+import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
 
@@ -244,6 +245,10 @@ const initDB = async () => {
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'is_featured') THEN
               ALTER TABLE products ADD COLUMN is_featured BOOLEAN DEFAULT FALSE;
             END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'updated_at') THEN
+              ALTER TABLE products ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());
+            END IF;
             
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'admin_link') THEN
               ALTER TABLE products ADD COLUMN admin_link TEXT;
@@ -309,23 +314,10 @@ const initDB = async () => {
             -- --- PRODUCT OWNERSHIP RECONCILIATION ---
             -- Ensures all products are linked to an authorized creator (Admin/Employee).
             -- This fixes the issue where 106 products might have been attributed to a client.
-            DO $$
-            DECLARE 
-              master_admin_id UUID;
-            BEGIN
-              -- Find the primary admin (the one that should own orphaned products)
-              SELECT id INTO master_admin_id FROM profiles WHERE is_admin = true ORDER BY created_at ASC LIMIT 1;
-              
-              IF master_admin_id IS NOT NULL THEN
-                -- 1. Products with NO owner
-                UPDATE products SET created_by = master_admin_id WHERE created_by IS NULL;
-                
-                -- 2. Products owned by someone who is NOT staff (Admin or Employee)
-                UPDATE products 
-                SET created_by = master_admin_id 
-                WHERE created_by NOT IN (SELECT id FROM profiles WHERE is_admin = true OR is_employee = true);
-              END IF;
-            END $$;
+            UPDATE products 
+            SET created_by = (SELECT id FROM profiles WHERE is_admin = true ORDER BY created_at ASC LIMIT 1)
+            WHERE (created_by IS NULL OR created_by NOT IN (SELECT id FROM profiles WHERE is_admin = true OR is_employee = true))
+              AND EXISTS (SELECT 1 FROM profiles WHERE is_admin = true);
 
             -- Update status constraint if exists to include manual_fulfillment_required
             -- (Assuming status is check constrained or just a text field)
@@ -1028,6 +1020,131 @@ apiRouter.get('/ping', (req, res) => {
 apiRouter.get('/test-api', (req, res) => {
   console.log('[API TEST] Test route hit');
   res.json({ success: true, message: 'API is working' });
+});
+
+// Endpoint seguro e integrado para Ingestão de Produtos via Extensão CyberExtract (AliExpress e Temu)
+apiRouter.post('/products/extract-ingest', async (req, res) => {
+  try {
+    const { product, source } = req.body;
+    if (!product || !source) {
+      return res.status(400).json({ error: 'Os dados do produto e a fonte (source) são obrigatórios.' });
+    }
+
+    const { title, price, mainImage, variations, url } = product;
+    if (!title || !url) {
+      return res.status(400).json({ error: 'O título e o URL do produto são obrigatórios para a ingestão.' });
+    }
+
+    console.log(`[CYBEREXTRACT] Recebida carga de extração automatizada de ${source} para: "${title}"`);
+
+    const supabase = getSupabase();
+    const provider = String(source).toLowerCase() === 'temu' ? 'temu' : 'aliexpress';
+
+    // Determinar ID externo para evitar colisões no banco de dados entre plataformas
+    let externalId = '';
+    if (provider === 'aliexpress') {
+      const idMatch = url.match(/item\/(\d+)\.html/) || url.match(/\/(\d+)\.html/) || url.match(/id=(\d+)/);
+      externalId = idMatch ? idMatch[1] : '';
+      if (!externalId) {
+        // Fallback inteligente
+        const digits = url.replace(/[^0-9]/g, '');
+        externalId = digits.length >= 10 ? digits.substring(0, 16) : 'ali_' + Date.now();
+      }
+    } else {
+      // Temu ID extraction
+      const match = url.match(/[gG]-([a-zA-Z0-9]+)/) || url.match(/_g_([a-zA-Z0-9]+)/);
+      if (match) {
+        externalId = 'temu_' + match[1];
+      } else {
+        // Fallback robusto de links Temu
+        try {
+          const path = new URL(url).pathname;
+          const parts = path.split('/');
+          const lastPart = parts[parts.length - 1];
+          const nameMatch = lastPart.replace('.html', '').match(/([a-zA-Z0-9-]+)$/);
+          externalId = nameMatch ? 'temu_' + nameMatch[1] : 'temu_' + Date.now();
+        } catch (e) {
+          externalId = 'temu_' + Date.now();
+        }
+      }
+    }
+
+    // Processamento e conversão de preços de forma polimórfica (suporta pontuação internacional e europeia)
+    let parsedPrice = 0;
+    if (typeof price === 'number') {
+      parsedPrice = price;
+    } else if (typeof price === 'string') {
+      let cleaned = price.replace(/[€$R£\s]/g, '');
+      cleaned = cleaned.replace(',', '.');
+      const pMatch = cleaned.match(/(\d+(\.\d+)?)/);
+      if (pMatch) {
+        parsedPrice = parseFloat(pMatch[1]);
+      }
+    }
+    if (isNaN(parsedPrice)) parsedPrice = 0;
+    parsedPrice = Math.round(parsedPrice * 100) / 100;
+
+    // Verificar existência prévia pelo aliexpress_id (externalId unificado)
+    const { data: existing } = await supabase
+      .from('products')
+      .select('id, title, description, price, metadata, image_url')
+      .eq('aliexpress_id', externalId)
+      .maybeSingle();
+
+    const commonData: any = {
+      aliexpress_id: externalId,
+      title: (existing?.title && existing.title !== "Título não encontrado") ? existing.title : title,
+      description: existing?.description || `Produto de alta gama importado diretamente da plataforma ${source} via Extensão CyberExtract.`,
+      price: existing?.price || parsedPrice,
+      image_url: existing?.image_url || mainImage || null,
+      provider: provider,
+      admin_link: url,
+      updated_at: new Date().toISOString(),
+      metadata: {
+        ...(existing?.metadata || {}),
+        variations: variations || [],
+        extracted_at: new Date().toISOString(),
+        url: url
+      }
+    };
+
+    let result;
+    if (existing) {
+      const { data: updated, error: updateError } = await supabase
+        .from('products')
+        .update(commonData)
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (updateError) throw updateError;
+      result = updated;
+      console.log(`[CYBEREXTRACT] Produto atualizado na BD nacional. ID Local: ${result.id}`);
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from('products')
+        .insert([{
+          ...commonData,
+          category: 'Importados',
+          product_type: 'physical',
+          is_active: true
+        }])
+        .select()
+        .single();
+      if (insertError) throw insertError;
+      result = inserted;
+      console.log(`[CYBEREXTRACT] Novo produto Temu/AliExpress instanciado com sucesso. ID Local: ${result.id}`);
+    }
+
+    // Forçar recarga do cache de schemas do PostgREST para refletir o novo produto instantaneamente
+    try {
+      await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" });
+    } catch(e) {}
+
+    res.json({ success: true, product: result });
+  } catch (error: any) {
+    console.error('[CYBEREXTRACT INGEST FATAL ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Sync Order Status manually (Client Triggered)
@@ -2276,6 +2393,13 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     const { productId, markup } = req.body;
     if (!productId) return res.status(400).json({ error: 'ID de importação é obrigatório.' });
 
+    // Salvaguarda inteligente se for colado um link ou ID da Temu
+    if (String(productId).toLowerCase().includes('temu') || String(productId).startsWith('temu_')) {
+      return res.status(400).json({
+        error: 'Mecanismo Temu detetado! Devido aos bloqueios de segurança (Cloudflare) severos da Temu no servidor, a extração direta a partir do Painel Administrativo web não é possível. Para importar este produto de forma automática, garantida e instantânea com um só clique, por favor use a nossa Extensão do Chrome "CyberExtract" diretamente na página do produto na Temu no seu navegador!'
+      });
+    }
+
     const priceMarkup = markup !== undefined ? Math.round(parseFloat(String(markup)) * 100) / 100 : undefined;
     console.log(`[ADMIN] Importando produto internacional ID: ${productId} com Margem: ${priceMarkup}`);
     
@@ -2355,6 +2479,166 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
   } catch (error: any) {
     console.error(`[ADMIN ALIEXPRESS IMPORT ERROR]`, error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Importador robusto Temu via colagem de texto ou código fonte HTML
+adminRouter.post('/products/import-temu-raw', async (req, res) => {
+  try {
+    const { rawContent, url, markup } = req.body;
+    if (!rawContent) {
+      return res.status(400).json({ error: 'O conteúdo de texto copiado ou código fonte HTML do produto é obrigatório.' });
+    }
+
+    console.log(`[TEMU BYPASS ENGINE] Analisando dados colados de Temu. Comprimento do texto: ${rawContent.length} caracteres...`);
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'A sua Chave de API do Gemini (GEMINI_API_KEY) está em falta ou não está configurada nos segredos das definições.' });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build'
+        }
+      }
+    });
+
+    const parsedContent = rawContent.substring(0, 100000); // Truncamento preventivo generoso para ficar seguro de tokens
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `Você é uma inteligência artificial especialista em raspagem profunda e estruturação de e-commerce internacional. 
+Por favor, analise a seguinte carga útil de dados que o usuário copiou da página do produto da Temu (pode ser o texto inteiro obtido via Ctrl+A ou o código fonte HTML da página).
+Extraia as informações do produto e retorne-as obrigatoriamente num objeto JSON estruturado perfeito.
+
+Regras de Extração:
+- Nome do produto limpo, profissional, traduzido se necessário e sem termos repetitivos de SEO exagerados.
+- Preço convertido em número decimal puro (ex: 29.90). Se houver preço com desconto, prefira o preço com desconto.
+-Descrição breve em português contendo os benefícios do produto de forma luxuosa.
+- Se houver lista de opções de Varidades (cores, tamanhos, tipos), organize-as nos arrays correspondentes. Se não houver, deixe vazias.
+- Extraia a URL de imagem principal mais provável que corresponda à imagem do produto.
+
+Dados Colados:
+${parsedContent}`,
+      config: {
+        systemInstruction: "A sua resposta deve ser única e exclusivamente o objeto JSON perfeitamente formatado.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING, description: "Título profissional de alto padrão do produto." },
+            price: { type: Type.NUMBER, description: "Preço atual numérico em euros (ex: 15.99)." },
+            description: { type: Type.STRING, description: "Resumo explicativo sedutor e bem estruturado do produto." },
+            image_url: { type: Type.STRING, description: "URL direta absoluta da imagem principal do produto.", nullable: true },
+            colors: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Opções de cores ou modelos disponíveis." },
+            sizes: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Opções de tamanhos disponíveis." }
+          },
+          required: ["title", "price"]
+        }
+      }
+    });
+
+    const textOutput = response.text || '';
+    let extracted: any;
+    try {
+      extracted = JSON.parse(textOutput.trim());
+    } catch (parseError) {
+      console.error('[TEMU BYPASS ENGINE] Resposta crua recebida:', textOutput);
+      throw new Error('Não foi possível estruturar o JSON de resposta da IA. Por favor, tente copiar um bloco de texto diferente ou mais limpo.');
+    }
+
+    if (!extracted.title || !extracted.price) {
+      throw new Error('A IA não conseguiu identificar os campos mínimos (Título e Preço) nessa colagem. Certifique-se de que selecionou e copiou a informação da página do produto.');
+    }
+
+    const title = extracted.title;
+    const basePrice = Number(extracted.price) || 0.01;
+    const description = extracted.description || `Produto de alto requinte importado via Temu Logística.`;
+    const imageUrl = extracted.image_url || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&q=80&w=800";
+    const colors = Array.isArray(extracted.colors) ? extracted.colors : [];
+    const sizes = Array.isArray(extracted.sizes) ? extracted.sizes : [];
+
+    // Determinar ID externo único
+    let externalId = '';
+    const cleanUrl = String(url || '').trim();
+    const match = cleanUrl.match(/[gG]-([a-zA-Z0-9]+)/) || cleanUrl.match(/_g_([a-zA-Z0-9]+)/);
+    if (match) {
+      externalId = 'temu_' + match[1];
+    } else {
+      const hashStr = title.substring(0, 12).toLowerCase().replace(/[^a-z0-9]/g, '');
+      externalId = 'temu_' + hashStr + '_' + Date.now().toString().substring(10);
+    }
+
+    const priceMarkup = markup !== undefined ? Math.round(parseFloat(String(markup)) * 100) / 100 : 0;
+    const finalPrice = Math.round((basePrice + priceMarkup) * 100) / 100;
+
+    const supabase = getSupabase();
+
+    const { data: existing } = await supabase
+      .from('products')
+      .select('id, title, description, price, metadata, image_url, colors, sizes')
+      .eq('aliexpress_id', externalId)
+      .maybeSingle();
+
+    const commonData: any = {
+      aliexpress_id: externalId,
+      title: (existing?.title && existing.title !== "Título não encontrado") ? existing.title : title,
+      description: existing?.description || description,
+      price: existing?.price || finalPrice,
+      price_markup: priceMarkup,
+      image_url: existing?.image_url || imageUrl,
+      colors: existing?.colors || colors,
+      sizes: existing?.sizes || sizes,
+      colors_enabled: colors.length > 0,
+      sizes_enabled: sizes.length > 0,
+      provider: 'temu',
+      admin_link: cleanUrl || 'https://www.temu.com',
+      updated_at: new Date().toISOString(),
+      metadata: {
+        ...(existing?.metadata || {}),
+        extracted_at: new Date().toISOString(),
+        is_pasted_data: true,
+        temu_original_price: basePrice,
+        pasted_chars_count: rawContent.length,
+        url: cleanUrl
+      }
+    };
+
+    let result_data;
+    if (existing?.id) {
+      const { data: updated, error: updateError } = await supabase
+        .from('products')
+        .update(commonData)
+        .eq('id', existing.id)
+        .select().single();
+      if (updateError) throw updateError;
+      result_data = updated;
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from('products')
+        .insert([{
+          ...commonData,
+          category: 'Importados',
+          product_type: 'physical',
+          is_active: true
+        }])
+        .select().single();
+      if (insertError) throw insertError;
+      result_data = inserted;
+    }
+
+    // Forçar recarga do schema do PostgREST
+    try {
+      await supabase.rpc('exec_sql', { sql: "NOTIFY pgrst, 'reload schema';" });
+    } catch(e) {}
+
+    res.json({ ...result_data, _isUpdate: !!existing });
+  } catch (error: any) {
+    console.error('[TEMU DIRECT IMPORT ENGINE FATAL ERROR]', error);
+    res.status(500).json({ error: error.message || 'Erro fatal desconhecido ao ler o texto copiado.' });
   }
 });
 
