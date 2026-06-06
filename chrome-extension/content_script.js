@@ -295,8 +295,10 @@ function extractAliExpress() {
     for (const selector of imgSelectors) {
       const el = document.querySelector(selector);
       if (el) {
-        let candidateSrc = el.tagName === "META" ? el.getAttribute("content") : el.src;
-        if (candidateSrc && candidateSrc.startsWith("http")) {
+        let candidateSrc = el.tagName === "META" 
+          ? el.getAttribute("content") 
+          : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.src);
+        if (candidateSrc && (candidateSrc.startsWith("http") || candidateSrc.startsWith("//"))) {
           candidateSrc = cleanProductImageUrl(candidateSrc);
           if (!isNoiseImage(candidateSrc)) {
             mainImage = candidateSrc;
@@ -307,16 +309,40 @@ function extractAliExpress() {
     }
   }
 
-  // Recolher as variações/skus brutas
+  // Recolher as variações/skus brutas de forma robusta e persistente
   const variations = [];
-  const skuElements = document.querySelectorAll(".item-sku-image, .sku-property-item, [sku-value]");
+  const processedUrls = new Set();
+  const skuElements = document.querySelectorAll(
+    ".item-sku-image, .sku-property-item, [sku-value], " +
+    "[class*='sku-property-image'] img, [class*='sku'] img, [class*='Sku'] img"
+  );
   skuElements.forEach(el => {
-    const imgEl = el.querySelector("img");
-    const labelEl = el.querySelector("span");
-    const name = el.getAttribute("title") || el.getAttribute("aria-label") || (labelEl ? labelEl.textContent.trim() : "");
-    const imgUrl = imgEl ? imgEl.src : "";
-    if (name || imgUrl) {
-      variations.push({ name, imgUrl });
+    let imgEl = el.tagName === "IMG" ? el : el.querySelector("img");
+    let labelEl = el.querySelector("span, p, div");
+    
+    let name = el.getAttribute("title") || el.getAttribute("aria-label") || "";
+    if (!name && labelEl) {
+      name = labelEl.textContent.trim();
+    }
+    if (!name && imgEl) {
+      name = imgEl.getAttribute("alt") || imgEl.getAttribute("title") || "";
+    }
+    
+    let rawImg = imgEl ? (imgEl.getAttribute("data-src") || imgEl.getAttribute("data-lazy-src") || imgEl.getAttribute("data-defer-src") || imgEl.src || "") : "";
+    let imgUrl = "";
+    if (rawImg && (rawImg.startsWith("http") || rawImg.startsWith("//"))) {
+      imgUrl = cleanProductImageUrl(rawImg);
+    }
+    
+    if (imgUrl && !processedUrls.has(imgUrl)) {
+      processedUrls.add(imgUrl);
+      if (!name || name.length > 30 || /^(http|\/\/)/.test(name)) {
+        name = imgEl ? (imgEl.getAttribute("alt") || "Modelo") : "Modelo";
+      }
+      variations.push({ 
+        name: name.substring(0, 30), 
+        imgUrl: imgUrl 
+      });
     }
   });
 
@@ -491,8 +517,10 @@ function extractTemu() {
     for (const selector of imgSelectors) {
       const el = document.querySelector(selector);
       if (el) {
-        let candidateSrc = el.tagName === "META" ? el.getAttribute("content") : el.src;
-        if (candidateSrc && candidateSrc.startsWith("http")) {
+        let candidateSrc = el.tagName === "META" 
+          ? el.getAttribute("content") 
+          : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.getAttribute("data-defer-src") || el.src);
+        if (candidateSrc && (candidateSrc.startsWith("http") || candidateSrc.startsWith("//"))) {
           candidateSrc = cleanProductImageUrl(candidateSrc);
           if (!isNoiseImage(candidateSrc)) {
             mainImage = candidateSrc;
@@ -507,26 +535,57 @@ function extractTemu() {
   if (!mainImage) {
     const imgs = Array.from(document.querySelectorAll("img"));
     const bestImg = imgs.find(i => {
-      const src = i.src || "";
-      if (!src.startsWith("http") || isNoiseImage(src)) return false;
+      let src = i.src || i.getAttribute("data-src") || i.getAttribute("data-lazy-src") || "";
+      if (!(src.startsWith("http") || src.startsWith("//")) || isNoiseImage(src)) return false;
+      src = cleanProductImageUrl(src);
       const isProductCDN = src.includes("kwcdn.com") || src.includes("alicdn.com");
       return isProductCDN || i.naturalWidth > 250 || i.width > 250;
     });
-    if (bestImg) mainImage = cleanProductImageUrl(bestImg.src);
+    if (bestImg) {
+      const rawSrc = bestImg.src || bestImg.getAttribute("data-src") || bestImg.getAttribute("data-lazy-src") || "";
+      mainImage = cleanProductImageUrl(rawSrc);
+    }
   }
 
-  // Variações brutas
+  // Variações brutas de alta precisão para Temu
   const variations = [];
-  const variationEls = document.querySelectorAll("[class*='sku'], [class*='spec'], [class*='prop'], [class*='item']");
+  const processedUrlsTemu = new Set();
+  const variationEls = document.querySelectorAll(
+    "[class*='VariationValue'], [class*='sku-item'], [class*='skuItem'], [class*='sku_item'], " +
+    "[class*='sku'] img, [class*='skus'] img, [class*='StandardProductSlices'] img, " +
+    "[class*='Variation'] img, img[class*='sku'], img[class*='Variation']"
+  );
+  
   variationEls.forEach(el => {
     if (isElementNoiseOrOutsideProduct(el)) return;
-    const txt = el.textContent ? el.textContent.trim() : "";
-    const img = el.querySelector("img");
-    const imgUrl = img ? img.src : "";
     
-    if (txt && txt.length > 0 && txt.length < 25 && variations.length < 10) {
-      if (!variations.some(v => v.name === txt)) {
-        variations.push({ name: txt, imgUrl });
+    let imgEl = el.tagName === "IMG" ? el : el.querySelector("img");
+    let txtEl = el.tagName === "IMG" ? el.parentElement : el;
+    
+    let name = "";
+    if (imgEl) {
+      name = imgEl.getAttribute("alt") || imgEl.getAttribute("title") || "";
+    }
+    if (!name && txtEl) {
+      name = txtEl.getAttribute("title") || txtEl.getAttribute("aria-label") || txtEl.textContent.trim() || "";
+    }
+    
+    name = name.split("\n")[0].trim().replace(/\s+/g, " ");
+    
+    let rawImg = imgEl ? (imgEl.getAttribute("data-src") || imgEl.getAttribute("data-lazy-src") || imgEl.getAttribute("data-defer-src") || imgEl.src || "") : "";
+    if (rawImg && (rawImg.startsWith("http") || rawImg.startsWith("//"))) {
+      let cleanUrl = cleanProductImageUrl(rawImg);
+      if (cleanUrl && !processedUrlsTemu.has(cleanUrl)) {
+        processedUrlsTemu.add(cleanUrl);
+        
+        if (!name || name.length > 30 || /^(http|\/\/)/.test(name)) {
+          name = imgEl ? (imgEl.getAttribute("alt") || "Modelo") : "Modelo";
+        }
+        
+        variations.push({ 
+          name: name.substring(0, 30), 
+          imgUrl: cleanUrl 
+        });
       }
     }
   });
@@ -1052,8 +1111,8 @@ function findCarouselImages() {
     selectors.forEach(sel => {
       document.querySelectorAll(sel).forEach(img => {
         if (isElementNoiseOrOutsideProduct(img)) return;
-        let src = img.src || img.getAttribute("data-src") || img.getAttribute("src") || "";
-        if (src && src.startsWith("http")) {
+        let src = img.src || img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-defer-src") || img.getAttribute("src") || "";
+        if (src && (src.startsWith("http") || src.startsWith("//"))) {
           const cleanSrc = cleanProductImageUrl(src);
           if (cleanSrc && !isNoiseImage(cleanSrc)) {
             images.push(cleanSrc);
@@ -1065,8 +1124,8 @@ function findCarouselImages() {
     if (images.length < 3) {
       document.querySelectorAll("img").forEach(img => {
         if (isElementNoiseOrOutsideProduct(img)) return;
-        const src = img.src;
-        if (src && src.startsWith("http")) {
+        let src = img.src || img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-defer-src") || img.getAttribute("src") || "";
+        if (src && (src.startsWith("http") || src.startsWith("//"))) {
           const cleanSrc = cleanProductImageUrl(src);
           if (cleanSrc && !isNoiseImage(cleanSrc)) {
             const isProductDomain = src.includes("alicdn.com") || src.includes("kwcdn.com");
