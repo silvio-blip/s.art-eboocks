@@ -70,7 +70,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     addLog("Vá para o site do AliExpress ou Temu para continuar.", "info");
   }
 
-  // Evento de clique para disparar a extração
+  // Evento de clique para disparar a extração com resiliência total a portas de mensagens quebradas
   btnExtract.addEventListener("click", () => {
     addLog("Ligando a transmissão com o content_script...", "info");
     
@@ -87,7 +87,10 @@ document.addEventListener("DOMContentLoaded", async () => {
             addLog("Falha ao injetar script: " + chrome.runtime.lastError.message, "error");
           } else {
             addLog("Script injetado com sucesso! Inicializando extração...", "info");
-            requestExtraction(activeTab.id);
+            // Dar um delay mínimo estratégico de 150ms para que os ouvintes da tab se assentem no navegador
+            setTimeout(() => {
+              requestExtraction(activeTab.id);
+            }, 150);
           }
         });
       } else {
@@ -97,32 +100,70 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // Envia a instrução de extração final para o content script na página
+  // Envia a instrução de extração final para o content script na página (com duplo-bypass inline)
   function requestExtraction(tabId) {
     chrome.tabs.sendMessage(tabId, { action: "EXTRACT" }, (response) => {
-      if (chrome.runtime.lastError) {
-        addLog("Erro na conversa: " + chrome.runtime.lastError.message, "error");
+      // Se a conexão direta de mensagens de abas falhar (ex: Receiving end does not exist ou contexto invalidado),
+      // acionamos instantaneamente o bypass direto via execução de script. É inquebrável!
+      if (chrome.runtime.lastError || !response || !response.success) {
+        const errorMsg = chrome.runtime.lastError ? chrome.runtime.lastError.message : (response?.error || "Sem resposta");
+        addLog("Ligação de canais clássicos indisponível (" + errorMsg + "). Acionando bypass da página nativa...", "info");
+        attemptExecuteScriptExtract(tabId);
         return;
       }
 
-      if (response && response.success && response.data) {
-        addLog("Dados recolhidos! Enviando para o background...", "success");
-        // Enviar os dados recebidos para o background de forma segura
-        const savedUrl = backendUrlInput.value.trim() || DEFAULT_BACKEND;
-        chrome.runtime.sendMessage({ 
-          action: "SEND_BACKEND", 
-          data: response.data,
-          backendUrl: savedUrl
-        }, (backResponse) => {
-          if (backResponse && backResponse.success) {
-            addLog("Informação transmitida ao backend com êxito!", "success");
-            addLog("URL: " + response.data.url.substring(0, 30) + "...", "info");
-          } else {
-            addLog("Falha no envio ao backend: " + (backResponse?.error || "Desconhecido"), "error");
+      handleExtractionSuccess(response.data);
+    });
+  }
+
+  // Bypass ultra-resiliente executando a extração diretamente via escopo de scripting na aba ativa
+  function attemptExecuteScriptExtract(tabId) {
+    chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: () => {
+        const checkExtractor = window.runMasterExtraction || (typeof runMasterExtraction === "function" ? runMasterExtraction : null);
+        if (checkExtractor) {
+          try {
+            return { success: true, data: checkExtractor() };
+          } catch (e) {
+            return { success: false, error: e.message };
           }
-        });
+        } else {
+          return { success: false, error: "O motor de extração não pôde se ligar ao escopo nativo da página. Por favor, recarregue a aba (F5) para restaurar os ganchos da extensão." };
+        }
+      }
+    }, (results) => {
+      if (chrome.runtime.lastError) {
+        addLog("Erro na injeção de bypass direto: " + chrome.runtime.lastError.message, "error");
+        return;
+      }
+      
+      const res = results?.[0]?.result;
+      if (res && res.success && res.data) {
+        addLog("Dados coletados via bypass direto com absoluto sucesso!", "success");
+        handleExtractionSuccess(res.data);
       } else {
-        addLog("Falha na extração: " + (response?.error || "Nenhum dado retornado"), "error");
+        const detail = res?.error || "Ganchos indisponíveis no contexto atual do browser.";
+        addLog("Erro de bypass: " + detail, "error");
+      }
+    });
+  }
+
+  // Processo consolidado de trânsito dos dados para o background.js enviar ao servidor
+  function handleExtractionSuccess(productData) {
+    addLog("Dados recolhidos com sucesso! Enviando para o background...", "success");
+    const savedUrl = backendUrlInput.value.trim() || DEFAULT_BACKEND;
+    
+    chrome.runtime.sendMessage({ 
+      action: "SEND_BACKEND", 
+      data: productData,
+      backendUrl: savedUrl
+    }, (backResponse) => {
+      if (backResponse && backResponse.success) {
+        addLog("Informação transmitida ao backend com êxito!", "success");
+        addLog("Produto: " + productData.title.substring(0, 30) + "...", "info");
+      } else {
+        addLog("Falha no envio ao backend: " + (backResponse?.error || "Desconhecido"), "error");
       }
     });
   }

@@ -1100,7 +1100,7 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
     // Verificar existência prévia pelo aliexpress_id (externalId unificado)
     const { data: existing } = await supabase
       .from('products')
-      .select('id, title, description, price, metadata, image_url, colors, sizes, colors_enabled, sizes_enabled, extra_images')
+      .select('id, title, description, price, price_markup, metadata, image_url, colors, sizes, colors_enabled, sizes_enabled, extra_images')
       .eq('aliexpress_id', externalId)
       .maybeSingle();
 
@@ -1157,11 +1157,16 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
         .filter(urlStr => urlStr && urlStr.startsWith("http") && urlStr !== cleanImageUrl)
     )].slice(0, 15).join(", ");
 
+    const activeMarkup = existing?.price_markup !== undefined ? Number(existing.price_markup) : 0;
+    const basePrice = parsedPrice > 0 ? parsedPrice : (existing?.metadata?.base_price || (existing?.price ? Math.max(0.01, existing.price - activeMarkup) : 0.01));
+    const finalPrice = Math.round((basePrice + activeMarkup) * 100) / 100;
+
     const commonData: any = {
       aliexpress_id: externalId,
       title: finalTitle,
       description: finalDescription,
-      price: parsedPrice > 0 ? parsedPrice : (existing?.price || 0.01),
+      price: finalPrice,
+      price_markup: activeMarkup,
       image_url: cleanImageUrl,
       extra_images: finalExtraImages || existing?.extra_images || null,
       colors: finalColors || null,
@@ -1175,7 +1180,8 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
         ...(existing?.metadata || {}),
         variations: variations || [],
         extracted_at: new Date().toISOString(),
-        url: url
+        url: url,
+        base_price: basePrice
       }
     };
 
@@ -2266,8 +2272,8 @@ adminRouter.put('/products/:id', async (req, res) => {
     finalPrice = Math.round(finalPrice * 100) / 100;
     const priceMarkup = Math.round(parseFloat(String(price_markup || 0)) * 100) / 100;
 
-    // Recalculate price for AliExpress products if markup changed and base_price is available
-    if (provider === 'aliexpress' && existing?.metadata?.base_price !== undefined) {
+    // Recalculate price for AliExpress and Temu products if markup changed and base_price is available
+    if ((provider === 'aliexpress' || provider === 'temu') && existing?.metadata?.base_price !== undefined) {
        // If the incoming price is the same as existing price, but markup changed, let's update the price automatically
        if (priceMarkup !== (existing.price_markup || 0)) {
           finalPrice = (existing.metadata.base_price || 0) + priceMarkup;
@@ -2870,6 +2876,7 @@ adminRouter.post('/products/import-temu-raw', async (req, res) => {
         extracted_at: new Date().toISOString(),
         is_pasted_data: true,
         temu_original_price: basePrice,
+        base_price: basePrice,
         pasted_chars_count: rawContent.length,
         url: cleanUrl
       }

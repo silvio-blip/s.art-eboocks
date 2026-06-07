@@ -32,14 +32,15 @@ function isNoiseImage(url) {
   if (!url) return true;
   const lower = url.toLowerCase();
   
-  const noisePaths = [
-    "/material-put/", "/supplier-public-tag/", "/upload_aimg/", 
-    "/commimg/", "/avatar/", "/openingemail/", "/message/", "/promotion/"
-  ];
-  if (noisePaths.some(p => lower.includes(p))) return true;
+  // Excluir expressamente imagens do material-put da Temu, molduras de fundo ou a imagem de erro indicada pelo usuario
+  if (lower.includes("material-put") || lower.includes("f272ca31-c3b3-43db-8906-189779430800")) return true;
 
-  // Imagens da rede de distribuição de conteúdo oficial são sempre permitidas
-  if (lower.includes("kwcdn.com") || lower.includes("alicdn.com")) return false;
+  // Imagens da rede de distribuição de conteúdo oficial são geralmente permitidas, exceto ruídos comuns
+  if (lower.includes("kwcdn.com") || lower.includes("alicdn.com")) {
+    const cdnNoise = ["material-put", "size-chart", "size_chart", "sizechart", "banner", "service-promise", "logo-"];
+    if (cdnNoise.some(word => lower.includes(word))) return true;
+    return false;
+  }
 
   const noiseWords = [
     "avatar", "logo", "icon", "banner", "flag", "sprite", "pay", "payment", "trust", 
@@ -85,12 +86,14 @@ function isElementNoiseOrOutsideProduct(el) {
   if (!el || typeof el.closest !== 'function') return false;
   
   const noiseSelectors = [
-    "[class*='cart']", "[class*='bag']", "[class*='sacola']", "[class*='carrinho']", "[id*='cart']", "[id*='bag']",
-    "[class*='header']", "[class*='footer']", "[id*='header']", "[id*='footer']",
-    "[class*='modal']", "[class*='popup']", "[class*='dialog']", "[class*='drawer']", "[class*='overlay']",
-    "[class*='sidebar']", "[class*='aside']", "[class*='lateral']", "[class*='nav']",
-    "[class*='recommend']", "[class*='recomis_']", "[class*='suggest']", "[class*='related']",
-    "[class*='quick-checkout']", "[class*='pay-']", "[class*='payment']", "[class*='buy-box']"
+    // Carrinho / Sacola de compras / overlays específicos de checkout
+    "[class*='shopping-cart']", "[class*='mini-cart']", "[class*='cart-dropdown']",
+    // Cabeçalhos e rodapés gerais (para não pegar menus principais)
+    "header", "footer", "#header", "#footer", "[class*='site-header']", "[class*='site-footer']",
+    // Modais e popups intrusivos (de descontos, termos de serviço)
+    "[class*='modal-content']", "[class*='coupon-popup']", "[class*='dialog-box']", "[class*='overlay-content']",
+    // Seções de produtos recomendados / compre junto / sugestões similares
+    "[class*='recommendation']", "[class*='item-recommend']", "[class*='suggest-goods']", "[class*='related-products']", "[class*='frequently-bought']", "[class*='similar-']"
   ];
   
   for (const sel of noiseSelectors) {
@@ -162,7 +165,6 @@ function isProductPage() {
  */
 function runMasterExtraction() {
   const hostname = window.location.hostname.toLowerCase();
-  console.log(\"[CyberExtract Log] Iniciando extração. Host:\", hostname);
   
   if (hostname.includes("aliexpress.com")) {
     return extractAliExpress();
@@ -429,6 +431,11 @@ function extractAliExpress() {
   
   descriptionText = descriptionText.substring(0, 8000);
 
+  const extraImgs = findCarouselImages();
+  if (!mainImage && extraImgs.length > 0) {
+    mainImage = extraImgs[0];
+  }
+
   return {
     platform: "AliExpress",
     title: title || document.title || "Produto AliExpress importado",
@@ -439,7 +446,7 @@ function extractAliExpress() {
     extractedTamanhos,
     descriptionText,
     metaDescription: metaDesc,
-    extraImages: findCarouselImages(),
+    extraImages: extraImgs,
     url: window.location.href
   };
 }
@@ -448,53 +455,13 @@ function extractAliExpress() {
  * Motor Temu refinado de alta precisão com extração de variações e descrição profunda
  */
 function extractTemu() {
-  console.log("[CyberExtract] Executando análise inteligente com motor de duplo canal na Temu...");
+  console.log("[CyberExtract] Executando análise inteligente na Temu...");
   
-  // 1. Tentar ler os dados originais estruturados injetados pela Temu (Canal Principal)
-  let rawData = null;
-  try {
-    const scripts = Array.from(document.querySelectorAll("script"));
-    for (const script of scripts) {
-      const text = script.textContent;
-      if (text && text.includes("window.rawData")) {
-        const parts = text.split("window.rawData");
-        for (let i = 1; i < parts.length; i++) {
-          let part = parts[i].trim();
-          if (part.startsWith("=")) {
-            part = part.substring(1).trim();
-          }
-          const endBrace = part.lastIndexOf("}");
-          if (endBrace !== -1) {
-            const candidateJson = part.substring(0, endBrace + 1).trim();
-            if (candidateJson.startsWith("{")) {
-              try {
-                rawData = JSON.parse(candidateJson);
-                console.log("[CyberExtract Log] Dados do banco de dados Temu extraídos com absoluto sucesso:", rawData);
-                break;
-              } catch (je) {
-                // Tenta outros limites caso falhe
-              }
-            }
-          }
-        }
-        if (rawData) break;
-      }
-    }
-  } catch (err) {
-    console.error("[CyberExtract Log] Falha de leitura de canal interno Temu:", err);
-  }
-
-  // Tentar também JSON-LD estruturado de fallback
+  // Tentar JSON-LD estruturado
   const jld = extractFromJsonLd();
-
-  // A. Título do Produto
-  let title = "";
-  if (rawData && rawData.goods && rawData.goods.goodsName) {
-    title = rawData.goods.goodsName;
-  }
-  if (!title && jld && jld.title) {
-    title = jld.title;
-  }
+  
+  // 1. Título do Produto
+  let title = (jld && jld.title) ? jld.title : "";
   if (!title) {
     const titleSelectors = [
       "meta[property='og:title']",
@@ -510,22 +477,14 @@ function extractTemu() {
       }
     }
   }
+
+  // Limpar possíveis sufixos de branding da Temu do título
   if (title) {
     title = title.replace(/\s*-\s*Temu\s*Portugal/gi, "").replace(/\s*-\s*Temu/gi, "").trim();
   }
 
-  // B. Preço do Produto
-  let price = "";
-  if (rawData && rawData.goods) {
-    price = rawData.goods.minOnSalePriceStr || rawData.goods.minOnSalePriceText || "";
-    if (!price && rawData.goods.minOnSalePrice) {
-      const numericPrice = Number(rawData.goods.minOnSalePrice) / 100;
-      price = "€" + numericPrice.toFixed(2);
-    }
-  }
-  if (!price && jld && jld.price) {
-    price = String(jld.price);
-  }
+  // 2. Preço
+  let price = (jld && jld.price) ? String(jld.price) : "";
   if (!price) {
     const metaPrices = [
       "meta[property='og:price:amount']",
@@ -541,10 +500,11 @@ function extractTemu() {
       }
     }
   }
+
+  // Fallback de Seleção Textual de Símbolos Monetários na tela
   if (!price) {
     const allEls = document.querySelectorAll("span, div, p");
     for (const el of allEls) {
-      if (isElementNoiseOrOutsideProduct(el)) continue;
       const text = el.textContent.trim();
       if (/^(€|\$|R\$|£)\s?\d+([.,]\d{2})?$/.test(text) || /^(\d+([.,]\d{2})?)\s?(€|\$|R\$|£)$/.test(text)) {
         price = text;
@@ -553,17 +513,13 @@ function extractTemu() {
     }
   }
 
-  // C. Imagem Principal
+  // 3. Imagem Master
   let mainImage = "";
-  if (rawData && rawData.goods && Array.isArray(rawData.goods.gallery) && rawData.goods.gallery.length > 0) {
-    const candidate = rawData.goods.gallery[0].url || rawData.goods.gallery[0].src || "";
-    if (candidate) {
-      mainImage = cleanProductImageUrl(candidate);
-    }
+  let rawImg = (jld && jld.image) ? jld.image : "";
+  if (rawImg && !isNoiseImage(rawImg)) {
+    mainImage = cleanProductImageUrl(rawImg);
   }
-  if (!mainImage && jld && jld.image && !isNoiseImage(jld.image)) {
-    mainImage = cleanProductImageUrl(jld.image);
-  }
+  
   if (!mainImage) {
     const imgSelectors = [
       "img[data-cui-image='1']",
@@ -579,9 +535,8 @@ function extractTemu() {
       "[class*='gallery'] img"
     ];
     for (const selector of imgSelectors) {
-      const elements = document.querySelectorAll(selector);
-      for (const el of elements) {
-        if (isElementNoiseOrOutsideProduct(el)) continue;
+      const el = document.querySelector(selector);
+      if (el) {
         let candidateSrc = el.tagName === "META" 
           ? el.getAttribute("content") 
           : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.getAttribute("data-defer-src") || el.src);
@@ -589,18 +544,17 @@ function extractTemu() {
           candidateSrc = cleanProductImageUrl(candidateSrc);
           if (!isNoiseImage(candidateSrc)) {
             mainImage = candidateSrc;
-            console.log("[CyberExtract Log] mainImage encontrada via seletor:", selector, "URL:", mainImage);
             break;
           }
         }
       }
-      if (mainImage) break;
     }
   }
+
+  // Fallback extra de Imagem de tamanho razoável na Viewport
   if (!mainImage) {
     const imgs = Array.from(document.querySelectorAll("img"));
     const bestImg = imgs.find(i => {
-      if (isElementNoiseOrOutsideProduct(i)) return false;
       let src = i.src || i.getAttribute("data-src") || i.getAttribute("data-lazy-src") || "";
       if (!(src.startsWith("http") || src.startsWith("//")) || isNoiseImage(src)) return false;
       src = cleanProductImageUrl(src);
@@ -610,142 +564,106 @@ function extractTemu() {
     if (bestImg) {
       const rawSrc = bestImg.src || bestImg.getAttribute("data-src") || bestImg.getAttribute("data-lazy-src") || "";
       mainImage = cleanProductImageUrl(rawSrc);
-      console.log("[CyberExtract Log] mainImage encontrada via fallback (bestImg URL):", mainImage);
     }
   }
 
-  // D. Variações (SKUs)
+  // Variações brutas de alta precisão para Temu
   const variations = [];
   const processedUrlsTemu = new Set();
-
-  if (rawData && rawData.goods && Array.isArray(rawData.goods.skc)) {
-    rawData.goods.skc.forEach(skcItem => {
-      const name = skcItem.specValue || "Modelo";
-      let imgUrl = "";
-      if (Array.isArray(skcItem.gallery) && skcItem.gallery[0]) {
-        imgUrl = skcItem.gallery[0].url || skcItem.gallery[0].src || "";
-      }
-      if (imgUrl) {
-        imgUrl = cleanProductImageUrl(imgUrl);
-        if (imgUrl && !processedUrlsTemu.has(imgUrl)) {
-          processedUrlsTemu.add(imgUrl);
-          variations.push({
-            name: name.substring(0, 30),
-            imgUrl: imgUrl
-          });
-        }
-      }
-    });
-  }
-
-  // Fallback visual de extração de variações de DOM caso rawData esteja incompleto
-  if (variations.length === 0) {
-    const variationEls = document.querySelectorAll(
-      "[class*='VariationValue'], [class*='sku-item'], [class*='skuItem'], [class*='sku_item'], " +
-      "[class*='sku'] img, [class*='skus'] img, [class*='StandardProductSlices'] img, " +
-      "[class*='Variation'] img, img[class*='sku'], img[class*='Variation']"
-    );
+  const variationEls = document.querySelectorAll(
+    "[class*='VariationValue'], [class*='sku-item'], [class*='skuItem'], [class*='sku_item'], " +
+    "[class*='sku'] img, [class*='skus'] img, [class*='StandardProductSlices'] img, " +
+    "[class*='Variation'] img, img[class*='sku'], img[class*='Variation']"
+  );
+  
+  variationEls.forEach(el => {
+    if (isElementNoiseOrOutsideProduct(el)) return;
     
-    variationEls.forEach(el => {
-      if (isElementNoiseOrOutsideProduct(el)) return;
-      
-      let imgEl = el.tagName === "IMG" ? el : el.querySelector("img");
-      let txtEl = el.tagName === "IMG" ? el.parentElement : el;
-      
-      let name = "";
-      if (imgEl) {
-        name = imgEl.getAttribute("alt") || imgEl.getAttribute("title") || "";
-      }
-      if (!name && txtEl) {
-        name = txtEl.getAttribute("title") || txtEl.getAttribute("aria-label") || txtEl.textContent.trim() || "";
-      }
-      
-      name = name.split("\n")[0].trim().replace(/\s+/g, " ");
-      
-      let rawImg = imgEl ? (imgEl.getAttribute("data-src") || imgEl.getAttribute("data-lazy-src") || imgEl.getAttribute("data-defer-src") || imgEl.src || "") : "";
-      if (rawImg && (rawImg.startsWith("http") || rawImg.startsWith("//"))) {
-        let cleanUrl = cleanProductImageUrl(rawImg);
-        if (cleanUrl && !processedUrlsTemu.has(cleanUrl)) {
-          processedUrlsTemu.add(cleanUrl);
-          
-          if (!name || name.length > 30 || /^(http|\/\/)/.test(name)) {
-            name = imgEl ? (imgEl.getAttribute("alt") || "Modelo") : "Modelo";
-          }
-          
-          variations.push({ 
-            name: name.substring(0, 30), 
-            imgUrl: cleanUrl 
-          });
+    let imgEl = el.tagName === "IMG" ? el : el.querySelector("img");
+    let txtEl = el.tagName === "IMG" ? el.parentElement : el;
+    
+    let name = "";
+    if (imgEl) {
+      name = imgEl.getAttribute("alt") || imgEl.getAttribute("title") || "";
+    }
+    if (!name && txtEl) {
+      name = txtEl.getAttribute("title") || txtEl.getAttribute("aria-label") || txtEl.textContent.trim() || "";
+    }
+    
+    name = name.split("\n")[0].trim().replace(/\s+/g, " ");
+    
+    let rawImg = imgEl ? (imgEl.getAttribute("data-src") || imgEl.getAttribute("data-lazy-src") || imgEl.getAttribute("data-defer-src") || imgEl.src || "") : "";
+    if (rawImg && (rawImg.startsWith("http") || rawImg.startsWith("//"))) {
+      let cleanUrl = cleanProductImageUrl(rawImg);
+      if (cleanUrl && !processedUrlsTemu.has(cleanUrl)) {
+        processedUrlsTemu.add(cleanUrl);
+        
+        if (!name || name.length > 30 || /^(http|\/\/)/.test(name)) {
+          name = imgEl ? (imgEl.getAttribute("alt") || "Modelo") : "Modelo";
         }
+        
+        variations.push({ 
+          name: name.substring(0, 30), 
+          imgUrl: cleanUrl 
+        });
       }
-    });
-  }
+    }
+  });
 
-  // E. Cores e Tamanhos Categorizados
+  // Heurística de Cores e Tamanhos na Temu com fusão de fallbacks
   let extractedCores = [];
   let extractedTamanhos = [];
 
-  if (rawData && rawData.formatSkuData && Array.isArray(rawData.formatSkuData.skuTypeValues)) {
-    rawData.formatSkuData.skuTypeValues.forEach(item => {
-      const type = item.type ? item.type.toLowerCase() : "";
-      const vals = Array.isArray(item.values) ? item.values.filter(v => v && typeof v === "string" && v.length < 35 && !/^(€|\$|R\$|£|\+|-|\d+)$/.test(v)) : [];
-      if (type.includes("cor") || type.includes("color") || type.includes("modelo") || type.includes("pattern") || type.includes("style")) {
-        extractedCores = vals;
-      } else if (type.includes("tamanho") || type.includes("size") || type.includes("medida") || type.includes("talla") || type.includes("dimension")) {
-        extractedTamanhos = vals;
-      }
-    });
-  }
-
-  // Fallback Heurístico DOM se rawData não cobrir categorização de forma expressiva
-  if (extractedCores.length === 0 && extractedTamanhos.length === 0) {
-    const skuContainers = document.querySelectorAll(
-      "[class*='sku'], [class*='spec'], [class*='prop'], [class*='StandardProductSlices'], [class*='Variation'], [class*='skus']"
+  // Mapeamos os blocos de variação da Temu
+  const skuContainers = document.querySelectorAll(
+    "[class*='sku'], [class*='spec'], [class*='prop'], [class*='StandardProductSlices'], [class*='Variation'], [class*='skus']"
+  );
+  
+  skuContainers.forEach(container => {
+    if (isElementNoiseOrOutsideProduct(container)) return;
+    const headerEl = container.querySelector("[class*='title'], [class*='label'], [class*='header'], [class*='name']");
+    const headerText = headerEl ? headerEl.textContent.trim().toLowerCase() : "";
+    
+    const items = container.querySelectorAll(
+      "[class*='item'], [class*='value'], [class*='btn'], button, li, [role='radio'], [class*='cell']"
     );
     
-    skuContainers.forEach(container => {
-      if (isElementNoiseOrOutsideProduct(container)) return;
-      const headerEl = container.querySelector("[class*='title'], [class*='label'], [class*='header'], [class*='name']");
-      const headerText = headerEl ? headerEl.textContent.trim().toLowerCase() : "";
+    items.forEach(item => {
+      if (isElementNoiseOrOutsideProduct(item)) return;
+      let txt = item.getAttribute("title") || item.getAttribute("aria-label") || "";
+      if (!txt) {
+        const textSpan = item.querySelector("span, p, div");
+        txt = textSpan ? textSpan.textContent.trim() : item.textContent.trim();
+      }
       
-      const items = container.querySelectorAll(
-        "[class*='item'], [class*='value'], [class*='btn'], button, li, [role='radio'], [class*='cell']"
-      );
+      // Limpeza suave (como retirar preço que some no botão)
+      txt = txt.split("\n")[0].trim().replace(/\s+/g, " ");
       
-      items.forEach(item => {
-        if (isElementNoiseOrOutsideProduct(item)) return;
-        let txt = item.getAttribute("title") || item.getAttribute("aria-label") || "";
-        if (!txt) {
-          const textSpan = item.querySelector("span, p, div");
-          txt = textSpan ? textSpan.textContent.trim() : item.textContent.trim();
-        }
+      if (txt && txt.length > 0 && txt.length < 25) {
+        // Ignorar se for preço, moeda ou botão de quantidade
+        if (/^(€|\$|R\$|£|\+|-|\d+)$/.test(txt)) return;
         
-        txt = txt.split("\n")[0].trim().replace(/\s+/g, " ");
-        
-        if (txt && txt.length > 0 && txt.length < 25) {
-          if (/^(€|\$|R\$|£|\+|-|\d+)$/.test(txt)) return;
-          
-          if (headerText.includes("cor") || headerText.includes("color") || headerText.includes("modelo") || headerText.includes("pattern") || headerText.includes("style")) {
-            if (!extractedCores.includes(txt)) extractedCores.push(txt);
-          } else if (headerText.includes("tamanho") || headerText.includes("size") || headerText.includes("medida") || headerText.includes("dimens") || headerText.includes("largura") || headerText.includes("altura")) {
+        if (headerText.includes("cor") || headerText.includes("color") || headerText.includes("modelo") || headerText.includes("pattern") || headerText.includes("style")) {
+          if (!extractedCores.includes(txt)) extractedCores.push(txt);
+        } else if (headerText.includes("tamanho") || headerText.includes("size") || headerText.includes("medida") || headerText.includes("dimens") || headerText.includes("largura") || headerText.includes("altura")) {
+          if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
+        } else {
+          // Heurística de tipo por conteúdo
+          const isSize = /^(s|m|l|xl|xxl|xxxl|2xl|3xl|4xl|xs|[0-9]{2,3}(\s*cm|\s*mm|m)?)$/i.test(txt);
+          if (isSize) {
             if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
           } else {
-            const isSize = /^(s|m|l|xl|xxl|xxxl|2xl|3xl|4xl|xs|[0-9]{2,3}(\s*cm|\s*mm|m)?)$/i.test(txt);
-            if (isSize) {
-              if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
-            } else {
-              const hasImg = item.querySelector("img");
-              if (hasImg || txt.toLowerCase().includes("preto") || txt.toLowerCase().includes("branco") || txt.toLowerCase().includes("azul")) {
-                if (!extractedCores.includes(txt)) extractedCores.push(txt);
-              }
+            const hasImg = item.querySelector("img");
+            if (hasImg || txt.toLowerCase().includes("preto") || txt.toLowerCase().includes("branco") || txt.toLowerCase().includes("azul")) {
+              if (!extractedCores.includes(txt)) extractedCores.push(txt);
             }
           }
         }
-      });
+      }
     });
-  }
+  });
 
-  // Fallbacks Heurísticos Extras mais amplos
+  // Fallbacks adaptativos se os seletores estruturais com classes Temu falharem
   if (extractedCores.length === 0) {
     const kwColors = ["cor", "cores", "color", "colors", "cor/modelo", "modelo", "style", "estilo", "pattern", "padrão", "cor:"];
     extractedCores = findOptionsByLabelKeywords(kwColors);
@@ -758,7 +676,7 @@ function extractTemu() {
     extractedTamanhos = findTamanhosBySizingRegex();
   }
 
-  // Última heurística de separação se persistir vazios
+  // Se nada foi categorizado, mas temos variações, tentamos separar usando heurística fina
   if (extractedCores.length === 0 && extractedTamanhos.length === 0 && variations.length > 0) {
     variations.forEach(v => {
       const name = v.name;
@@ -771,7 +689,7 @@ function extractTemu() {
     });
   }
 
-  // F. Descrição / Especificações
+  // Descrição / Especificações
   const metaDesc = document.querySelector("meta[name='description']")?.getAttribute("content") || 
                    document.querySelector("meta[property='og:description']")?.getAttribute("content") || "";
 
@@ -807,13 +725,9 @@ function extractTemu() {
   
   descriptionText = descriptionText.substring(0, 8000);
 
-  // G. Imagens Extras da Galeria
-  let extraImages = [];
-  if (rawData && rawData.goods && Array.isArray(rawData.goods.gallery)) {
-    extraImages = rawData.goods.gallery.map(item => cleanProductImageUrl(item.url || item.src)).filter(url => url && !isNoiseImage(url));
-  }
-  if (extraImages.length === 0) {
-    extraImages = findCarouselImages();
+  const extraImgs = findCarouselImages();
+  if (!mainImage && extraImgs.length > 0) {
+    mainImage = extraImgs[0];
   }
 
   return {
@@ -826,7 +740,7 @@ function extractTemu() {
     extractedTamanhos,
     descriptionText,
     metaDescription: metaDesc,
-    extraImages: extraImages.slice(0, 15),
+    extraImages: extraImgs,
     url: window.location.href
   };
 }
@@ -1201,9 +1115,9 @@ function findAdaptiveDescription() {
  * Heurística adaptativa avançada para extrair imagens suplementares da galeria/carrossel oficial do produto
  */
 function findCarouselImages() {
-  console.log(\"[CyberExtract Log] Iniciando findCarouselImages\");
   const images = [];
   try {
+    // 1. Coleta direta por seletores específicos de carrossel
     const selectors = [
       ".images-view-list img",
       ".image-thumb-list img",
@@ -1233,6 +1147,30 @@ function findCarouselImages() {
       });
     });
 
+    // 2. Fallback de CDN de mídia oficial ultra robusto (AliExpress e Temu)
+    document.querySelectorAll("img").forEach(img => {
+      if (isElementNoiseOrOutsideProduct(img)) return;
+      let src = img.src || img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-defer-src") || img.getAttribute("src") || "";
+      if (src && (src.startsWith("http") || src.startsWith("//"))) {
+        const cleanSrc = cleanProductImageUrl(src);
+        if (cleanSrc && !isNoiseImage(cleanSrc)) {
+          const lower = cleanSrc.toLowerCase();
+          const isProductCDN = lower.includes("kwcdn.com/product") || 
+                               lower.includes("kwcdn.com/goods") || 
+                               lower.includes("alicdn.com/kf") || 
+                               lower.includes("alicdn.com/item");
+          if (isProductCDN) {
+            // Ignorar miniaturas minúsculas (geralmente ícones de zoom menores que 60px)
+            const width = img.naturalWidth || img.width || 0;
+            if (width === 0 || width > 60) {
+              images.push(cleanSrc);
+            }
+          }
+        }
+      }
+    });
+
+    // 3. Fallback genérico para as principais imagens de bom tamanho se houver poucas capturas
     if (images.length < 3) {
       document.querySelectorAll("img").forEach(img => {
         if (isElementNoiseOrOutsideProduct(img)) return;
@@ -1240,8 +1178,8 @@ function findCarouselImages() {
         if (src && (src.startsWith("http") || src.startsWith("//"))) {
           const cleanSrc = cleanProductImageUrl(src);
           if (cleanSrc && !isNoiseImage(cleanSrc)) {
-            const isProductDomain = src.includes("alicdn.com") || src.includes("kwcdn.com");
-            if (isProductDomain || img.naturalWidth > 150 || img.width > 150) {
+            const width = img.naturalWidth || img.width || 0;
+            if (width > 200) {
               images.push(cleanSrc);
             }
           }
@@ -1253,4 +1191,14 @@ function findCarouselImages() {
   }
   return [...new Set(images)].slice(0, 15); // Limita a até 15 imagens suplementares elegantes
 }
+
+// Expor todas as funções para o wrapper de bypass se ligar com sucesso na janela
+window.runMasterExtraction = runMasterExtraction;
+window.extractTemu = extractTemu;
+window.extractAliExpress = extractAliExpress;
+window.isProductPage = isProductPage;
+window.isNoiseImage = isNoiseImage;
+window.cleanProductImageUrl = cleanProductImageUrl;
+window.findCarouselImages = findCarouselImages;
+
 
