@@ -3,12 +3,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;500;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap');
 
 @theme {
-  --color-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Montserrat", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Playfair Display", serif;
   
   --color-luxury-bg: var(--bg-main);
   --color-luxury-card: var(--bg-card);
-  --color-luxury-gold: #D4AF37;
+  --color-luxury-gold: #c78b7d;
   --color-luxury-border: var(--borda);
   --color-luxury-foreground: var(--foreground);
   --color-luxury-dark: var(--luxury-dark);
@@ -23,7 +23,7 @@
   :root {
     --bg-main: #FFFFFF;
     --bg-card: #F9F9F9;
-    --gold: #D4AF37;
+    --gold: #c78b7d;
     --foreground: #101010;
     --borda: rgba(0, 0, 0, 0.06);
     --luxury-dark: #f8f8f8;
@@ -33,7 +33,7 @@
   .dark {
     --bg-main: #050505;
     --bg-card: #0f0f0f;
-    --gold: #D4AF37;
+    --gold: #c78b7d;
     --foreground: #FFFFFF;
     --borda: rgba(255, 255, 255, 0.08);
     --luxury-dark: #0a0a0a;
@@ -81,7 +81,7 @@
   }
 
   .luxury-scrollbar::-webkit-scrollbar-thumb {
-    background: #D4AF37;
+    background: #c78b7d;
     border-radius: 10px;
   }
 
@@ -99,12 +99,12 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(212, 175, 55, 0.2);
+    background: rgba(199, 139, 125, 0.2);
     border-radius: 10px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #D4AF37;
+    background: #c78b7d;
   }
 
   @keyframes border-beam {

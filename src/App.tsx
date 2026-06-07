@@ -868,22 +868,31 @@ function ProductCard({
     <motion.div 
       initial={{ 
         opacity: 0, 
-        y: 40,
-        scale: 0.95 
+        x: isEven ? -60 : 60, 
+        y: comesFromTop ? -60 : 60,
+        scale: 0.9 
       }}
       whileInView={{ 
         opacity: 1, 
+        x: 0, 
         y: 0,
         scale: 1,
         transition: { 
-          duration: 0.8, 
-          ease: [0.16, 1, 0.3, 1],
-          delay: (index % 4) * 0.05
+          duration: 0.1, 
+          ease: [0.22, 1, 0.36, 1], // expoOut style smooth ease
+          delay: (index % 3) * 0.01
         } 
       }}
-      viewport={{ once: true, amount: 0.1 }}
-      whileHover={{ y: -8, transition: { duration: 0.4, ease: [0.16, 1, 0.3, 1] } }}
-      className={`group cursor-pointer flex flex-col relative rounded-xl overflow-hidden border border-white/5 bg-[#0f0f0f]/50 backdrop-blur-xl p-3 transition-all duration-500 hover:border-luxury-gold/30 hover:shadow-[0_20px_50px_rgba(212,175,55,0.08)] ${className}`}
+      viewport={{ once: false, amount: 0.1 }}
+      whileHover={{ y: -8, scale: 1.02, transition: { duration: 0.3 } }}
+      exit={{ 
+        opacity: 0, 
+        x: isEven ? -40 : 40,
+        y: comesFromTop ? -40 : 40,
+        scale: 0.95,
+        transition: { duration: 0.4 }
+      }}
+      className={`luxury-card cursor-pointer group relative overflow-hidden ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
           onRead(product);
@@ -892,67 +901,44 @@ function ProductCard({
         }
       }}
     >
-      {/* Image Wrap */}
-      <div className="relative aspect-[4/5] overflow-hidden bg-neutral-900/40 rounded-lg">
-        {/* Soft Golden Gradient Glow */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent z-10 opacity-60 group-hover:opacity-80 transition-opacity duration-500" />
-        
-        <img
+      <div className="relative z-0 overflow-hidden bg-[#050505]/20">
+        <motion.img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-[2000ms] ease-out group-hover:scale-105 animate-in fade-in duration-500"
+          className="w-full h-auto object-contain transition-transform duration-[1500ms] ease-out group-hover:scale-105"
         />
+        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-500" />
         
-        {/* Luxury Badge Tag */}
-        <div className="absolute top-3 left-3 z-20">
-          <span className="bg-black/60 backdrop-blur-md border border-luxury-gold/30 text-luxury-gold text-[7px] font-black uppercase tracking-[0.25em] px-2.5 py-1 rounded-[4px] shadow-lg">
-            {product.product_type === 'digital' ? 'Digital Premium' : 'Curadoria Especial'}
-          </span>
-        </div>
-
-        {/* Free Shipping Badge */}
-        {product.free_shipping && (
-          <div className="absolute top-3 right-3 z-20">
-            <span className="bg-luxury-gold text-black text-[7px] font-black uppercase tracking-[0.20em] px-2 py-1 rounded-[4px] shadow-lg flex items-center gap-1">
-              <Truck size={8} className="text-black" /> Grátis
-            </span>
-          </div>
-        )}
-
-        {/* Shine Sweep Effect on Hover */}
-        <div className="absolute inset-0 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-1000 pointer-events-none overflow-hidden">
+        {/* Shine effect on hover */}
+        <div className="absolute inset-0 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
           <motion.div 
-            initial={{ x: "-150%", skewX: -30 }}
-            whileHover={{ x: "250%" }}
-            transition={{ duration: 1.2, ease: "easeInOut" }}
+            initial={{ x: "-100%", skewX: -20 }}
+            whileHover={{ x: "200%" }}
+            transition={{ duration: 0.8, ease: "easeInOut" }}
             className="absolute top-0 left-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent"
           />
         </div>
       </div>
 
-      {/* Info Block - Beautiful white space, elegant alignment */}
-      <div className="pt-4 pb-2 px-1 flex flex-col justify-between flex-1">
-        <div className="space-y-1.5">
-          <span className="text-[8px] uppercase tracking-[0.3em] text-luxury-gold/60 font-black block">
-            {product.category || 'EXCLUSIVO'}
-          </span>
-          <h4 className="text-xs md:text-sm font-serif text-white group-hover:text-luxury-gold transition-colors duration-300 line-clamp-1 uppercase tracking-tight">
-            {product.title}
-          </h4>
-        </div>
-        
-        <div className="flex items-center justify-between pt-4 border-t border-white/5 mt-3">
-          <div className="flex flex-col">
-            <span className="text-[7.5px] uppercase tracking-[0.1em] text-white/30 block">Valor</span>
-            <span className="text-base md:text-lg font-serif font-semibold text-white">
+      <div className="card-info bg-gradient-to-t from-black/80 via-black/20 to-transparent md:translate-y-6 md:group-hover:translate-y-0 md:opacity-0 md:group-hover:opacity-100 transition-all duration-500 ease-premium p-4 md:p-6">
+        <div className="flex items-center gap-3 md:gap-4">
+          <motion.div 
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            className="w-10 h-10 rounded-full border border-luxury-gold/40 flex items-center justify-center text-luxury-gold flex-shrink-0"
+          >
+            <ShoppingBag size={18} />
+          </motion.div>
+          
+          <div className="flex flex-col text-left overflow-hidden">
+            <h4 className="text-[10px] md:text-[11px] uppercase tracking-[0.2em] md:tracking-[0.3em] text-luxury-gold font-bold drop-shadow-md line-clamp-1">
+              {product.title}
+            </h4>
+            <span className="text-xl md:text-2xl font-serif text-white font-light tracking-tight drop-shadow-lg">
               {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
             </span>
           </div>
-          
-          <span className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/70 group-hover:bg-luxury-gold group-hover:text-black group-hover:border-luxury-gold transition-all duration-300">
-            <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
-          </span>
         </div>
       </div>
     </motion.div>
