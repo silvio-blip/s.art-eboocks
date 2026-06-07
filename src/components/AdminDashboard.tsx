@@ -250,10 +250,6 @@ export default function AdminDashboard({
   const [importAliExpressId, setImportAliExpressId] = useState("");
   const [importMarkup, setImportMarkup] = useState<number>(10.00); // Default markup
   const [importing, setImporting] = useState(false);
-  const [temuRawContent, setTemuRawContent] = useState("");
-  const [temuUrl, setTemuUrl] = useState("");
-  const [temuMarkup, setTemuMarkup] = useState<number>(10.00);
-  const [importingTemu, setImportingTemu] = useState(false);
   const [isSyncingAllAliExpress, setIsSyncingAllAliExpress] = useState(false);
   const [verifying, setVerifying] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
@@ -820,64 +816,6 @@ export default function AdminDashboard({
       toast.error(e.message || "Erro ao conectar com API Internacional", { id: impToast });
     } finally {
       setImporting(false);
-    }
-  };
-
-  const handleImportTemuRaw = async () => {
-    if (!temuRawContent.trim()) {
-      toast.error("O texto do produto ou código-fonte copiado não pode estar vazio.");
-      return;
-    }
-
-    setImportingTemu(true);
-    const impToast = toast.loading("O cérebro do Gemini está a analisar, extrair e cadastrar o produto Temu...");
-
-    try {
-      const response = await fetch('/api/admin/products/import-temu-raw', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': user.id
-        },
-        body: JSON.stringify({
-          rawContent: temuRawContent,
-          url: temuUrl,
-          markup: temuMarkup
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Falha no processador Temu');
-      }
-
-      if (data._isUpdate) {
-        toast.success(`PRODUTO TEMU ATUALIZADO COM SUCESSO!\n"${data.title?.substring(0, 40)}..."`, { 
-          id: impToast, 
-          duration: 8000 
-        });
-      } else {
-        toast.success(`SUCESSO COMPLETO!\nNovo produto Temu criado de forma inteligente pelas lentes do Gemini:\n"${data.title?.substring(0, 40)}..."`, { 
-          id: impToast, 
-          duration: 8000 
-        });
-      }
-
-      setTemuRawContent("");
-      setTemuUrl("");
-      await fetchProducts();
-
-      setEditingProduct({
-        ...data,
-        pvp: data.price || 0
-      });
-
-      setIsProductCreateModalOpen(false);
-
-    } catch (e: any) {
-      toast.error(e.message || "Erro no processamento de IA", { id: impToast });
-    } finally {
-      setImportingTemu(false);
     }
   };
 

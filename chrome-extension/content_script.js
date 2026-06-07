@@ -292,38 +292,32 @@ function extractAliExpress() {
 
   // 3. Imagem Principal
   let mainImage = "";
-
-  // Pesquisar em primeiro lugar as meta tags e seletores de alta fidelidade
-  const imgSelectors = [
-    "meta[property='og:image']",
-    ".magnifier-image",
-    "img.magnifier-image",
-    ".image-view-magnifier img",
-    ".product-main-image img"
-  ];
-  for (const selector of imgSelectors) {
-    const el = document.querySelector(selector);
-    if (el) {
-      let candidateSrc = el.tagName === "META" 
-        ? el.getAttribute("content") 
-        : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.src);
-      if (candidateSrc && (candidateSrc.startsWith("http") || candidateSrc.startsWith("//"))) {
-        candidateSrc = cleanProductImageUrl(candidateSrc);
-        if (!isNoiseImage(candidateSrc)) {
-          mainImage = candidateSrc;
-          break;
-        }
-      }
-    }
+  let rawImg = (jld && jld.image) ? jld.image : "";
+  if (rawImg && !isNoiseImage(rawImg)) {
+    mainImage = cleanProductImageUrl(rawImg);
   }
-
-  // Se não encontrar ou for filtrada, tentar JSON-LD estruturado como fallback secundário
+  
   if (!mainImage) {
-    let rawImg = (jld && jld.image) ? jld.image : "";
-    if (rawImg) {
-      if (Array.isArray(rawImg) && rawImg.length > 0) rawImg = rawImg[0];
-      if (typeof rawImg === "string" && !isNoiseImage(rawImg)) {
-        mainImage = cleanProductImageUrl(rawImg);
+    const imgSelectors = [
+      "meta[property='og:image']",
+      ".magnifier-image",
+      "img.magnifier-image",
+      ".image-view-magnifier img",
+      ".product-main-image img"
+    ];
+    for (const selector of imgSelectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        let candidateSrc = el.tagName === "META" 
+          ? el.getAttribute("content") 
+          : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.src);
+        if (candidateSrc && (candidateSrc.startsWith("http") || candidateSrc.startsWith("//"))) {
+          candidateSrc = cleanProductImageUrl(candidateSrc);
+          if (!isNoiseImage(candidateSrc)) {
+            mainImage = candidateSrc;
+            break;
+          }
+        }
       }
     }
   }
@@ -521,44 +515,38 @@ function extractTemu() {
 
   // 3. Imagem Master
   let mainImage = "";
-
-  // Pesquisar em primeiro lugar as meta tags e seletores de alta fidelidade
-  const imgSelectors = [
-    "meta[property='og:image']",
-    "img[data-cui-image='1']",
-    "[class*='mainImage'] img",
-    "div[class*='mainImage'] img",
-    "img[data-as-main-img='true']",
-    "[class*='main-img']",
-    "[class*='main_img']",
-    ".magnifier-image",
-    "img.magnifier-image",
-    "#main-image",
-    "[class*='gallery'] img"
-  ];
-  for (const selector of imgSelectors) {
-    const el = document.querySelector(selector);
-    if (el) {
-      let candidateSrc = el.tagName === "META" 
-        ? el.getAttribute("content") 
-        : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.getAttribute("data-defer-src") || el.src);
-      if (candidateSrc && (candidateSrc.startsWith("http") || candidateSrc.startsWith("//"))) {
-        candidateSrc = cleanProductImageUrl(candidateSrc);
-        if (!isNoiseImage(candidateSrc)) {
-          mainImage = candidateSrc;
-          break;
-        }
-      }
-    }
+  let rawImg = (jld && jld.image) ? jld.image : "";
+  if (rawImg && !isNoiseImage(rawImg)) {
+    mainImage = cleanProductImageUrl(rawImg);
   }
-
-  // Se não encontrar ou for filtrada, tentar JSON-LD estruturado como fallback secundário
+  
   if (!mainImage) {
-    let rawImg = (jld && jld.image) ? jld.image : "";
-    if (rawImg) {
-      if (Array.isArray(rawImg) && rawImg.length > 0) rawImg = rawImg[0];
-      if (typeof rawImg === "string" && !isNoiseImage(rawImg)) {
-        mainImage = cleanProductImageUrl(rawImg);
+    const imgSelectors = [
+      "img[data-cui-image='1']",
+      "[class*='mainImage'] img",
+      "meta[property='og:image']",
+      ".magnifier-image",
+      "img.magnifier-image",
+      "[class*='main-img']",
+      "[class*='main_img']",
+      "div[class*='mainImage'] img",
+      "img[data-as-main-img='true']",
+      "#main-image",
+      "[class*='gallery'] img"
+    ];
+    for (const selector of imgSelectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        let candidateSrc = el.tagName === "META" 
+          ? el.getAttribute("content") 
+          : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.getAttribute("data-defer-src") || el.src);
+        if (candidateSrc && (candidateSrc.startsWith("http") || candidateSrc.startsWith("//"))) {
+          candidateSrc = cleanProductImageUrl(candidateSrc);
+          if (!isNoiseImage(candidateSrc)) {
+            mainImage = candidateSrc;
+            break;
+          }
+        }
       }
     }
   }
@@ -1212,5 +1200,6 @@ window.isProductPage = isProductPage;
 window.isNoiseImage = isNoiseImage;
 window.cleanProductImageUrl = cleanProductImageUrl;
 window.findCarouselImages = findCarouselImages;
+
 
 
