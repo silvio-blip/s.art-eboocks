@@ -6,6 +6,18 @@
  */
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "OPEN_STORE_TAB") {
+    console.log("[CyberFulfill] Ordem recebida. A abrir loja para processar...", request.orderData);
+    
+    // O "fantasma" entra em ação: abre uma nova aba focada no URL do produto
+    chrome.tabs.create({ url: request.orderData.productUrl, active: true }, (tab) => {
+      console.log(`[CyberFulfill] Aba aberta com ID: ${tab.id}. A preparar injeção de dados de compra...`);
+    });
+    
+    sendResponse({ success: true });
+    return true;
+  }
+
   if (request.action === "SEND_BACKEND") {
     // Carregar URL dinâmica do backend enviada pela popup
     let rawBackendUrl = request.backendUrl || "https://ais-pre-ofdxkoy6wmjezzmm67xzxa-96926789601.europe-west2.run.app";

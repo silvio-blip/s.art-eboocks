@@ -1201,5 +1201,30 @@ window.isNoiseImage = isNoiseImage;
 window.cleanProductImageUrl = cleanProductImageUrl;
 window.findCarouselImages = findCarouselImages;
 
+// ==============================================================================
+// PARTE 2: PONTE DE COMUNICAÇÃO
+// Este código fica à escuta dos cliques que acontecem no teu painel web
+// ==============================================================================
+window.addEventListener("message", (event) => {
+  // Verifica se o sinal de rádio veio do teu botão de Processar
+  if (event.data && event.data.source === "CYBER_FULFILL_WEB" && event.data.action === "START_AUTO_ORDER") {
+    console.log("[CyberExt] Ordem de automação recebida do Painel Web!", event.data.orderData);
+    
+    // Devolve um sinal ao botão a dizer "Já apanhei a ordem, podes ficar verde!"
+    window.postMessage({ 
+      source: "CYBER_EXT_BACKGROUND", 
+      action: "ORDER_RECEIVED" 
+    }, "*");
+
+    // Envia os dados por um túnel seguro para o background.js abrir a aba
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({ 
+        action: "OPEN_STORE_TAB", 
+        orderData: event.data.orderData 
+      });
+    }
+  }
+});
+
 
 

@@ -273,7 +273,23 @@ export default function AdminDashboard({
   const [manualProviderOrderId, setManualProviderOrderId] = useState("");
   const [selectedUserForProducts, setSelectedUserForProducts] = useState<Profile | null>(null);
   const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false);
+  const [cyberLoading, setCyberLoading] = useState(false);
+  const [cyberStatus, setCyberStatus] = useState("⚡ PROCESSAR PEDIDO");
   
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data && event.data.source === "CYBER_EXT_BACKGROUND" && event.data.action === "ORDER_RECEIVED") {
+        setCyberStatus("✓ INICIADO NA LOJA");
+        setTimeout(() => {
+          setCyberLoading(false);
+          setCyberStatus("⚡ PROCESSAR PEDIDO");
+        }, 3000);
+      }
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [tab]);
@@ -285,6 +301,8 @@ export default function AdminDashboard({
       setManualTrackingCode(viewingOrder.shipping_tracking_code || "");
       setManualTrackingUrl(viewingOrder.shipping_tracking_url || "");
       setManualProviderOrderId(viewingOrder.provider_order_id || "");
+      setCyberLoading(false);
+      setCyberStatus("⚡ PROCESSAR PEDIDO");
     }
   }, [viewingOrder]);
 
@@ -1186,6 +1204,41 @@ export default function AdminDashboard({
     } finally {
       setVerifying(null);
     }
+  };
+
+  const handleCyberFulfillPress = (ord: Order) => {
+    setCyberLoading(true);
+    setCyberStatus("A INJETAR DADOS...");
+
+    const shippingData = (() => {
+      if (!ord.shipping_details) return ord.selected_options?.shipping_details;
+      if (typeof ord.shipping_details === 'object') return ord.shipping_details;
+      try {
+        return JSON.parse(ord.shipping_details);
+      } catch (e) {
+        return null;
+      }
+    })();
+
+    const orderData = {
+      id: ord.id,
+      productUrl: ord.product?.admin_link || "",
+      corEscolhida: ord.selected_options?.color || "",
+      tamanhoEscolhido: ord.selected_options?.size || "",
+      cliente: {
+        nome: shippingData?.fullName || `${shippingData?.firstName || ''} ${shippingData?.lastName || ''}`.trim() || shippingData?.name || ord.customer_email || "N/A",
+        rua: shippingData?.address || "N/A",
+        cidade: shippingData?.city || "N/A",
+        codigoPostal: shippingData?.postalCode || shippingData?.zip || "N/A",
+        pais: shippingData?.country || "N/A"
+      }
+    };
+
+    window.postMessage({
+      source: "CYBER_FULFILL_WEB",
+      action: "START_AUTO_ORDER",
+      orderData: orderData
+    }, "*"); 
   };
 
   const handleManualFulfill = async (orderId: string) => {
@@ -4523,6 +4576,31 @@ export default function AdminDashboard({
                                       <Search size={10} className="mr-2" /> 
                                       Verificar Stat. {providerLabel}
                                     </Button>
+
+                                    {viewingOrder.product?.admin_link && (
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleCyberFulfillPress(viewingOrder)}
+                                        disabled={cyberLoading}
+                                        className={`rounded-none text-[9px] uppercase tracking-[1.5px] font-black h-9 px-6 shadow-lg transition-all duration-300 ${
+                                          cyberLoading 
+                                            ? "border-cyan-400 border-dashed bg-cyan-950 text-cyan-400 cursor-not-allowed opacity-80 animate-pulse" 
+                                            : "bg-gradient-to-br from-zinc-900 to-indigo-950 text-white border border-purple-500 hover:scale-105 hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-[0_12px_35px_rgba(0,242,254,0.3),inset_0_0_15px_rgba(168,85,247,0.1)] shadow-purple-500/20"
+                                        }`}
+                                      >
+                                        {cyberLoading ? (
+                                          <span className="flex items-center gap-2">
+                                            <span className="animate-spin text-base">🌀</span>
+                                            {cyberStatus}
+                                          </span>
+                                        ) : (
+                                          <span className="flex items-center gap-2">
+                                            <Zap size={10} className="text-cyan-400 animate-pulse" />
+                                            {cyberStatus}
+                                          </span>
+                                        )}
+                                      </Button>
+                                    )}
                                     
                                     {isAli ? (
                                       <div className="flex gap-2">
