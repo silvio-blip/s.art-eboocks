@@ -31,6 +31,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 function isNoiseImage(url) {
   if (!url) return true;
   const lower = url.toLowerCase();
+  
+  const noisePaths = [
+    "/material-put/", "/supplier-public-tag/", "/upload_aimg/", 
+    "/commimg/", "/avatar/", "/openingemail/", "/message/", "/promotion/"
+  ];
+  if (noisePaths.some(p => lower.includes(p))) return true;
+
+  // Imagens da rede de distribuição de conteúdo oficial são sempre permitidas
+  if (lower.includes("kwcdn.com") || lower.includes("alicdn.com")) return false;
+
   const noiseWords = [
     "avatar", "logo", "icon", "banner", "flag", "sprite", "pay", "payment", "trust", 
     "cert", "shield", "badge", "footer", "header", "recomis_", "empathy_", "loading", 
@@ -152,6 +162,7 @@ function isProductPage() {
  */
 function runMasterExtraction() {
   const hostname = window.location.hostname.toLowerCase();
+  console.log(\"[CyberExtract Log] Iniciando extração. Host:\", hostname);
   
   if (hostname.includes("aliexpress.com")) {
     return extractAliExpress();
@@ -437,13 +448,53 @@ function extractAliExpress() {
  * Motor Temu refinado de alta precisão com extração de variações e descrição profunda
  */
 function extractTemu() {
-  console.log("[CyberExtract] Executando análise inteligente na Temu...");
+  console.log("[CyberExtract] Executando análise inteligente com motor de duplo canal na Temu...");
   
-  // Tentar JSON-LD estruturado
+  // 1. Tentar ler os dados originais estruturados injetados pela Temu (Canal Principal)
+  let rawData = null;
+  try {
+    const scripts = Array.from(document.querySelectorAll("script"));
+    for (const script of scripts) {
+      const text = script.textContent;
+      if (text && text.includes("window.rawData")) {
+        const parts = text.split("window.rawData");
+        for (let i = 1; i < parts.length; i++) {
+          let part = parts[i].trim();
+          if (part.startsWith("=")) {
+            part = part.substring(1).trim();
+          }
+          const endBrace = part.lastIndexOf("}");
+          if (endBrace !== -1) {
+            const candidateJson = part.substring(0, endBrace + 1).trim();
+            if (candidateJson.startsWith("{")) {
+              try {
+                rawData = JSON.parse(candidateJson);
+                console.log("[CyberExtract Log] Dados do banco de dados Temu extraídos com absoluto sucesso:", rawData);
+                break;
+              } catch (je) {
+                // Tenta outros limites caso falhe
+              }
+            }
+          }
+        }
+        if (rawData) break;
+      }
+    }
+  } catch (err) {
+    console.error("[CyberExtract Log] Falha de leitura de canal interno Temu:", err);
+  }
+
+  // Tentar também JSON-LD estruturado de fallback
   const jld = extractFromJsonLd();
-  
-  // 1. Título do Produto
-  let title = (jld && jld.title) ? jld.title : "";
+
+  // A. Título do Produto
+  let title = "";
+  if (rawData && rawData.goods && rawData.goods.goodsName) {
+    title = rawData.goods.goodsName;
+  }
+  if (!title && jld && jld.title) {
+    title = jld.title;
+  }
   if (!title) {
     const titleSelectors = [
       "meta[property='og:title']",
@@ -459,14 +510,22 @@ function extractTemu() {
       }
     }
   }
-
-  // Limpar possíveis sufixos de branding da Temu do título
   if (title) {
     title = title.replace(/\s*-\s*Temu\s*Portugal/gi, "").replace(/\s*-\s*Temu/gi, "").trim();
   }
 
-  // 2. Preço
-  let price = (jld && jld.price) ? String(jld.price) : "";
+  // B. Preço do Produto
+  let price = "";
+  if (rawData && rawData.goods) {
+    price = rawData.goods.minOnSalePriceStr || rawData.goods.minOnSalePriceText || "";
+    if (!price && rawData.goods.minOnSalePrice) {
+      const numericPrice = Number(rawData.goods.minOnSalePrice) / 100;
+      price = "€" + numericPrice.toFixed(2);
+    }
+  }
+  if (!price && jld && jld.price) {
+    price = String(jld.price);
+  }
   if (!price) {
     const metaPrices = [
       "meta[property='og:price:amount']",
@@ -482,11 +541,10 @@ function extractTemu() {
       }
     }
   }
-
-  // Fallback de Seleção Textual de Símbolos Monetários na tela
   if (!price) {
     const allEls = document.querySelectorAll("span, div, p");
     for (const el of allEls) {
+      if (isElementNoiseOrOutsideProduct(el)) continue;
       const text = el.textContent.trim();
       if (/^(€|\$|R\$|£)\s?\d+([.,]\d{2})?$/.test(text) || /^(\d+([.,]\d{2})?)\s?(€|\$|R\$|£)$/.test(text)) {
         price = text;
@@ -495,19 +553,25 @@ function extractTemu() {
     }
   }
 
-  // 3. Imagem Master
+  // C. Imagem Principal
   let mainImage = "";
-  let rawImg = (jld && jld.image) ? jld.image : "";
-  if (rawImg && !isNoiseImage(rawImg)) {
-    mainImage = cleanProductImageUrl(rawImg);
+  if (rawData && rawData.goods && Array.isArray(rawData.goods.gallery) && rawData.goods.gallery.length > 0) {
+    const candidate = rawData.goods.gallery[0].url || rawData.goods.gallery[0].src || "";
+    if (candidate) {
+      mainImage = cleanProductImageUrl(candidate);
+    }
   }
-  
+  if (!mainImage && jld && jld.image && !isNoiseImage(jld.image)) {
+    mainImage = cleanProductImageUrl(jld.image);
+  }
   if (!mainImage) {
     const imgSelectors = [
+      "img[data-cui-image='1']",
+      "[class*='mainImage'] img",
       "meta[property='og:image']",
+      ".magnifier-image",
       "img.magnifier-image",
       "[class*='main-img']",
-      "[class*='mainImage'] img",
       "[class*='main_img']",
       "div[class*='mainImage'] img",
       "img[data-as-main-img='true']",
@@ -515,8 +579,9 @@ function extractTemu() {
       "[class*='gallery'] img"
     ];
     for (const selector of imgSelectors) {
-      const el = document.querySelector(selector);
-      if (el) {
+      const elements = document.querySelectorAll(selector);
+      for (const el of elements) {
+        if (isElementNoiseOrOutsideProduct(el)) continue;
         let candidateSrc = el.tagName === "META" 
           ? el.getAttribute("content") 
           : (el.getAttribute("data-src") || el.getAttribute("data-lazy-src") || el.getAttribute("data-defer-src") || el.src);
@@ -524,17 +589,18 @@ function extractTemu() {
           candidateSrc = cleanProductImageUrl(candidateSrc);
           if (!isNoiseImage(candidateSrc)) {
             mainImage = candidateSrc;
+            console.log("[CyberExtract Log] mainImage encontrada via seletor:", selector, "URL:", mainImage);
             break;
           }
         }
       }
+      if (mainImage) break;
     }
   }
-
-  // Fallback extra de Imagem de tamanho razoável na Viewport
   if (!mainImage) {
     const imgs = Array.from(document.querySelectorAll("img"));
     const bestImg = imgs.find(i => {
+      if (isElementNoiseOrOutsideProduct(i)) return false;
       let src = i.src || i.getAttribute("data-src") || i.getAttribute("data-lazy-src") || "";
       if (!(src.startsWith("http") || src.startsWith("//")) || isNoiseImage(src)) return false;
       src = cleanProductImageUrl(src);
@@ -544,106 +610,142 @@ function extractTemu() {
     if (bestImg) {
       const rawSrc = bestImg.src || bestImg.getAttribute("data-src") || bestImg.getAttribute("data-lazy-src") || "";
       mainImage = cleanProductImageUrl(rawSrc);
+      console.log("[CyberExtract Log] mainImage encontrada via fallback (bestImg URL):", mainImage);
     }
   }
 
-  // Variações brutas de alta precisão para Temu
+  // D. Variações (SKUs)
   const variations = [];
   const processedUrlsTemu = new Set();
-  const variationEls = document.querySelectorAll(
-    "[class*='VariationValue'], [class*='sku-item'], [class*='skuItem'], [class*='sku_item'], " +
-    "[class*='sku'] img, [class*='skus'] img, [class*='StandardProductSlices'] img, " +
-    "[class*='Variation'] img, img[class*='sku'], img[class*='Variation']"
-  );
-  
-  variationEls.forEach(el => {
-    if (isElementNoiseOrOutsideProduct(el)) return;
-    
-    let imgEl = el.tagName === "IMG" ? el : el.querySelector("img");
-    let txtEl = el.tagName === "IMG" ? el.parentElement : el;
-    
-    let name = "";
-    if (imgEl) {
-      name = imgEl.getAttribute("alt") || imgEl.getAttribute("title") || "";
-    }
-    if (!name && txtEl) {
-      name = txtEl.getAttribute("title") || txtEl.getAttribute("aria-label") || txtEl.textContent.trim() || "";
-    }
-    
-    name = name.split("\n")[0].trim().replace(/\s+/g, " ");
-    
-    let rawImg = imgEl ? (imgEl.getAttribute("data-src") || imgEl.getAttribute("data-lazy-src") || imgEl.getAttribute("data-defer-src") || imgEl.src || "") : "";
-    if (rawImg && (rawImg.startsWith("http") || rawImg.startsWith("//"))) {
-      let cleanUrl = cleanProductImageUrl(rawImg);
-      if (cleanUrl && !processedUrlsTemu.has(cleanUrl)) {
-        processedUrlsTemu.add(cleanUrl);
-        
-        if (!name || name.length > 30 || /^(http|\/\/)/.test(name)) {
-          name = imgEl ? (imgEl.getAttribute("alt") || "Modelo") : "Modelo";
-        }
-        
-        variations.push({ 
-          name: name.substring(0, 30), 
-          imgUrl: cleanUrl 
-        });
-      }
-    }
-  });
 
-  // Heurística de Cores e Tamanhos na Temu com fusão de fallbacks
-  let extractedCores = [];
-  let extractedTamanhos = [];
-
-  // Mapeamos os blocos de variação da Temu
-  const skuContainers = document.querySelectorAll(
-    "[class*='sku'], [class*='spec'], [class*='prop'], [class*='StandardProductSlices'], [class*='Variation'], [class*='skus']"
-  );
-  
-  skuContainers.forEach(container => {
-    if (isElementNoiseOrOutsideProduct(container)) return;
-    const headerEl = container.querySelector("[class*='title'], [class*='label'], [class*='header'], [class*='name']");
-    const headerText = headerEl ? headerEl.textContent.trim().toLowerCase() : "";
-    
-    const items = container.querySelectorAll(
-      "[class*='item'], [class*='value'], [class*='btn'], button, li, [role='radio'], [class*='cell']"
-    );
-    
-    items.forEach(item => {
-      if (isElementNoiseOrOutsideProduct(item)) return;
-      let txt = item.getAttribute("title") || item.getAttribute("aria-label") || "";
-      if (!txt) {
-        const textSpan = item.querySelector("span, p, div");
-        txt = textSpan ? textSpan.textContent.trim() : item.textContent.trim();
+  if (rawData && rawData.goods && Array.isArray(rawData.goods.skc)) {
+    rawData.goods.skc.forEach(skcItem => {
+      const name = skcItem.specValue || "Modelo";
+      let imgUrl = "";
+      if (Array.isArray(skcItem.gallery) && skcItem.gallery[0]) {
+        imgUrl = skcItem.gallery[0].url || skcItem.gallery[0].src || "";
       }
-      
-      // Limpeza suave (como retirar preço que some no botão)
-      txt = txt.split("\n")[0].trim().replace(/\s+/g, " ");
-      
-      if (txt && txt.length > 0 && txt.length < 25) {
-        // Ignorar se for preço, moeda ou botão de quantidade
-        if (/^(€|\$|R\$|£|\+|-|\d+)$/.test(txt)) return;
-        
-        if (headerText.includes("cor") || headerText.includes("color") || headerText.includes("modelo") || headerText.includes("pattern") || headerText.includes("style")) {
-          if (!extractedCores.includes(txt)) extractedCores.push(txt);
-        } else if (headerText.includes("tamanho") || headerText.includes("size") || headerText.includes("medida") || headerText.includes("dimens") || headerText.includes("largura") || headerText.includes("altura")) {
-          if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
-        } else {
-          // Heurística de tipo por conteúdo
-          const isSize = /^(s|m|l|xl|xxl|xxxl|2xl|3xl|4xl|xs|[0-9]{2,3}(\s*cm|\s*mm|m)?)$/i.test(txt);
-          if (isSize) {
-            if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
-          } else {
-            const hasImg = item.querySelector("img");
-            if (hasImg || txt.toLowerCase().includes("preto") || txt.toLowerCase().includes("branco") || txt.toLowerCase().includes("azul")) {
-              if (!extractedCores.includes(txt)) extractedCores.push(txt);
-            }
-          }
+      if (imgUrl) {
+        imgUrl = cleanProductImageUrl(imgUrl);
+        if (imgUrl && !processedUrlsTemu.has(imgUrl)) {
+          processedUrlsTemu.add(imgUrl);
+          variations.push({
+            name: name.substring(0, 30),
+            imgUrl: imgUrl
+          });
         }
       }
     });
-  });
+  }
 
-  // Fallbacks adaptativos se os seletores estruturais com classes Temu falharem
+  // Fallback visual de extração de variações de DOM caso rawData esteja incompleto
+  if (variations.length === 0) {
+    const variationEls = document.querySelectorAll(
+      "[class*='VariationValue'], [class*='sku-item'], [class*='skuItem'], [class*='sku_item'], " +
+      "[class*='sku'] img, [class*='skus'] img, [class*='StandardProductSlices'] img, " +
+      "[class*='Variation'] img, img[class*='sku'], img[class*='Variation']"
+    );
+    
+    variationEls.forEach(el => {
+      if (isElementNoiseOrOutsideProduct(el)) return;
+      
+      let imgEl = el.tagName === "IMG" ? el : el.querySelector("img");
+      let txtEl = el.tagName === "IMG" ? el.parentElement : el;
+      
+      let name = "";
+      if (imgEl) {
+        name = imgEl.getAttribute("alt") || imgEl.getAttribute("title") || "";
+      }
+      if (!name && txtEl) {
+        name = txtEl.getAttribute("title") || txtEl.getAttribute("aria-label") || txtEl.textContent.trim() || "";
+      }
+      
+      name = name.split("\n")[0].trim().replace(/\s+/g, " ");
+      
+      let rawImg = imgEl ? (imgEl.getAttribute("data-src") || imgEl.getAttribute("data-lazy-src") || imgEl.getAttribute("data-defer-src") || imgEl.src || "") : "";
+      if (rawImg && (rawImg.startsWith("http") || rawImg.startsWith("//"))) {
+        let cleanUrl = cleanProductImageUrl(rawImg);
+        if (cleanUrl && !processedUrlsTemu.has(cleanUrl)) {
+          processedUrlsTemu.add(cleanUrl);
+          
+          if (!name || name.length > 30 || /^(http|\/\/)/.test(name)) {
+            name = imgEl ? (imgEl.getAttribute("alt") || "Modelo") : "Modelo";
+          }
+          
+          variations.push({ 
+            name: name.substring(0, 30), 
+            imgUrl: cleanUrl 
+          });
+        }
+      }
+    });
+  }
+
+  // E. Cores e Tamanhos Categorizados
+  let extractedCores = [];
+  let extractedTamanhos = [];
+
+  if (rawData && rawData.formatSkuData && Array.isArray(rawData.formatSkuData.skuTypeValues)) {
+    rawData.formatSkuData.skuTypeValues.forEach(item => {
+      const type = item.type ? item.type.toLowerCase() : "";
+      const vals = Array.isArray(item.values) ? item.values.filter(v => v && typeof v === "string" && v.length < 35 && !/^(€|\$|R\$|£|\+|-|\d+)$/.test(v)) : [];
+      if (type.includes("cor") || type.includes("color") || type.includes("modelo") || type.includes("pattern") || type.includes("style")) {
+        extractedCores = vals;
+      } else if (type.includes("tamanho") || type.includes("size") || type.includes("medida") || type.includes("talla") || type.includes("dimension")) {
+        extractedTamanhos = vals;
+      }
+    });
+  }
+
+  // Fallback Heurístico DOM se rawData não cobrir categorização de forma expressiva
+  if (extractedCores.length === 0 && extractedTamanhos.length === 0) {
+    const skuContainers = document.querySelectorAll(
+      "[class*='sku'], [class*='spec'], [class*='prop'], [class*='StandardProductSlices'], [class*='Variation'], [class*='skus']"
+    );
+    
+    skuContainers.forEach(container => {
+      if (isElementNoiseOrOutsideProduct(container)) return;
+      const headerEl = container.querySelector("[class*='title'], [class*='label'], [class*='header'], [class*='name']");
+      const headerText = headerEl ? headerEl.textContent.trim().toLowerCase() : "";
+      
+      const items = container.querySelectorAll(
+        "[class*='item'], [class*='value'], [class*='btn'], button, li, [role='radio'], [class*='cell']"
+      );
+      
+      items.forEach(item => {
+        if (isElementNoiseOrOutsideProduct(item)) return;
+        let txt = item.getAttribute("title") || item.getAttribute("aria-label") || "";
+        if (!txt) {
+          const textSpan = item.querySelector("span, p, div");
+          txt = textSpan ? textSpan.textContent.trim() : item.textContent.trim();
+        }
+        
+        txt = txt.split("\n")[0].trim().replace(/\s+/g, " ");
+        
+        if (txt && txt.length > 0 && txt.length < 25) {
+          if (/^(€|\$|R\$|£|\+|-|\d+)$/.test(txt)) return;
+          
+          if (headerText.includes("cor") || headerText.includes("color") || headerText.includes("modelo") || headerText.includes("pattern") || headerText.includes("style")) {
+            if (!extractedCores.includes(txt)) extractedCores.push(txt);
+          } else if (headerText.includes("tamanho") || headerText.includes("size") || headerText.includes("medida") || headerText.includes("dimens") || headerText.includes("largura") || headerText.includes("altura")) {
+            if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
+          } else {
+            const isSize = /^(s|m|l|xl|xxl|xxxl|2xl|3xl|4xl|xs|[0-9]{2,3}(\s*cm|\s*mm|m)?)$/i.test(txt);
+            if (isSize) {
+              if (!extractedTamanhos.includes(txt)) extractedTamanhos.push(txt);
+            } else {
+              const hasImg = item.querySelector("img");
+              if (hasImg || txt.toLowerCase().includes("preto") || txt.toLowerCase().includes("branco") || txt.toLowerCase().includes("azul")) {
+                if (!extractedCores.includes(txt)) extractedCores.push(txt);
+              }
+            }
+          }
+        }
+      });
+    });
+  }
+
+  // Fallbacks Heurísticos Extras mais amplos
   if (extractedCores.length === 0) {
     const kwColors = ["cor", "cores", "color", "colors", "cor/modelo", "modelo", "style", "estilo", "pattern", "padrão", "cor:"];
     extractedCores = findOptionsByLabelKeywords(kwColors);
@@ -656,7 +758,7 @@ function extractTemu() {
     extractedTamanhos = findTamanhosBySizingRegex();
   }
 
-  // Se nada foi categorizado, mas temos variações, tentamos separar usando heurística fina
+  // Última heurística de separação se persistir vazios
   if (extractedCores.length === 0 && extractedTamanhos.length === 0 && variations.length > 0) {
     variations.forEach(v => {
       const name = v.name;
@@ -669,7 +771,7 @@ function extractTemu() {
     });
   }
 
-  // Descrição / Especificações
+  // F. Descrição / Especificações
   const metaDesc = document.querySelector("meta[name='description']")?.getAttribute("content") || 
                    document.querySelector("meta[property='og:description']")?.getAttribute("content") || "";
 
@@ -705,6 +807,15 @@ function extractTemu() {
   
   descriptionText = descriptionText.substring(0, 8000);
 
+  // G. Imagens Extras da Galeria
+  let extraImages = [];
+  if (rawData && rawData.goods && Array.isArray(rawData.goods.gallery)) {
+    extraImages = rawData.goods.gallery.map(item => cleanProductImageUrl(item.url || item.src)).filter(url => url && !isNoiseImage(url));
+  }
+  if (extraImages.length === 0) {
+    extraImages = findCarouselImages();
+  }
+
   return {
     platform: "Temu",
     title: title || document.title || "Produto Temu extraído",
@@ -715,7 +826,7 @@ function extractTemu() {
     extractedTamanhos,
     descriptionText,
     metaDescription: metaDesc,
-    extraImages: findCarouselImages(),
+    extraImages: extraImages.slice(0, 15),
     url: window.location.href
   };
 }
@@ -1090,6 +1201,7 @@ function findAdaptiveDescription() {
  * Heurística adaptativa avançada para extrair imagens suplementares da galeria/carrossel oficial do produto
  */
 function findCarouselImages() {
+  console.log(\"[CyberExtract Log] Iniciando findCarouselImages\");
   const images = [];
   try {
     const selectors = [
