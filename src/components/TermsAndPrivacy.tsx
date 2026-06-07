@@ -46,14 +46,13 @@ export default function TermsAndPrivacy() {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">4. Política de Devolução e Garantia</h2>
+          <h2 className="text-xl font-bold mb-4 font-serif dark:text-white">4. Política de Devolução, Reembolso e Garantia</h2>
           <p>
-            Em conformidade com a legislação de consumo:
+            O utilizador compreende e concorda que, devido à natureza exclusiva e sob curadoria refinada de cada uma das nossas peças, o reembolso de qualquer compra ou transação é aplicável <strong>apenas em casos extremamente específicos e excecionais</strong> (tais como defeito de fabrico comprovado ou extravio confirmado pela transportadora durante a entrega).
           </p>
-          <ul className="list-disc pl-5 space-y-2 mt-4">
-            <li><strong>Prazo de Garantia:</strong> O utilizador tem 14 dias a partir da receção do produto para solicitar a devolução total, caso o produto se encontre em condições originais.</li>
-            <li><strong>Cancelamento:</strong> Pedidos podem ser cancelados antes do processamento de envio.</li>
-          </ul>
+          <p className="mt-4">
+            Para iniciar um processo de análise ou solicitar assistência, <strong>deve obrigatoriamente contactar a nossa equipa de apoio dedicada por email através de: <a href="mailto:sart.ditital@gmail.com" className="text-luxury-gold underline">sart.ditital@gmail.com</a></strong>. Qualquer pedido de devolução individualizado será criteriosamente avaliado e processado em conformidade caso todas as exigências sejam cumpridas.
+          </p>
         </section>
 
         <section>

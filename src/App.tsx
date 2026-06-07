@@ -2363,6 +2363,7 @@ export default function App() {
   }, [categories]);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
+  const [acceptedTermsCheckout, setAcceptedTermsCheckout] = useState(false);
 
   const location = useLocation();
   const isReviewPage = location.pathname.startsWith("/evaluate");
@@ -4255,8 +4256,28 @@ export default function App() {
                       </div>
                     </div>
 
+                    <div className="flex items-start gap-3 py-2 text-left bg-luxury-bg/30 p-4 border border-luxury-border/30">
+                      <input
+                        id="acceptedTermsCheckout"
+                        type="checkbox"
+                        checked={acceptedTermsCheckout}
+                        onChange={(e) => setAcceptedTermsCheckout(e.target.checked)}
+                        className="mt-1 h-4 w-4 bg-transparent border-luxury-border text-[#d4af37] focus:ring-0 cursor-pointer accent-[#d4af37]"
+                      />
+                      <label htmlFor="acceptedTermsCheckout" className="text-[10px] uppercase tracking-wider text-luxury-foreground/60 leading-relaxed select-none cursor-pointer">
+                        Eu li e aceito voluntariamente os <button type="button" onClick={() => setView("terms")} className="text-luxury-gold underline hover:text-white transition-all font-bold">Termos de Serviço</button> e a política restrita de <button type="button" onClick={() => setView("terms")} className="text-luxury-gold underline hover:text-white transition-all font-bold">Reembolsos & Devoluções</button> da S.art Boutique para esta compra. *
+                      </label>
+                    </div>
+
                     <Button
                       onClick={async () => {
+                        if (!acceptedTermsCheckout) {
+                          toast.error(
+                            "Por favor, deve declarar que aceita os Termos e Política de Reembolso para avançar com a transação segura.",
+                          );
+                          return;
+                        }
+
                         if (
                           !shippingInfo.address ||
                           !shippingInfo.city ||
@@ -4597,8 +4618,10 @@ export default function App() {
           </div>
           <div className="flex gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-luxury-foreground/60 transition-colors">
             <a
-              href="#"
-              className="hover:text-luxury-gold transition-colors"
+              href="https://www.instagram.com/sart.full_oficial"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-luxury-gold transition-colors animate-pulse"
             >
               Instagram
             </a>
