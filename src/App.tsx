@@ -2079,6 +2079,13 @@ export default function App() {
     localStorage.setItem("sart_navigation_state", JSON.stringify({ view, productId: detailProduct?.id, scroll: homeScrollPosRef.current }));
   }, [view, detailProduct, isNavigatingByHistory, isInitialized]);
 
+  // Meta Pixel PageView Tracking for SPA
+  useEffect(() => {
+    if (typeof window !== "undefined" && (window as any).fbq) {
+      (window as any).fbq("track", "PageView");
+    }
+  }, [view, detailProduct?.id]);
+
   // Handle browser back/forward buttons and tab focus correctly
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -3048,6 +3055,14 @@ export default function App() {
           
           setSuccessOrderId(order.id);
           
+          // Track Meta Pixel Purchase Event
+          if (typeof window !== "undefined" && (window as any).fbq) {
+            (window as any).fbq('track', 'Purchase', {
+              value: Number(order.total_amount),
+              currency: 'EUR'
+            });
+          }
+          
           // MENSAGEM DE SUCESSO ELEGANTE E CONFIRMADORA
           toast.success("Pagamento Confirmado! O seu produto foi reservado com sucesso e o comprovativo já segue para o seu e-mail.", { 
             duration: 12000,
@@ -3236,6 +3251,17 @@ export default function App() {
       navigateTo("product-detail", product);
     } else {
       setSelectedProduct(product);
+      
+      // Track Meta Pixel AddToCart
+      if (typeof window !== "undefined" && (window as any).fbq) {
+        (window as any).fbq('track', 'AddToCart', {
+          value: Number(product.pvp),
+          currency: 'EUR',
+          content_ids: [product.id],
+          content_type: 'product'
+        });
+      }
+
       navigateTo("shipping");
     }
   };
@@ -3249,6 +3275,16 @@ export default function App() {
     setSelectedOptions(options);
     setQuantity(qty);
     setDetailLoading(true);
+
+    // Track Meta Pixel AddToCart
+    if (typeof window !== "undefined" && (window as any).fbq) {
+      (window as any).fbq('track', 'AddToCart', {
+        value: Number(product.pvp) * qty,
+        currency: 'EUR',
+        content_ids: [product.id],
+        content_type: 'product'
+      });
+    }
 
     // Pequeno atraso para feedback visual
     setTimeout(() => {
