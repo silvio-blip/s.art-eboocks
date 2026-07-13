@@ -161,9 +161,9 @@ const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
   if (activeProducts.length === 0) return null;
 
   return (
-    <div className="relative py-14 overflow-hidden bg-[#050505] select-none pointer-events-none">
-      <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-[#050505] to-transparent z-10" />
-      <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-[#050505] to-transparent z-10" />
+    <div className="relative py-14 overflow-hidden bg-luxury-bg border-y border-luxury-border select-none pointer-events-none">
+      <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-luxury-bg to-transparent z-10" />
+      <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-luxury-bg to-transparent z-10" />
       
       <motion.div 
         className="flex gap-6 pr-6 w-max" 
@@ -178,15 +178,16 @@ const InfiniteProductMarquee = ({ products }: { products: Product[] }) => {
               <img 
                 src={getImageUrl(product.image_url)} 
                 alt="" 
-                className="w-full h-full object-cover grayscale opacity-30"
+                className="w-full h-full object-cover grayscale opacity-40"
                 referrerPolicy="no-referrer"
+                loading="lazy"
               />
             </div>
             <div className="flex-1 flex flex-col justify-center gap-0.5 overflow-hidden">
-              <p className="text-luxury-gold text-[7px] uppercase tracking-[0.3em] font-black truncate leading-none opacity-50">
+              <p className="text-luxury-foreground text-[8px] uppercase tracking-[0.25em] font-bold truncate leading-none">
                 {product.title}
               </p>
-              <div className="h-[1px] w-4 bg-luxury-gold/20"></div>
+              <div className="h-[1px] w-4 bg-luxury-gold/40"></div>
             </div>
           </div>
         ))}
@@ -301,7 +302,105 @@ const GlassButton = ({ children, onClick, className = "", disabled = false, load
   );
 };
 
-const MovingParticles = () => {
+const MovingParticles = ({ activeTheme = "luxury" }: { activeTheme?: string }) => {
+  if (activeTheme === "christmas") {
+    return (
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-60">
+        {[...Array(25)].map((_, i) => {
+          const size = Math.random() * 4 + 2;
+          return (
+            <motion.div
+              key={i}
+              initial={{ 
+                x: Math.random() * 100 + "%", 
+                y: -10,
+                opacity: Math.random() * 0.5 + 0.3,
+                scale: Math.random() * 0.5 + 0.5
+              }}
+              animate={{ 
+                y: "110vh",
+                x: [null, (Math.random() * 20 - 10) + "px", (Math.random() * 20 - 10) + "px"]
+              }}
+              transition={{ 
+                duration: Math.random() * 12 + 8, 
+                repeat: Infinity, 
+                ease: "linear",
+                delay: Math.random() * 8
+              }}
+              className="absolute bg-white rounded-full blur-[0.5px]"
+              style={{ width: size, height: size }}
+            />
+          );
+        })}
+        <motion.div 
+          animate={{ 
+            opacity: [0.15, 0.25, 0.15],
+            scale: [1, 1.1, 1]
+          }}
+          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[130px]"
+        />
+        <motion.div 
+          animate={{ 
+            opacity: [0.12, 0.18, 0.12],
+            scale: [1, 1.2, 1]
+          }}
+          transition={{ duration: 16, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+          className="absolute bottom-1/4 right-1/4 w-[600px] h-[600px] bg-amber-500/10 rounded-full blur-[150px]"
+        />
+      </div>
+    );
+  }
+
+  if (activeTheme === "summer") {
+    return (
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-50">
+        {[...Array(20)].map((_, i) => {
+          const size = Math.random() * 6 + 2;
+          return (
+            <motion.div
+              key={i}
+              initial={{ 
+                x: Math.random() * 100 + "%", 
+                y: "110%",
+                opacity: Math.random() * 0.4 + 0.1,
+                scale: Math.random() * 0.5 + 0.5
+              }}
+              animate={{ 
+                y: "-10%",
+                x: [null, (Math.random() * 40 - 20) + "px", (Math.random() * 40 - 20) + "px"]
+              }}
+              transition={{ 
+                duration: Math.random() * 15 + 10, 
+                repeat: Infinity, 
+                ease: "easeInOut",
+                delay: Math.random() * 10
+              }}
+              className="absolute bg-orange-400 rounded-full blur-[2px]"
+              style={{ width: size, height: size }}
+            />
+          );
+        })}
+        <motion.div 
+          animate={{ 
+            opacity: [0.2, 0.3, 0.2],
+            scale: [1, 1.15, 1]
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-1/3 left-1/3 w-[500px] h-[500px] bg-amber-500/15 rounded-full blur-[120px]"
+        />
+        <motion.div 
+          animate={{ 
+            opacity: [0.15, 0.25, 0.15],
+            scale: [1, 1.2, 1]
+          }}
+          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut", delay: 3 }}
+          className="absolute bottom-1/3 right-1/4 w-[600px] h-[600px] bg-orange-600/15 rounded-full blur-[140px]"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-40">
       {[...Array(15)].map((_, i) => (
@@ -654,6 +753,122 @@ const LANGUAGE_MAP: Record<string, string> = {
   GR: 'el',
 };
 
+// --- Boutique Logo ---
+const BoutiqueLogo = ({ className = "h-10", isScrolled = false }) => {
+  const [hasError, setHasError] = useState(false);
+  const color = isScrolled ? "var(--foreground)" : "#ffffff";
+
+  if (hasError) {
+    return (
+      <svg 
+        viewBox="0 0 120 120" 
+        className={`${className} transition-all duration-700`}
+        fill="none" 
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* S - Calligraphic main curve */}
+        <path 
+          d="M 54,24 C 70,22 80,28 78,38 C 76,50 56,54 50,62 C 42,72 44,84 56,86 C 68,88 78,82 78,74" 
+          stroke={color} 
+          strokeWidth="5.5" 
+          strokeLinecap="round" 
+          strokeLinejoin="round"
+          className="transition-colors duration-500"
+        />
+        
+        {/* S - Thin top flourish */}
+        <path 
+          d="M 40,36 C 40,24 52,22 62,22" 
+          stroke={color} 
+          strokeWidth="2.5" 
+          strokeLinecap="round"
+          className="transition-colors duration-500 opacity-90"
+        />
+
+        {/* A - Thin left leg */}
+        <path 
+          d="M 62,30 L 48,84" 
+          stroke={color} 
+          strokeWidth="2.5" 
+          strokeLinecap="round"
+          className="transition-colors duration-500"
+        />
+
+        {/* A - Thick right leg */}
+        <path 
+          d="M 64,28 L 78,84" 
+          stroke={color} 
+          strokeWidth="6" 
+          strokeLinecap="round"
+          className="transition-colors duration-500"
+        />
+        
+        {/* A - Flat serif foot on the right leg */}
+        <path 
+          d="M 70,84 L 88,84" 
+          stroke={color} 
+          strokeWidth="3" 
+          strokeLinecap="round"
+          className="transition-colors duration-500"
+        />
+
+        {/* A - Apex curve connection */}
+        <path 
+          d="M 60,28 Q 63,24 66,28" 
+          stroke={color} 
+          strokeWidth="3.5" 
+          strokeLinecap="round"
+          className="transition-colors duration-500"
+        />
+
+        {/* Sharp calligraphic horizontal brush-strokes (the 'slashes') */}
+        {/* Main middle slash */}
+        <path 
+          d="M 18,52 Q 45,54 86,42 Q 45,49 18,52 Z" 
+          fill={color} 
+          className="transition-colors duration-500"
+        />
+        
+        {/* Upper slash */}
+        <path 
+          d="M 24,47 Q 45,49 76,40 Q 45,45 24,47 Z" 
+          fill={color} 
+          className="transition-colors duration-500 opacity-90"
+        />
+        
+        {/* Lower slash */}
+        <path 
+          d="M 22,57 Q 45,58 70,48 Q 45,53 22,57 Z" 
+          fill={color} 
+          className="transition-colors duration-500 opacity-95"
+        />
+
+        {/* Dynamic brush-tip splits (stray marks pointing down-left) */}
+        <path 
+          d="M 25,58 Q 32,60 38,56 Q 32,58 25,58 Z" 
+          fill={color} 
+          className="transition-colors duration-500 opacity-80"
+        />
+        <path 
+          d="M 22,62 Q 30,64 36,58 Q 30,61 22,62 Z" 
+          fill={color} 
+          className="transition-colors duration-500 opacity-70"
+        />
+      </svg>
+    );
+  }
+
+  return (
+    <img 
+      src="/logo.webp" 
+      alt="S.art Logo" 
+      className={`${className} transition-all duration-700 object-contain`}
+      onError={() => setHasError(true)}
+      referrerPolicy="no-referrer"
+    />
+  );
+};
+
 // --- Navbar ---
 const Navbar = ({
   user,
@@ -668,6 +883,7 @@ const Navbar = ({
   selectedCountry,
   onCountryChange,
   currentLanguage,
+  view,
 }: {
   user: any;
   profile: any;
@@ -681,6 +897,7 @@ const Navbar = ({
   selectedCountry: any;
   onCountryChange: (c: any) => void;
   currentLanguage: string;
+  view: string;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -698,38 +915,107 @@ const Navbar = ({
     ? getImageUrl(profile.avatar_url) 
     : (user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "");
 
-  const iconClass = "text-white hover:text-luxury-gold transition-all duration-300 transform hover:scale-110 active:scale-95 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]";
+  // Dynamic Styles
+  const forceScrolled = isScrolled || view !== "home";
+
+  const headerBgClass = forceScrolled 
+    ? "py-3 bg-[#FCFAF7]/95 backdrop-blur-md border-b border-black/5 shadow-[0_4px_30px_rgba(0,0,0,0.02)]" 
+    : "py-5 bg-transparent";
+
+  const textColorClass = forceScrolled 
+    ? "text-luxury-foreground" 
+    : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)]";
+
+  const iconClass = `${
+    forceScrolled ? "text-luxury-foreground" : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]"
+  } hover:text-gold transition-all duration-300 transform hover:scale-110 active:scale-95`;
+
+  const linkClass = `text-[10px] uppercase tracking-[0.25em] font-medium transition-colors duration-300 ${
+    forceScrolled 
+      ? "text-luxury-foreground/70 hover:text-gold" 
+      : "text-white/85 hover:text-gold drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
+  }`;
+
+  const handleScrollToSection = (id: string) => {
+    setIsMobileMenuOpen(false);
+    onHomeClick();
+    setTimeout(() => {
+      const element = document.getElementById(id);
+      if (element) {
+        const offset = 90;
+        const bodyRect = document.body.getBoundingClientRect().top;
+        const elementRect = element.getBoundingClientRect().top;
+        const elementPosition = elementRect - bodyRect;
+        window.scrollTo({
+          top: elementPosition - offset,
+          behavior: "smooth"
+        });
+      }
+    }, 150);
+  };
 
   return (
-    <header className={`fixed w-full top-0 z-[9999] transition-all duration-1000 ease-in-out ${
-      isScrolled 
-        ? "py-3 bg-black/80 backdrop-blur-3xl border-b border-white/5 shadow-[0_10px_30px_rgba(0,0,0,0.5)]" 
-        : "py-6 bg-transparent"
-    }`}>
+    <header className={`fixed w-full top-0 z-[9999] transition-all duration-500 ${headerBgClass}`}>
       <div className="max-w-7xl mx-auto w-full px-4 md:px-6 flex justify-between items-center">
+        
+        {/* Left: Branding & Logo */}
         <button
-          onClick={onHomeClick}
-          className={`flex items-center gap-3 hover:opacity-70 transition-all duration-1000 ${
-            isScrolled ? "scale-90" : "scale-100"
-          }`}
+          onClick={() => {
+            onHomeClick();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          className="flex items-center gap-2.5 hover:opacity-85 transition-all duration-300 group"
         >
-          <span className="text-xl md:text-2xl font-serif tracking-tighter italic font-black text-white drop-shadow-2xl">
-            S.art
-          </span>
+          <BoutiqueLogo className="h-10 w-auto max-w-[120px] transform duration-500" isScrolled={forceScrolled} />
+          <div className="flex flex-col text-left">
+            <span className={`text-sm font-serif font-semibold tracking-[0.2em] leading-none uppercase ${textColorClass} transition-colors duration-500`}>
+              S.art
+            </span>
+          </div>
         </button>
 
-        <div className="flex items-center gap-3 md:gap-6">
-          <CountryDropdown value={selectedCountry} onChange={onCountryChange} className="hover:ring-2 hover:ring-luxury-gold/50 hover:shadow-lg transition-all" />
-          {/* Superior Luxury Search */}
+        {/* Center: Desktop Navigation Links */}
+        <nav className="hidden md:flex items-center gap-8">
+          <button 
+            onClick={() => handleScrollToSection("boutique")}
+            className={linkClass}
+          >
+            Coleção
+          </button>
+          <button 
+            onClick={() => handleScrollToSection("featured-section")}
+            className={linkClass}
+          >
+            Novidades
+          </button>
+          <button 
+            onClick={() => onDashboardClick("dashboard")}
+            className={linkClass}
+          >
+            Perfil
+          </button>
+        </nav>
+
+        {/* Right: Actions Toolbar */}
+        <div className="flex items-center gap-3 md:gap-5">
+          <CountryDropdown 
+            value={selectedCountry} 
+            onChange={onCountryChange} 
+            className={`transition-all ${isScrolled ? "border-black/10 text-luxury-foreground bg-white/50" : "border-white/20 text-white bg-black/20"}`} 
+          />
+
+          {/* Luxury Search Bar */}
           <div className="relative flex items-center">
             <AnimatePresence>
               {isSearchOpen && (
                 <motion.div 
                   initial={{ width: 0, opacity: 0, x: 20 }}
-                  animate={{ width: 240, opacity: 1, x: 0 }}
+                  animate={{ width: 180, opacity: 1, x: 0 }}
                   exit={{ width: 0, opacity: 0, x: 20 }}
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  className="overflow-hidden flex items-center bg-black/60 backdrop-blur-2xl border border-white/20 rounded-full px-4 py-1.5 mr-3 shadow-2xl"
+                  className={`overflow-hidden flex items-center ${
+                    isScrolled ? "bg-white border-black/10" : "bg-black/50 border-white/20"
+                  } border rounded-full px-4 py-1.5 mr-2.5 shadow-sm`}
                 >
                   <input
                     type="text"
@@ -740,9 +1026,9 @@ const Navbar = ({
                         setIsSearchOpen(false);
                       }
                     }}
-                    placeholder={currentLanguage === 'pt' ? "ENCANTAR COM..." : "ENCHANT WITH..."}
+                    placeholder={currentLanguage === 'pt' ? "PROCURAR..." : "SEARCH..."}
                     autoFocus
-                    className="bg-transparent border-none text-white w-full outline-none text-[9px] uppercase tracking-[0.3em] placeholder:text-white/40"
+                    className={`bg-transparent border-none ${isScrolled ? "text-luxury-foreground" : "text-white"} w-full outline-none text-[9px] uppercase tracking-[0.3em] placeholder:opacity-50`}
                   />
                 </motion.div>
               )}
@@ -752,44 +1038,45 @@ const Navbar = ({
               className={iconClass}
               aria-label="Search"
             >
-              {isSearchOpen ? <X size={20} /> : <Search size={22} />}
+              {isSearchOpen ? <X size={18} /> : <Search size={19} />}
             </button>
           </div>
 
+          {/* User / Dashboard Shortcut */}
           <AnimatePresence>
             {!isSearchOpen && (
               <motion.div 
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                className="flex items-center gap-3 md:gap-6"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="flex items-center gap-3 md:gap-5"
               >
                 {user ? (
-                  <div className="flex items-center gap-3 md:gap-6">
-    {(ADMIN_IDS.includes(user.id || "") || profile?.is_admin || profile?.is_employee) && (
+                  <div className="flex items-center gap-3 md:gap-5">
+                    {(ADMIN_IDS.includes(user.id || "") || profile?.is_admin || profile?.is_employee) && (
                       <button
                         onClick={() => onDashboardClick("admin")}
-                        className={`${iconClass} flex items-center gap-1.5 focus:outline-none group/admin`}
+                        className={`${iconClass} flex items-center gap-1 focus:outline-none group/admin`}
                         title="Painel de Administração"
                       >
-                        <Shield size={20} className="group-hover/admin:rotate-12 transition-transform duration-500" />
-                        <span className="hidden lg:inline text-[8px] tracking-[0.2em] font-bold text-luxury-gold/80">PAINEL</span>
+                        <Shield size={18} className="group-hover/admin:rotate-12 transition-transform duration-500" />
+                        <span className="hidden lg:inline text-[8px] tracking-[0.2em] font-bold text-gold">PAINEL</span>
                       </button>
                     )}
                     <button
                       onClick={() => onDashboardClick("dashboard")}
-                      className="relative hover:opacity-70 transition-all transform hover:scale-110 active:scale-95 overflow-visible w-8 h-8 flex items-center justify-center shadow-2xl"
+                      className="relative hover:opacity-85 transition-all transform hover:scale-110 active:scale-95 overflow-visible w-8 h-8 flex items-center justify-center"
                     >
-                      <div className="w-8 h-8 rounded-full border-2 border-white/30 overflow-hidden shrink-0">
+                      <div className="w-8 h-8 rounded-full border border-gold/40 overflow-hidden shrink-0 shadow-sm bg-neutral-200">
                         {avatarUrl ? (
                           <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                         ) : (
-                          <User size={20} className="text-white" />
+                          <User size={16} className={isScrolled ? "text-luxury-foreground" : "text-white"} />
                         )}
                       </div>
                       {profile?.is_admin && (
-                        <div className="absolute -top-2 -right-2 bg-luxury-gold rounded-full p-0.5 border border-luxury-black shadow-lg animate-pulse">
-                          <Crown size={10} className="text-luxury-black fill-luxury-black" />
+                        <div className="absolute -top-1.5 -right-1.5 bg-gold rounded-full p-0.5 border border-white shadow-sm animate-pulse">
+                          <Crown size={8} className="text-white fill-white" />
                         </div>
                       )}
                     </button>
@@ -798,41 +1085,70 @@ const Navbar = ({
                   <button
                     onClick={onAuthClick}
                     className={iconClass}
+                    aria-label="Account"
                   >
-                    <User size={22} />
+                    <User size={19} />
                   </button>
                 )}
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Mobile Menu Toggle Button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className={`md:hidden ${iconClass}`}
+            aria-label="Toggle Menu"
+          >
+            {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
         </div>
       </div>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu Drawer */}
       <AnimatePresence>
         {isMobileMenuOpen && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden absolute top-full left-0 w-full bg-luxury-bg border-b border-luxury-border p-6 space-y-6 shadow-2xl z-50 overflow-hidden"
+            initial={{ opacity: 0, y: -20, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: -20, height: 0 }}
+            transition={{ duration: 0.4, ease: "easeInOut" }}
+            className="md:hidden absolute top-full left-0 w-full bg-[#FCFAF7]/98 backdrop-blur-2xl border-b border-black/5 p-6 space-y-6 shadow-xl z-50 overflow-hidden"
           >
-            <div className="flex items-center gap-4 border-b border-white/5 pb-4">
-              <span className="font-serif italic font-black text-xl text-white">S.art</span>
+            <div className="flex flex-col gap-4 border-b border-black/5 pb-4">
+              <button 
+                onClick={() => handleScrollToSection("boutique")}
+                className="text-left py-2.5 text-xs uppercase tracking-[0.2em] font-medium text-luxury-foreground/80 hover:text-gold"
+              >
+                Coleção
+              </button>
+              <button 
+                onClick={() => handleScrollToSection("featured-section")}
+                className="text-left py-2.5 text-xs uppercase tracking-[0.2em] font-medium text-luxury-foreground/80 hover:text-gold"
+              >
+                Novidades
+              </button>
+              <button 
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onDashboardClick("dashboard");
+                }}
+                className="text-left py-2.5 text-xs uppercase tracking-[0.2em] font-medium text-luxury-foreground/80 hover:text-gold"
+              >
+                Perfil / Minha Conta
+              </button>
             </div>
             
-            <div className="flex items-center bg-black/5 dark:bg-white/5 px-4 py-3 rounded-[4px] border border-luxury-border focus-within:border-luxury-gold transition-colors">
+            <div className="flex items-center bg-black/5 px-4 py-3 rounded-full border border-black/5 focus-within:border-gold/50 transition-all">
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearch(e.target.value)}
-                placeholder="Procurar..."
-                className="bg-transparent border-none text-luxury-foreground w-full outline-none text-sm placeholder:text-luxury-foreground/30"
+                placeholder="Procurar na boutique..."
+                className="bg-transparent border-none text-luxury-foreground w-full outline-none text-xs tracking-wider placeholder:text-luxury-foreground/40"
               />
-              <Search size={16} className="text-luxury-gold" />
+              <Search size={16} className="text-gold" />
             </div>
-            
-            {/* Logout button removed from here, now accessible via Profile Dashboard */}
           </motion.div>
         )}
       </AnimatePresence>
@@ -848,7 +1164,7 @@ interface ProductCardProps {
   isOwned?: boolean;
   isProcessing?: boolean;
   className?: string;
-  formatPrice?: (p: number) => string;
+  formatPrice?: (v: any) => string;
 }
 
 function ProductCard({
@@ -861,38 +1177,20 @@ function ProductCard({
   index = 0,
   formatPrice,
 }: ProductCardProps & { index?: number }) {
-  const isEven = index % 2 === 0;
-  const comesFromTop = Math.floor(index / 2) % 2 === 0;
-  
   return (
     <motion.div 
-      initial={{ 
-        opacity: 0, 
-        x: isEven ? -60 : 60, 
-        y: comesFromTop ? -60 : 60,
-        scale: 0.9 
-      }}
+      initial={{ opacity: 0, y: 30 }}
       whileInView={{ 
         opacity: 1, 
-        x: 0, 
         y: 0,
-        scale: 1,
         transition: { 
-          duration: 0.1, 
-          ease: [0.22, 1, 0.36, 1], // expoOut style smooth ease
-          delay: (index % 3) * 0.01
+          duration: 0.6, 
+          ease: [0.16, 1, 0.3, 1],
+          delay: (index % 4) * 0.05
         } 
       }}
-      viewport={{ once: false, amount: 0.1 }}
-      whileHover={{ y: -8, scale: 1.02, transition: { duration: 0.3 } }}
-      exit={{ 
-        opacity: 0, 
-        x: isEven ? -40 : 40,
-        y: comesFromTop ? -40 : 40,
-        scale: 0.95,
-        transition: { duration: 0.4 }
-      }}
-      className={`luxury-card cursor-pointer group relative overflow-hidden ${className}`}
+      viewport={{ once: true, amount: 0.05 }}
+      className={`group cursor-pointer flex flex-col bg-white border border-black/5 rounded-[8px] overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.01)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.04)] hover:border-gold/20 transition-all duration-500 ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
           onRead(product);
@@ -901,44 +1199,55 @@ function ProductCard({
         }
       }}
     >
-      <div className="relative z-0 overflow-hidden bg-[#050505]/20">
+      {/* Aspect Ratio 3:4 Image Frame */}
+      <div className="relative w-full aspect-[3/4] overflow-hidden bg-neutral-50 flex items-center justify-center border-b border-black/5">
         <motion.img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-auto object-contain transition-transform duration-[1500ms] ease-out group-hover:scale-105"
+          className="w-full h-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
+          loading="lazy"
         />
-        <div className="absolute inset-0 bg-black/10 group-hover:bg-black/40 transition-colors duration-500" />
         
-        {/* Shine effect on hover */}
-        <div className="absolute inset-0 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
-          <motion.div 
-            initial={{ x: "-100%", skewX: -20 }}
-            whileHover={{ x: "200%" }}
-            transition={{ duration: 0.8, ease: "easeInOut" }}
-            className="absolute top-0 left-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/10 to-transparent"
-          />
+        {/* Subtle premium gradient vignette on hover */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent opacity-100 group-hover:from-black/20 group-hover:bg-black/5 transition-all duration-500" />
+        
+        {/* Dynamic product type badge */}
+        {product.product_type && (
+          <span className="absolute top-3 left-3 text-[7px] uppercase tracking-[0.25em] bg-[#FCFAF7]/90 backdrop-blur-md text-luxury-foreground font-bold px-2 py-1 rounded-[2px] border border-black/5">
+            {product.product_type === 'physical' ? 'Físico' : 'Digital'}
+          </span>
+        )}
+        
+        {/* Premium Action Overlay - slides up on hover (desktop only) */}
+        <div className="hidden md:flex absolute inset-x-0 bottom-0 p-4 translate-y-full group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-500 bg-gradient-to-t from-black/80 via-black/40 to-transparent items-center justify-center">
+          <span className="text-[9px] uppercase tracking-[0.3em] text-white font-bold flex items-center gap-1.5 bg-gold px-4 py-2 shadow-lg">
+            <ShoppingBag size={12} />
+            {isOwned && product.product_type !== 'physical' ? 'Ler Produto' : 'Adicionar ao Carrinho'}
+          </span>
         </div>
       </div>
 
-      <div className="card-info bg-gradient-to-t from-black/80 via-black/20 to-transparent md:translate-y-6 md:group-hover:translate-y-0 md:opacity-0 md:group-hover:opacity-100 transition-all duration-500 ease-premium p-4 md:p-6">
-        <div className="flex items-center gap-3 md:gap-4">
-          <motion.div 
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className="w-10 h-10 rounded-full border border-luxury-gold/40 flex items-center justify-center text-luxury-gold flex-shrink-0"
-          >
-            <ShoppingBag size={18} />
-          </motion.div>
+      {/* Product Information - Always visible underneath the image, standard luxury style! */}
+      <div className="flex flex-col p-4 text-left flex-grow bg-white">
+        {product.category && (
+          <span className="text-[8px] uppercase tracking-[0.25em] text-gold font-bold mb-1 block">
+            {product.category}
+          </span>
+        )}
+        
+        <h4 className="text-[11px] md:text-xs font-serif text-luxury-foreground font-medium tracking-wide mb-1.5 line-clamp-1 group-hover:text-gold transition-colors duration-300">
+          {product.title}
+        </h4>
+        
+        <div className="flex justify-between items-baseline mt-auto pt-2 border-t border-black/[0.03]">
+          <span className="text-sm md:text-base font-serif text-luxury-foreground font-light tracking-tight">
+            {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
+          </span>
           
-          <div className="flex flex-col text-left overflow-hidden">
-            <h4 className="text-[10px] md:text-[11px] uppercase tracking-[0.2em] md:tracking-[0.3em] text-luxury-gold font-bold drop-shadow-md line-clamp-1">
-              {product.title}
-            </h4>
-            <span className="text-xl md:text-2xl font-serif text-white font-light tracking-tight drop-shadow-lg">
-              {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
-            </span>
-          </div>
+          <span className="md:hidden text-[9px] text-gold uppercase tracking-widest font-bold">
+            Comprar
+          </span>
         </div>
       </div>
     </motion.div>
@@ -1749,6 +2058,7 @@ const ProductDetailsPage = ({
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
                     alt={`Thumbnail ${i + 1}`}
+                    loading="lazy"
                   />
                 </button>
               ))}
@@ -1774,6 +2084,7 @@ const ProductDetailsPage = ({
                 className="w-full h-full object-cover cursor-grab active:cursor-grabbing"
                 alt={product.title}
                 referrerPolicy="no-referrer"
+                loading="lazy"
               />
             </AnimatePresence>
 
@@ -1962,6 +2273,46 @@ const ProductDetailsPage = ({
   );
 };
 
+const getThemeStyle = (themeName: string) => {
+  if (themeName === "christmas") {
+    return `
+      :root {
+        --bg-main: #FFF5F5 !important;
+        --bg-card: #FFFFFF !important;
+        --gold: #DC2626 !important;
+        --borda: rgba(220, 38, 38, 0.1) !important;
+        --luxury-dark: #FEE2E2 !important;
+      }
+      .dark {
+        --bg-main: #120507 !important;
+        --bg-card: #1A080C !important;
+        --gold: #F59E0B !important;
+        --borda: rgba(239, 68, 68, 0.15) !important;
+        --luxury-dark: #0d0204 !important;
+      }
+    `;
+  }
+  if (themeName === "summer") {
+    return `
+      :root {
+        --bg-main: #FFFDF9 !important;
+        --bg-card: #FFFFFF !important;
+        --gold: #EA580C !important;
+        --borda: rgba(234, 88, 12, 0.1) !important;
+        --luxury-dark: #FEF3C7 !important;
+      }
+      .dark {
+        --bg-main: #0F0A06 !important;
+        --bg-card: #19110B !important;
+        --gold: #F59E0B !important;
+        --borda: rgba(249, 115, 22, 0.15) !important;
+        --luxury-dark: #0B0704 !important;
+      }
+    `;
+  }
+  return '';
+};
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -2089,8 +2440,8 @@ export default function App() {
   // Handle browser back/forward buttons and tab focus correctly
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
+      setIsNavigatingByHistory(true);
       if (event && event.state) {
-        setIsNavigatingByHistory(true);
         const { view: savedView, productId } = event.state;
         if (productId && products.length > 0) {
           const prod = products.find(p => p.id === productId);
@@ -2099,9 +2450,27 @@ export default function App() {
           setDetailProduct(null);
         }
         setView(savedView || "home");
-        // Faster reset of history flag to prevent blocking click-based navigation
-        setTimeout(() => setIsNavigatingByHistory(false), 50);
+      } else {
+        // Fallback: parse URL parameters manually if state is null
+        const params = new URLSearchParams(window.location.search);
+        const urlView = params.get("v");
+        const urlProduct = params.get("product");
+        if (urlProduct && products.length > 0) {
+          const prod = products.find(p => p.id === urlProduct);
+          if (prod) setDetailProduct(prod);
+        } else {
+          setDetailProduct(null);
+        }
+        if (urlView && ["home", "dashboard", "success", "cancelled", "admin", "reset-password", "terms", "product-detail", "shipping"].includes(urlView)) {
+          setView(urlView as any);
+        } else if (urlProduct) {
+          setView("product-detail");
+        } else {
+          setView("home");
+        }
       }
+      // Faster reset of history flag to prevent blocking click-based navigation
+      setTimeout(() => setIsNavigatingByHistory(false), 50);
     };
 
     const handleVisibilityChange = async () => {
@@ -2273,6 +2642,21 @@ export default function App() {
       setView("home");
     }
     
+    // Pre-populate history stack for deep linked view so they can go "back" to home.
+    const resolvedView = targetProductId ? (targetView === "shipping" ? "shipping" : "product-detail") : (targetView || "home");
+    if ((urlProduct || (urlView && urlView !== "home")) && !isStripeReturn) {
+      console.log("[INIT] Deep link detectado. Pre-populando pilha de histórico para navegação segura.");
+      // 1. Set the initial landing entry to "home" state
+      window.history.replaceState({ view: "home", productId: null }, "", window.location.pathname);
+      // 2. Push the deep link state on top of it
+      const searchStr = `?v=${resolvedView}${targetProductId ? `&product=${targetProductId}` : ""}`;
+      window.history.pushState(
+        { view: resolvedView, productId: targetProductId },
+        "",
+        `${window.location.pathname}${searchStr}`
+      );
+    }
+    
     setIsInitialized(true);
     setLoading(false);
     console.log("[INIT] Aplicação Inicializada. View:", targetView || "home");
@@ -2307,6 +2691,7 @@ export default function App() {
     subtitle: "A Essência da Exclusividade",
     buttonText: "Explorar Coleção"
   });
+  const [siteTheme, setSiteTheme] = useState({ active: "luxury" });
 
   const fetchSiteSettings = async () => {
     try {
@@ -2319,6 +2704,20 @@ export default function App() {
       }
     } catch (e) {
       console.error("Error fetching site settings:", e);
+    }
+  };
+
+  const fetchSiteTheme = async () => {
+    try {
+      const res = await fetch("/api/settings/theme");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.active) {
+          setSiteTheme(data);
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching site theme:", e);
     }
   };
 
@@ -2337,6 +2736,7 @@ export default function App() {
   useEffect(() => {
     fetchCategories();
     fetchSiteSettings();
+    fetchSiteTheme();
   }, [view]);
 
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
@@ -2535,7 +2935,7 @@ export default function App() {
       identification?: string;
     };
   } | null>(null);
-  const theme = "dark";
+  const theme: string = "light";
 
   // Pre-fill shipping info from profile if available
   useEffect(() => {
@@ -2643,7 +3043,7 @@ export default function App() {
   }, [displayText, isDeleting, siteHero.title, typingSpeed, view]);
 
   useEffect(() => {
-    document.documentElement.classList.add("dark");
+    document.documentElement.classList.remove("dark");
   }, []);
 
   useEffect(() => {
@@ -3382,6 +3782,7 @@ export default function App() {
     <div
       className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700 ${(isCursorTransformed && cursorPreferEnabled) ? 'md:cursor-none' : ''}`}
     >
+      <style dangerouslySetInnerHTML={{ __html: getThemeStyle(siteTheme.active) }} />
       <CustomCursor active={isCursorTransformed && cursorPreferEnabled} />
       <ScrollToTop />
       {isReviewPage ? (
@@ -3390,32 +3791,35 @@ export default function App() {
         </Routes>
       ) : (
         <>
-          <Navbar
-            user={user}
-            profile={profile}
-            onAuthClick={() => setIsAuthOpen(true)}
-            onLogoutClick={() => setIsLogoutOpen(true)}
-            onDashboardClick={(v) => setView(v)}
-            onHomeClick={() => {
-              setView("home");
-              setSearchQuery("");
-            }}
-            onSearch={handleSearch}
-            searchQuery={searchQuery}
-            onCartClick={() => {}}
-            selectedCountry={globalCountry}
-            currentLanguage={currentLanguage}
-            onCountryChange={(c) => {
-              setGlobalCountry(c);
-              const lang = LANGUAGE_MAP[c.code] || 'en';
-              setCurrentLanguage(lang);
-              setShippingInfo(prev => ({ 
-                ...prev, 
-                country: c.name, 
-                phone: c.prefix + " " 
-              }));
-            }}
-          />
+          {view !== "admin" && (
+            <Navbar
+              user={user}
+              profile={profile}
+              onAuthClick={() => setIsAuthOpen(true)}
+              onLogoutClick={() => setIsLogoutOpen(true)}
+              onDashboardClick={(v) => setView(v)}
+              onHomeClick={() => {
+                setView("home");
+                setSearchQuery("");
+              }}
+              onSearch={handleSearch}
+              searchQuery={searchQuery}
+              onCartClick={() => {}}
+              selectedCountry={globalCountry}
+              currentLanguage={currentLanguage}
+              onCountryChange={(c) => {
+                setGlobalCountry(c);
+                const lang = LANGUAGE_MAP[c.code] || 'en';
+                setCurrentLanguage(lang);
+                setShippingInfo(prev => ({ 
+                  ...prev, 
+                  country: c.name, 
+                  phone: c.prefix + " " 
+                }));
+              }}
+              view={view}
+            />
+          )}
 
       <Dialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
         <DialogContent className="max-w-[320px] rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8">
@@ -3455,7 +3859,13 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <main className={`overflow-x-hidden ${view === "home" ? "w-full" : "pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full"}`}>
+      <main className={`overflow-x-hidden ${
+        view === "home" || view === "admin"
+          ? "w-full pt-0" 
+          : view === "dashboard"
+            ? "w-full pt-24 md:pt-32"
+            : "pt-24 md:pt-32 pb-20 px-4 md:px-6 max-w-7xl mx-auto w-full"
+      }`}>
         <AnimatePresence mode="wait">
           {view === "reset-password" && (
             <motion.div
@@ -3476,6 +3886,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.5 }}
+              className="w-full min-h-screen"
             >
               <AdminDashboard
                 user={user}
@@ -3484,6 +3895,8 @@ export default function App() {
                   fetchProducts();
                 }}
                 formatPrice={formatPrice}
+                siteTheme={siteTheme}
+                onThemeChange={setSiteTheme}
               />
             </motion.div>
           )}
@@ -3497,7 +3910,7 @@ export default function App() {
               className="w-full"
             >
                 <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden bg-luxury-bg">
-                  <MovingParticles />
+                  <MovingParticles activeTheme={siteTheme.active} />
                 {/* Background Video/Image Container */}
                 <div className="absolute inset-0 z-0 bg-[#050505]">
                   {siteHero.video_url ? (
@@ -3641,7 +4054,7 @@ export default function App() {
                 const isFewFeatured = featuredProducts.length <= 2;
                 
                 return (
-                  <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500">
+                  <section id="featured-section" className="bg-luxury-bg py-24 border-b border-luxury-border overflow-hidden transition-colors duration-500">
                     <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
 
                     <motion.div 
@@ -3659,124 +4072,99 @@ export default function App() {
                       }}
                       className="px-[5%] mt-8"
                     >
-                      <div className={`block columns-1 lg:columns-2 gap-x-4 lg:gap-x-8 ${isFewFeatured ? 'max-w-[1000px]' : 'max-w-[1600px]'} mx-auto overflow-visible`}>
+                      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 ${isFewFeatured ? 'max-w-[1000px]' : 'max-w-[1400px]'} mx-auto overflow-visible`}>
                         {featuredProducts.map((featuredProduct, fIdx) => (
                           <motion.div 
                             key={featuredProduct.id} 
                             initial={{ 
                               opacity: 0, 
-                              x: fIdx % 2 === 0 ? -100 : 100,
-                              y: fIdx % 2 === 0 ? -40 : 40,
-                              scale: 1.1
+                              y: 60,
                             }}
                             whileInView={{ 
                               opacity: 1, 
-                              x: 0,
                               y: 0,
-                              scale: 0.85, 
-                              transition: { duration: 1.2, ease: [0.22, 1, 0.36, 1] } 
+                              transition: { duration: 1.0, ease: [0.16, 1, 0.3, 1] } 
                             }}
-                            viewport={{ once: false, amount: 0.1 }}
-                            whileHover={{ scale: 0.88, transition: { duration: 0.3 } }}
-                            exit={{ 
-                              opacity: 0, 
-                              x: fIdx % 2 === 0 ? -80 : 80,
-                              y: fIdx % 2 === 0 ? -30 : 30,
-                              scale: 0.75
-                            }}
-                            className="break-inside-avoid mb-8 flex flex-col space-y-4"
+                            viewport={{ once: true, amount: 0.1 }}
+                            whileHover={{ y: -8, transition: { duration: 0.3 } }}
+                            className="flex flex-col space-y-6 group"
                           >
-                          {/* Main Product Card with internal truncated title */}
+                          {/* Main Product Card */}
                           <div 
                             onClick={() => {
                               setSelectedProduct(featuredProduct);
                               setDetailProduct(featuredProduct);
                               setView("product-detail");
                             }}
-                            className="relative overflow-hidden border border-white/5 shadow-2xl group cursor-pointer rounded-[0.85rem] bg-black/20"
+                            className="relative overflow-hidden border border-luxury-border shadow-2xl group cursor-pointer rounded-xl bg-luxury-card aspect-[4/3] flex flex-col justify-end"
                           >
                             <img 
                               src={getImageUrl(featuredProduct.image_url || "")} 
                               alt={featuredProduct.title}
-                              className="w-full h-auto object-contain transform group-hover:scale-102 transition-transform duration-[4s] ease-out"
+                              className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-[1.5s] ease-out"
+                              loading="lazy"
                             />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent dark:from-black/90 dark:via-black/20 dark:to-transparent"></div>
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent"></div>
                             
-                            {/* Title INSIDE the card with truncation */}
-                            <div className="absolute bottom-0 left-0 p-6 md:p-10 w-full">
-                              <h3 className="font-serif text-lg md:text-xl text-white tracking-tighter truncate max-w-[85%] uppercase">
-                                {featuredProduct.title}
-                              </h3>
+                            {/* Title, Price and Flat Highlighted Action INSIDE the card */}
+                            <div className="relative z-10 p-4 md:p-6 w-full flex flex-row items-center justify-between gap-4 bg-black/40 backdrop-blur-sm border-t border-white/5">
+                              <div className="flex flex-col min-w-0 flex-1">
+                                <h3 className="font-serif text-sm md:text-base text-white tracking-tight truncate uppercase font-bold">
+                                  {featuredProduct.title}
+                                </h3>
+                                <span className="text-luxury-gold text-xs md:text-sm font-mono font-bold mt-0.5">
+                                  {formatPrice(featuredProduct.pvp)}
+                                </span>
+                              </div>
+                              
+                              <button
+                                onClick={(e: any) => {
+                                  e.stopPropagation();
+                                  handleBuy(featuredProduct);
+                                }}
+                                disabled={checkoutLoading === featuredProduct.id}
+                                className="bg-luxury-gold hover:bg-white text-black font-black text-[9px] md:text-[10px] uppercase tracking-[0.15em] px-3.5 py-2.5 rounded-[4px] shadow-none border-0 transition-all flex items-center gap-1.5 shrink-0"
+                              >
+                                {checkoutLoading === featuredProduct.id ? (
+                                  <Loader2 size={12} className="animate-spin text-black" />
+                                ) : (
+                                  <>
+                                    <span>COMPRAR</span>
+                                    <ShoppingBag size={11} className="stroke-[2.5]" />
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
 
                           {/* Information BELOW the card */}
-                          <div className="flex flex-col space-y-6">
+                          <div className="flex flex-col space-y-3">
                             {/* Description Case */}
-                            <div className="border-l border-luxury-border pl-6 h-12 flex items-center">
+                            <div className="border-l border-luxury-border pl-6 h-10 flex items-center">
                               <p className="text-luxury-foreground/40 text-xs md:text-sm font-light leading-relaxed line-clamp-2 italic">
                                 "{featuredProduct.description.replace(/<[^>]*>?/gm, "")}"
                               </p>
                             </div>
-
-                            {/* Footer Info: Price & Action */}
-                            <div className="flex flex-row items-center justify-between gap-3 pt-6 border-t border-luxury-border">
-                              <div className="flex flex-col">
-                                <span className="text-luxury-foreground/20 text-[8px] uppercase tracking-widest mb-1 font-bold">Valor Premium</span>
-                                <div className="flex items-baseline gap-2">
-                                  <span className="text-luxury-gold text-2xl md:text-3xl font-serif">{formatPrice(featuredProduct.pvp)}</span>
-                                </div>
-                              </div>
-                              
-                              <div className="flex-shrink-0">
-                                <GlassButton
-                                  onClick={(e: any) => {
-                                    e.stopPropagation();
-                                    handleBuy(featuredProduct);
-                                  }}
-                                  className="!min-w-0 !px-4 !py-2.5 md:!px-10 md:!py-5"
-                                  disabled={checkoutLoading === featuredProduct.id}
-                                  loading={checkoutLoading === featuredProduct.id}
-                                >
-                                {checkoutLoading === featuredProduct.id ? (
-                                  <Loader2 size={14} className="animate-spin" />
-                                ) : (
-                                  <>
-                                    <span className="text-[9px] md:text-[11px] font-black tracking-tighter">COMPRAR</span>
-                                    <ArrowRight size={12} className="hidden xs:block group-hover:translate-x-2 transition-transform duration-300" />
-                                  </>
-                                )}
-                              </GlassButton>
-                            </div>
                           </div>
-                        </div>
-                      </motion.div>
-                      ))}
-                    </div>
-                  </motion.div>
-                </section>
+                        </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  </section>
                 );
               })()}
 
               <InfiniteProductMarquee products={products} />
 
               <section className="py-24 w-full overflow-hidden" id="boutique">
-                <div className="px-[5%] mb-12 flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-white/5 pb-10">
+                <div className="px-[5%] mb-12 flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-luxury-border pb-10">
                   <div className="flex flex-col md:flex-row md:items-end gap-6 md:gap-12">
                     <div className="flex flex-col">
-                      <motion.span 
-                        initial={{ opacity: 0, y: 10 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        className="text-luxury-gold text-[10px] uppercase tracking-[0.4em] font-bold mb-2"
-                      >
-                        Curadoria
-                      </motion.span>
                       <motion.h2 
                         initial={{ opacity: 0, x: -20 }}
                         whileInView={{ opacity: 1, x: 0 }}
                         viewport={{ once: true }}
-                        className="text-5xl md:text-6xl font-serif text-white tracking-tighter"
+                        className="text-5xl md:text-6xl font-serif text-luxury-foreground tracking-tighter"
                       >
                         Boutique
                       </motion.h2>
@@ -3788,7 +4176,7 @@ export default function App() {
                       <div className="relative md:hidden w-full min-w-[160px]">
                         <button 
                           onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
-                          className="w-full bg-black/40 border border-white/10 text-white p-3 text-[10px] uppercase tracking-widest outline-none flex justify-between items-center group transition-all hover:border-luxury-gold/50"
+                          className="w-full bg-luxury-card border border-luxury-border text-luxury-foreground p-3 text-[10px] uppercase tracking-[0.2em] font-medium outline-none flex justify-between items-center group transition-all hover:border-luxury-gold/50 rounded-[4px] shadow-sm"
                         >
                           <span className="font-bold">{selectedCategory}</span>
                           <ChevronDown size={14} className={`text-luxury-gold transition-transform duration-500 ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
@@ -3806,7 +4194,7 @@ export default function App() {
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                                 transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                                className="absolute top-full left-0 w-full mt-2 bg-[#0a0a0a] border border-white/10 z-[101] shadow-2xl overflow-hidden rounded-sm"
+                                className="absolute top-full left-0 w-full mt-2 bg-luxury-card border border-luxury-border z-[101] shadow-xl overflow-hidden rounded-[4px]"
                               >
                                 <div className="max-h-60 overflow-y-auto luxury-scrollbar">
                                   {["Todos", ...allCategories.filter(c => c !== "Todos")].map(cat => (
@@ -3816,41 +4204,15 @@ export default function App() {
                                         setSelectedCategory(cat);
                                         setIsCategoryMenuOpen(false);
                                       }}
-                                      className={`w-full text-left p-4 text-[9px] uppercase tracking-widest transition-all border-b border-white/5 last:border-0 ${
+                                      className={`w-full text-left p-4 text-[9px] uppercase tracking-widest transition-all border-b border-luxury-border last:border-0 ${
                                         selectedCategory === cat
                                         ? 'bg-luxury-gold text-black font-black' 
-                                        : 'text-white/60 hover:bg-white/5 hover:text-white'
+                                        : 'text-luxury-foreground/70 hover:bg-luxury-dark hover:text-luxury-foreground'
                                       }`}
                                     >
                                       {cat}
                                     </button>
                                   ))}
-                                </div>
-                                
-                                {/* Price Filters in Mobile Dropdown */}
-                                <div className="p-4 bg-white/5 border-t border-white/5 space-y-4">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Mínimo ({(globalCountry as any).currency || 'EUR'})</label>
-                                      <input 
-                                        type="number"
-                                        value={Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                                        onChange={(e) => setMinPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                                        className="w-full bg-black/40 border border-white/10 text-white p-2 text-[10px] outline-none focus:border-luxury-gold transition-all"
-                                        placeholder="0"
-                                      />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <label className="text-[8px] uppercase tracking-widest text-luxury-gold font-bold">Máximo ({(globalCountry as any).currency || 'EUR'})</label>
-                                      <input 
-                                        type="number"
-                                        value={Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                                        onChange={(e) => setMaxPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                                        className="w-full bg-black/40 border border-white/10 text-white p-2 text-[10px] outline-none focus:border-luxury-gold transition-all"
-                                        placeholder="10000"
-                                      />
-                                    </div>
-                                  </div>
                                 </div>
                               </motion.div>
                             </>
@@ -3864,10 +4226,10 @@ export default function App() {
                           <button 
                             key={cat}
                             onClick={() => setSelectedCategory(cat)}
-                            className={`px-4 py-1.5 text-[9px] uppercase tracking-[0.1em] transition-all border ${
+                            className={`px-4 py-1.5 text-[9px] uppercase tracking-[0.1em] transition-all border rounded-full font-medium ${
                               selectedCategory === cat 
-                              ? 'bg-luxury-gold text-black border-luxury-gold font-bold' 
-                              : 'border-white/10 text-white/40 hover:border-luxury-gold/30 hover:text-white'
+                              ? 'bg-luxury-gold text-black border-luxury-gold font-bold shadow-sm' 
+                              : 'border-luxury-border text-luxury-foreground/60 hover:border-luxury-gold/50 hover:text-luxury-foreground bg-luxury-card'
                             }`}
                           >
                             {cat}
@@ -3878,25 +4240,25 @@ export default function App() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-4 pb-1">
-                    <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 md:p-3 relative group">
+                    <div className="flex items-center gap-4 bg-luxury-card border border-luxury-border p-2 md:p-3 relative group rounded-[4px] shadow-sm">
                       <div className="flex flex-col gap-1">
-                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Min {(globalCountry as any).currency || 'EUR'}</label>
+                        <label className="text-[7px] uppercase tracking-[0.2em] text-luxury-foreground/40 font-bold leading-none">Min {(globalCountry as any).currency || 'EUR'}</label>
                         <input 
                           type="number"
                           value={Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
                           onChange={(e) => setMinPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                          className="bg-transparent text-white text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest"
+                          className="bg-transparent text-luxury-foreground text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest font-mono"
                           placeholder="MIN"
                         />
                       </div>
-                      <div className="w-[1px] h-6 bg-white/10" />
+                      <div className="w-[1px] h-6 bg-luxury-border" />
                       <div className="flex flex-col gap-1">
-                        <label className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold leading-none">Max {(globalCountry as any).currency || 'EUR'}</label>
+                        <label className="text-[7px] uppercase tracking-[0.2em] text-luxury-foreground/40 font-bold leading-none">Max {(globalCountry as any).currency || 'EUR'}</label>
                         <input 
                           type="number"
                           value={Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
                           onChange={(e) => setMaxPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                          className="bg-transparent text-white text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest"
+                          className="bg-transparent text-luxury-foreground text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest font-mono"
                           placeholder="MAX"
                         />
                       </div>
@@ -3971,7 +4333,7 @@ export default function App() {
                     return matchesCategory && matchesPrice && matchesSearch && isActive;
                   }).length === 0 && (
                     <div className="py-32 text-center space-y-6">
-                      <p className="font-serif text-3xl italic text-white/20 px-8 transition-colors">
+                      <p className="font-serif text-3xl italic text-luxury-foreground/30 px-8 transition-colors">
                         Lamentamos, mas nenhuma obra em nossa curadoria atual condiz com os critérios selecionados.
                       </p>
                       <button 
@@ -3981,7 +4343,7 @@ export default function App() {
                           setMaxPrice(10000);
                           setSearchQuery("");
                         }}
-                        className="text-luxury-gold uppercase tracking-[0.3em] text-xs font-bold hover:text-white transition-colors"
+                        className="text-luxury-gold uppercase tracking-[0.3em] text-xs font-bold hover:text-luxury-foreground transition-colors"
                       >
                         Redefinir Curadoria
                       </button>
@@ -3991,7 +4353,7 @@ export default function App() {
                   {loadingProducts && (
                     <div className="py-40 flex flex-col items-center justify-center space-y-6">
                       <Loader2 className="animate-spin text-luxury-gold" size={40} />
-                      <p className="text-[10px] uppercase tracking-[0.4em] text-white/20 font-black animate-pulse">Consultando o Acervo S.art...</p>
+                      <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-foreground/40 font-black animate-pulse">Consultando o Acervo S.art...</p>
                     </div>
                   )}
                 </div>
@@ -4240,6 +4602,7 @@ export default function App() {
                           src={getImageUrl(selectedProduct.image_url)}
                           alt=""
                           className="w-full h-full object-cover"
+                          loading="lazy"
                         />
                       </div>
                       <div className="space-y-1">
@@ -4399,10 +4762,10 @@ export default function App() {
           ) : (
             <div key="shipping-loader" className="py-40 flex flex-col items-center justify-center space-y-6">
               <Loader2 className="animate-spin text-luxury-gold" size={40} />
-              <p className="text-[10px] uppercase tracking-[0.4em] text-white/20 font-black">Restaurando Checkout...</p>
+              <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-foreground/30 font-black">Restaurando Checkout...</p>
               <button 
                 onClick={() => setView('home')} 
-                className="text-luxury-gold text-[10px] uppercase border border-luxury-gold/20 px-6 py-3 mt-4 hover:bg-luxury-gold hover:text-black transition-all font-bold tracking-widest"
+                className="text-luxury-gold text-[10px] uppercase border border-luxury-gold/50 px-6 py-3 mt-4 hover:bg-luxury-gold hover:text-black transition-all font-bold tracking-widest rounded-[4px]"
               >
                 Voltar à Boutique
               </button>
@@ -4410,19 +4773,21 @@ export default function App() {
           ))}
 
           {view === "dashboard" && user && (
-            <ProfileDashboard
-              user={user}
-              purchasedProducts={purchasedProducts}
-              formatPrice={formatPrice}
-              onProfileUpdate={(data) => {
-                setProfile(prev => prev ? { ...prev, ...data } : data as any);
-                if (typeof data.custom_cursor_enabled !== 'undefined') {
-                  setCursorPreferEnabled(data.custom_cursor_enabled);
-                }
-              }}
-              onRefundRequest={(order) => setRefundOrder(order)}
-              onLogout={handleLogout}
-            />
+            <div className="profile-dashboard-wrapper w-full min-h-screen">
+              <ProfileDashboard
+                user={user}
+                purchasedProducts={purchasedProducts}
+                formatPrice={formatPrice}
+                onProfileUpdate={(data) => {
+                  setProfile(prev => prev ? { ...prev, ...data } : data as any);
+                  if (typeof data.custom_cursor_enabled !== 'undefined') {
+                    setCursorPreferEnabled(data.custom_cursor_enabled);
+                  }
+                }}
+                onRefundRequest={(order) => setRefundOrder(order)}
+                onLogout={handleLogout}
+              />
+            </div>
           )}
 
           {view === "terms" && (
@@ -4466,7 +4831,7 @@ export default function App() {
               <div className="flex flex-col sm:flex-row gap-6 justify-center pt-8">
                 <Button
                   onClick={() => setView("shipping")}
-                  className="bg-white text-black px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:bg-neutral-200 transition-all flex items-center"
+                  className="bg-black text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:bg-neutral-800 transition-all flex items-center"
                 >
                   Tentar Novamente <ArrowRight size={14} className="ml-2" />
                 </Button>
@@ -4476,13 +4841,13 @@ export default function App() {
                     setView("home");
                   }}
                   variant="outline"
-                  className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500 text-white/60 border-white/10"
+                  className="px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-xl transition-all duration-500 text-luxury-foreground/70 border-luxury-border hover:border-luxury-foreground/40 bg-luxury-card"
                 >
                   Voltar à Boutique
                 </Button>
               </div>
 
-              <div className="pt-12 text-[9px] uppercase tracking-widest text-white/20 italic">
+              <div className="pt-12 text-[9px] uppercase tracking-widest text-luxury-foreground/30 italic">
                 Se o erro persistir, contacte o suporte do seu banco ou a nossa equipa S.art.
               </div>
             </motion.div>
@@ -4528,6 +4893,7 @@ export default function App() {
                       <img
                         src={getImageUrl(successProduct.image_url)}
                         className="w-20 h-28 object-cover"
+                        loading="lazy"
                       />
                     </div>
                     <div className="space-y-2">
@@ -4558,7 +4924,7 @@ export default function App() {
                     localStorage.removeItem('sart_pending_checkout');
                     setView("dashboard");
                   }}
-                  className="bg-luxury-gold text-white px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
+                  className="bg-luxury-gold text-black px-12 h-14 rounded-none uppercase tracking-[0.3em] text-[10px] font-bold shadow-2xl hover:scale-105 transition-all duration-500 flex items-center"
                 >
                   Acompanhar Pedido{" "}
                   <ArrowRight size={14} className="ml-2" />

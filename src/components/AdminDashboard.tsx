@@ -149,20 +149,31 @@ export default function AdminDashboard({
   user,
   onBack,
   formatPrice,
+  siteTheme,
+  onThemeChange,
 }: {
   user: SupabaseUser;
   onBack: () => void;
   formatPrice?: (price: number) => string;
+  siteTheme?: { active: string };
+  onThemeChange?: (theme: { active: string }) => void;
 }) {
   const renderPrice = (val: number) => {
     const rounded = Math.round(val * 100) / 100;
     return formatPrice ? formatPrice(rounded) : `€${rounded.toFixed(2)}`;
   };
   const roundValue = (v: number) => Math.round(v * 100) / 100;
-  const theme = "dark";
+  const theme: string = "light";
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
+  const [localTheme, setLocalTheme] = useState<string>("luxury");
+
+  useEffect(() => {
+    if (siteTheme?.active) {
+      setLocalTheme(siteTheme.active);
+    }
+  }, [siteTheme]);
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(
     null,
@@ -572,13 +583,25 @@ export default function AdminDashboard({
 
   const handleUpdateSiteSettings = async () => {
     try {
-      const res = await fetch("/api/admin/settings/hero", {
+      const heroPromise = fetch("/api/admin/settings/hero", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": user.id },
         body: JSON.stringify(siteHero),
       });
-      if (res.ok) {
+
+      const themePromise = fetch("/api/admin/settings/theme", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": user.id },
+        body: JSON.stringify({ active: localTheme }),
+      });
+
+      const [heroRes, themeRes] = await Promise.all([heroPromise, themePromise]);
+
+      if (heroRes.ok && themeRes.ok) {
         toast.success("Configurações salvas com sucesso!");
+        if (onThemeChange) {
+          onThemeChange({ active: localTheme });
+        }
         setIsSiteSettingsOpen(false);
       } else {
         toast.error("Erro ao salvar configurações.");
@@ -4824,6 +4847,72 @@ export default function AdminDashboard({
             {/* Modal Scrollable Body */}
             <div className="p-6 space-y-8 overflow-y-auto custom-scrollbar flex-1">
               <div className="space-y-6">
+                {/* Theme Selector */}
+                <div className="space-y-3 pb-6 border-b border-white/5">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold block">Tema Ativo da Boutique</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Luxury Theme */}
+                    <button
+                      type="button"
+                      onClick={() => setLocalTheme("luxury")}
+                      className={`relative p-3 text-left border flex flex-col justify-between h-24 transition-all duration-300 rounded-none ${
+                        localTheme === "luxury"
+                          ? "border-luxury-gold bg-luxury-gold/5 shadow-lg shadow-luxury-gold/5"
+                          : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start w-full">
+                        <span className="text-[8px] uppercase tracking-wider font-bold text-white/60">Classic</span>
+                        <div className={`w-2 h-2 rounded-full ${localTheme === "luxury" ? "bg-luxury-gold" : "bg-white/20"}`} />
+                      </div>
+                      <div>
+                        <h4 className="font-serif text-[11px] text-white font-semibold">Luxury Gold</h4>
+                        <p className="text-[7px] text-white/40 mt-0.5">Preto & Ouro</p>
+                      </div>
+                    </button>
+
+                    {/* Christmas Theme */}
+                    <button
+                      type="button"
+                      onClick={() => setLocalTheme("christmas")}
+                      className={`relative p-3 text-left border flex flex-col justify-between h-24 transition-all duration-300 rounded-none ${
+                        localTheme === "christmas"
+                          ? "border-red-500 bg-red-950/10 shadow-lg shadow-red-500/5"
+                          : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start w-full">
+                        <span className="text-[8px] uppercase tracking-wider font-bold text-red-400">Inverno</span>
+                        <div className={`w-2 h-2 rounded-full ${localTheme === "christmas" ? "bg-red-500" : "bg-white/20"}`} />
+                      </div>
+                      <div>
+                        <h4 className="font-serif text-[11px] text-white font-semibold">Natalino</h4>
+                        <p className="text-[7px] text-white/40 mt-0.5">Vermelho & Neve</p>
+                      </div>
+                    </button>
+
+                    {/* Summer Theme */}
+                    <button
+                      type="button"
+                      onClick={() => setLocalTheme("summer")}
+                      className={`relative p-3 text-left border flex flex-col justify-between h-24 transition-all duration-300 rounded-none ${
+                        localTheme === "summer"
+                          ? "border-orange-500 bg-orange-950/10 shadow-lg shadow-orange-500/5"
+                          : "border-white/10 bg-white/[0.02] hover:border-white/20"
+                      }`}
+                    >
+                      <div className="flex justify-between items-start w-full">
+                        <span className="text-[8px] uppercase tracking-wider font-bold text-orange-400">Verão</span>
+                        <div className={`w-2 h-2 rounded-full ${localTheme === "summer" ? "bg-orange-500" : "bg-white/20"}`} />
+                      </div>
+                      <div>
+                        <h4 className="font-serif text-[11px] text-white font-semibold">Pôr-do-Sol</h4>
+                        <p className="text-[7px] text-white/40 mt-0.5">Laranja & Calor</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
                     <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Vídeo do Banner (Background)</label>

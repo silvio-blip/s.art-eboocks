@@ -8,7 +8,8 @@
   
   --color-luxury-bg: var(--bg-main);
   --color-luxury-card: var(--bg-card);
-  --color-luxury-gold: #c78b7d;
+  --color-luxury-gold: var(--gold);
+  --color-gold: var(--gold);
   --color-luxury-border: var(--borda);
   --color-luxury-foreground: var(--foreground);
   --color-luxury-dark: var(--luxury-dark);
@@ -21,13 +22,13 @@
 
 @layer base {
   :root {
-    --bg-main: #FFFFFF;
-    --bg-card: #F9F9F9;
-    --gold: #c78b7d;
-    --foreground: #101010;
-    --borda: rgba(0, 0, 0, 0.06);
-    --luxury-dark: #f8f8f8;
-    --card-gradient: linear-gradient(transparent, rgba(255, 255, 255, 0.8) 40%, rgba(255, 255, 255, 0.95));
+    --bg-main: #FCFAF7;
+    --bg-card: #FFFFFF;
+    --gold: #C5A880;
+    --foreground: #1C1B19;
+    --borda: rgba(28, 27, 25, 0.08);
+    --luxury-dark: #F5F3F0;
+    --card-gradient: linear-gradient(transparent, rgba(252, 250, 247, 0.8) 40%, rgba(252, 250, 247, 0.95));
   }
 
   .dark {
@@ -252,27 +253,27 @@ aside {
 }
 
 .bento-grid {
-    display: block;
-    columns: 2;
-    column-gap: 12px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
     width: 100%;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
     .bento-grid {
-        columns: 3;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 24px;
     }
 }
 
-@media (min-width: 1536px) {
+@media (min-width: 1280px) {
     .bento-grid {
-        columns: 4;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 32px;
     }
 }
 
 .bento-grid > * {
-    break-inside: avoid;
-    margin-bottom: 12px;
     display: block;
     width: 100%;
 }
@@ -431,6 +432,91 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* Light theme overrides for Profile Dashboard */
+.profile-dashboard-wrapper {
+  color: #1C1B19 !important;
+}
+.profile-dashboard-wrapper .text-white {
+  color: #1C1B19 !important;
+}
+.profile-dashboard-wrapper .text-white\/80 {
+  color: rgba(28, 27, 25, 0.8) !important;
+}
+.profile-dashboard-wrapper .text-white\/60 {
+  color: rgba(28, 27, 25, 0.6) !important;
+}
+.profile-dashboard-wrapper .text-white\/50 {
+  color: rgba(28, 27, 25, 0.5) !important;
+}
+.profile-dashboard-wrapper .text-white\/40 {
+  color: rgba(28, 27, 25, 0.4) !important;
+}
+.profile-dashboard-wrapper .text-white\/30 {
+  color: rgba(28, 27, 25, 0.3) !important;
+}
+.profile-dashboard-wrapper .bg-white\/5 {
+  background-color: rgba(28, 27, 25, 0.03) !important;
+}
+.profile-dashboard-wrapper .bg-white\/10 {
+  background-color: rgba(28, 27, 25, 0.05) !important;
+}
+.profile-dashboard-wrapper .border-white\/10 {
+  border-color: rgba(28, 27, 25, 0.08) !important;
+}
+.profile-dashboard-wrapper .border-white\/5 {
+  border-color: rgba(28, 27, 25, 0.04) !important;
+}
+.profile-dashboard-wrapper .border-white\/20 {
+  border-color: rgba(28, 27, 25, 0.12) !important;
+}
+.profile-dashboard-wrapper .bg-neutral-900,
+.profile-dashboard-wrapper .bg-neutral-950,
+.profile-dashboard-wrapper .bg-black {
+  background-color: #FFFFFF !important;
+  color: #1C1B19 !important;
+}
+.profile-dashboard-wrapper .border-neutral-800 {
+  border-color: rgba(28, 27, 25, 0.08) !important;
+}
+.profile-dashboard-wrapper .text-neutral-400 {
+  color: rgba(28, 27, 25, 0.6) !important;
+}
+.profile-dashboard-wrapper .text-neutral-500 {
+  color: rgba(28, 27, 25, 0.5) !important;
+}
+.profile-dashboard-wrapper .text-neutral-300 {
+  color: rgba(28, 27, 25, 0.7) !important;
+}
+.profile-dashboard-wrapper .bg-black\/80 {
+  background-color: rgba(252, 250, 247, 0.8) !important;
+  color: #1C1B19 !important;
+}
+.profile-dashboard-wrapper .bg-black\/40 {
+  background-color: rgba(252, 250, 247, 0.4) !important;
+}
+.profile-dashboard-wrapper input,
+.profile-dashboard-wrapper textarea,
+.profile-dashboard-wrapper select {
+  color: #1C1B19 !important;
+  background-color: #FFFFFF !important;
+  border-color: rgba(28, 27, 25, 0.15) !important;
+}
+.profile-dashboard-wrapper input:focus,
+.profile-dashboard-wrapper textarea:focus {
+  border-color: #C5A880 !important;
+}
+.profile-dashboard-wrapper button {
+  transition: all 0.3s ease;
+}
+.profile-dashboard-wrapper button.bg-transparent.text-white {
+  color: #1C1B19 !important;
+  border-color: rgba(28, 27, 25, 0.2) !important;
+}
+.profile-dashboard-wrapper button.bg-transparent.text-white:hover {
+  border-color: #C5A880 !important;
+  color: #C5A880 !important;
 }
 
 @import "tw-animate-css";

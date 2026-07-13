@@ -4035,9 +4035,11 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     const attr = meta.isProperty ? 'property' : 'name';
     
     // Resilient non-greedy case-insensitive regex supporting both single and double quotes
+    // Note: We do NOT use the global flag 'g' here because calling regex.test() with 'g'
+    // updates the regex's lastIndex, causing the subsequent .replace() to miss or fail.
     const regex = new RegExp(
       `<meta\\s+[^>]*?${attr}=['"]${meta.property}['"][^>]*?content=['"].*?['"][^>]*?\\/?>|<meta\\s+[^>]*?content=['"].*?['"][^>]*?${attr}=['"]${meta.property}['"][^>]*?\\/?>`,
-      'gi'
+      'i'
     );
     
     const newTag = `<meta ${attr}="${meta.property}" content="${meta.content}" />`;
