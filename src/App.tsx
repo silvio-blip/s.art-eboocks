@@ -3886,7 +3886,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.5 }}
-              className="w-full min-h-screen"
+              className={`admin-dashboard-wrapper theme-${siteTheme.active} w-full min-h-screen dark text-white`}
             >
               <AdminDashboard
                 user={user}
@@ -4773,7 +4773,7 @@ export default function App() {
           ))}
 
           {view === "dashboard" && user && (
-            <div className="profile-dashboard-wrapper w-full min-h-screen">
+            <div className="profile-dashboard-wrapper w-full min-h-screen dark bg-luxury-bg text-white">
               <ProfileDashboard
                 user={user}
                 purchasedProducts={purchasedProducts}

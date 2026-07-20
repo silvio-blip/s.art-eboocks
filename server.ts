@@ -161,6 +161,26 @@ const initDB = async () => {
         ` });
       } catch(e) { console.error('[INIT] Error ensuring tables/RLS:', e); }
 
+      // Ensure api_keys table for API integrations
+      try {
+        await supabase.rpc('exec_sql', { sql: `
+          CREATE TABLE IF NOT EXISTS api_keys (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            created_by UUID,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+          ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+          DROP POLICY IF EXISTS "Allow admins to manage api_keys" ON api_keys;
+          CREATE POLICY "Allow admins to manage api_keys" ON api_keys FOR ALL USING (public.is_admin() OR public.is_employee());
+          
+          -- Also enable public read but we check token in application logic
+          DROP POLICY IF EXISTS "Allow public select on api_keys" ON api_keys;
+          CREATE POLICY "Allow public select on api_keys" ON api_keys FOR SELECT USING (true);
+        ` });
+      } catch(e) { console.error('[INIT] Error ensuring api_keys table:', e); }
+
       // Update Products RLS
       try {
         await supabase.rpc('exec_sql', { sql: `
@@ -4380,6 +4400,226 @@ async function callAliExpressAPIInternal(method: string, params: any) {
         throw error;
     }
 }
+
+// ==========================================
+// --- API KEYS & V1 API ENDPOINTS ---
+// ==========================================
+
+// Get all API keys (Admin only, handles validation via adminRouter middleware)
+adminRouter.get('/api-keys', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('api_keys')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err: any) {
+    console.error('[ADMIN GET API KEYS ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create a new API key (Admin only)
+adminRouter.post('/api-keys', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'O nome da chave de API é obrigatório.' });
+    }
+
+    const token = `s_art_${crypto.randomBytes(24).toString('hex')}`;
+    const userId = req.headers['x-user-id'] || req.headers['user-id'] || req.body.userId || req.query.userId;
+
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('api_keys')
+      .insert([{ name, token, created_by: userId }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err: any) {
+    console.error('[ADMIN CREATE API KEY ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete an API key (Admin only)
+adminRouter.delete('/api-keys/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+    const { error } = await supabase
+      .from('api_keys')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ success: true, message: 'Chave de API eliminada com sucesso.' });
+  } catch (err: any) {
+    console.error('[ADMIN DELETE API KEY ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Middleware to validate API key for public endpoints
+const validateApiKey = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  let token = req.query.key || req.query.api_key || req.query.token;
+
+  if (!token) {
+    const authHeader = req.headers['authorization'];
+    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+  }
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Chave de API em falta. Forneça o token via cabeçalho "Authorization: Bearer <token>" ou query parameter "?key=<token>"'
+    });
+  }
+
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('api_keys')
+      .select('id, name')
+      .eq('token', token)
+      .maybeSingle();
+
+    if (error || !data) {
+      return res.status(401).json({ error: 'Chave de API inválida ou expirada.' });
+    }
+
+    (req as any).apiKeyInfo = data;
+    next();
+  } catch (err: any) {
+    console.error('[API KEY VALIDATION ERROR]', err);
+    res.status(500).json({ error: 'Erro interno ao validar chave de API.' });
+  }
+};
+
+const getProductStock = (product: any): number => {
+  let stock = 0;
+  if (product.metadata && Array.isArray(product.metadata.variations)) {
+    stock = product.metadata.variations.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
+  } else if (product.metadata && typeof product.metadata.stock === 'number') {
+    stock = product.metadata.stock;
+  }
+  return stock > 0 ? stock : 99; // Fallback to 99 if no stock specified
+};
+
+const v1Router = express.Router();
+v1Router.use(validateApiKey);
+
+// Get all products data, including IDs, names, prices, stocks, and images
+v1Router.get('/products', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const mapped = (data || []).map(p => ({
+      id: p.id,
+      name: p.title,
+      title: p.title,
+      price: typeof p.price === 'string' ? parseFloat(p.price) : p.price,
+      stock: getProductStock(p),
+      image_url: p.image_url,
+      extra_images: p.extra_images ? p.extra_images.split(',').map((img: string) => img.trim()).filter(Boolean) : [],
+      category: p.category,
+      product_type: p.product_type,
+      is_active: p.is_active,
+      description: p.description
+    }));
+
+    res.json(mapped);
+  } catch (err: any) {
+    console.error('[v1 API PRODUCTS ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get a specific product data
+v1Router.get('/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+    const { data: p, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!p) return res.status(404).json({ error: 'Produto não encontrado.' });
+
+    const mapped = {
+      id: p.id,
+      name: p.title,
+      title: p.title,
+      price: typeof p.price === 'string' ? parseFloat(p.price) : p.price,
+      stock: getProductStock(p),
+      image_url: p.image_url,
+      extra_images: p.extra_images ? p.extra_images.split(',').map((img: string) => img.trim()).filter(Boolean) : [],
+      category: p.category,
+      product_type: p.product_type,
+      is_active: p.is_active,
+      description: p.description
+    };
+
+    res.json(mapped);
+  } catch (err: any) {
+    console.error('[v1 API SINGLE PRODUCT ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve product image directly or return image info
+v1Router.get('/products/:id/image', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supabase = getSupabase();
+    const { data: p, error } = await supabase
+      .from('products')
+      .select('image_url, extra_images')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!p) return res.status(404).json({ error: 'Produto não encontrado.' });
+
+    const images = {
+      image_url: p.image_url,
+      extra_images: p.extra_images ? p.extra_images.split(',').map((img: string) => img.trim()).filter(Boolean) : []
+    };
+
+    const isJson = req.query.json === 'true' || (req.headers['accept'] && req.headers['accept'].includes('application/json'));
+    if (isJson) {
+      return res.json(images);
+    }
+
+    if (!p.image_url) {
+      return res.status(404).json({ error: 'O produto não possui imagem principal cadastrada.' });
+    }
+
+    // Redirect to the actual image URL
+    res.redirect(p.image_url);
+  } catch (err: any) {
+    console.error('[v1 API PRODUCT IMAGE ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.use('/api/v1', v1Router);
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   const PORT = 3000;

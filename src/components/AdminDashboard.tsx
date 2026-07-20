@@ -41,6 +41,9 @@ import {
   Settings,
   Zap,
   Crown,
+  Key,
+  Terminal,
+  Copy,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -163,7 +166,7 @@ export default function AdminDashboard({
     return formatPrice ? formatPrice(rounded) : `€${rounded.toFixed(2)}`;
   };
   const roundValue = (v: number) => Math.round(v * 100) / 100;
-  const theme: string = "light";
+  const theme: string = "dark";
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<Profile[]>([]);
@@ -174,19 +177,157 @@ export default function AdminDashboard({
       setLocalTheme(siteTheme.active);
     }
   }, [siteTheme]);
+
+  // Cleanup/Stop any active speech synthesis (audio chat reader) and hide floating chat/audio widgets
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      const selectors = [
+        "#cyberextract-floating-button-container",
+        "[id*='chat']",
+        "[class*='chat']",
+        "[id*='whatsapp']",
+        "[class*='whatsapp']",
+        "[id*='audio']",
+        "[class*='audio']",
+        "#jivo-iframe-container",
+        "#smartsupp-widget",
+        ".widget-visible"
+      ];
+      
+      const hiddenElements: { el: HTMLElement; originalDisplay: string }[] = [];
+      
+      selectors.forEach(sel => {
+        document.querySelectorAll<HTMLElement>(sel).forEach(el => {
+          hiddenElements.push({ el, originalDisplay: el.style.display });
+          el.style.display = "none";
+        });
+      });
+
+      return () => {
+        hiddenElements.forEach(({ el, originalDisplay }) => {
+          if (el) el.style.display = originalDisplay;
+        });
+      };
+    }
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(
     null,
   );
   const [currentUserProfile, setCurrentUserProfile] = useState<Profile | null>(null);
-  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons" | "pontuação">(
+  const [tab, setTab] = useState<"overview" | "products" | "orders" | "users" | "refunds" | "coupons" | "pontuação" | "api">(
     "overview",
   );
+
+  // API Integration States & Handlers
+  const [apiKeys, setApiKeys] = useState<{ id: string; name: string; token: string; created_at: string }[]>([]);
+  const [apiLang, setApiLang] = useState<"js" | "py" | "php" | "go" | "curl">("js");
+  const [newKeyName, setNewKeyName] = useState("");
+  const [loadingApiKeys, setLoadingApiKeys] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+  const [visibleKeyIds, setVisibleKeyIds] = useState<Record<string, boolean>>({});
+
+  const fetchApiKeys = async () => {
+    setLoadingApiKeys(true);
+    try {
+      const res = await fetch("/api/admin/api-keys", {
+        headers: { "x-user-id": user.id }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApiKeys(data);
+      } else {
+        toast.error("Erro ao buscar chaves de API.");
+      }
+    } catch (err) {
+      console.error("Fetch API keys error:", err);
+      toast.error("Erro ao carregar chaves de API.");
+    } finally {
+      setLoadingApiKeys(false);
+    }
+  };
+
+  const handleGenerateApiKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKeyName.trim()) {
+      toast.error("Por favor, introduza um nome para a chave.");
+      return;
+    }
+    setGeneratingKey(true);
+    try {
+      const res = await fetch("/api/admin/api-keys", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user.id
+        },
+        body: JSON.stringify({ name: newKeyName })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApiKeys([data, ...apiKeys]);
+        setNewKeyName("");
+        toast.success("Chave de API gerada com sucesso!");
+      } else {
+        const errData = await res.json();
+        toast.error(errData.error || "Erro ao gerar chave de API.");
+      }
+    } catch (err) {
+      console.error("Generate API key error:", err);
+      toast.error("Erro de rede ao gerar chave.");
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
+
+  const handleDeleteApiKey = async (id: string) => {
+    if (!window.confirm("Tem a certeza que deseja eliminar esta chave de API? Todas as aplicações que a utilizam perderão o acesso.")) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/api-keys/${id}`, {
+        method: "DELETE",
+        headers: { "x-user-id": user.id }
+      });
+      if (res.ok) {
+        setApiKeys(apiKeys.filter(k => k.id !== id));
+        toast.success("Chave de API eliminada!");
+      } else {
+        toast.error("Erro ao eliminar chave.");
+      }
+    } catch (err) {
+      console.error("Delete API key error:", err);
+      toast.error("Erro de rede ao eliminar chave.");
+    }
+  };
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKeyId(id);
+    toast.success("Chave de API copiada!");
+    setTimeout(() => setCopiedKeyId(null), 2000);
+  };
+
+  const toggleKeyVisibility = (id: string) => {
+    setVisibleKeyIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  useEffect(() => {
+    if (tab === "api" && currentUserProfile?.is_admin) {
+      fetchApiKeys();
+    }
+  }, [tab, currentUserProfile]);
 
   const availableTabs = useMemo(() => {
     if (!currentUserProfile) return ["overview"];
     if (currentUserProfile.is_admin) {
-      return ["overview", "products", "orders", "refunds", "users", "coupons", "pontuação"];
+      return ["overview", "products", "orders", "refunds", "users", "coupons", "pontuação", "api"];
     }
     if (currentUserProfile.is_employee) {
       // Employees ONLY see Products and Pontuação (Ranking)
@@ -1560,9 +1701,9 @@ export default function AdminDashboard({
   }
 
   return (
-    <div className={`min-h-screen font-sans selection:bg-luxury-gold selection:text-black ${
+    <div className={`admin-dashboard-wrapper theme-${localTheme} min-h-screen font-sans selection:bg-luxury-gold selection:text-black dark ${
       theme === "dark" 
-        ? "bg-black text-white" 
+        ? "bg-luxury-bg text-white" 
         : "bg-white text-black"
     }`}>
       {/* Admin Sidebar/Toprail */}
@@ -1591,7 +1732,7 @@ export default function AdminDashboard({
                 className={`px-4 md:px-6 py-2 rounded-full text-[9px] md:text-[10px] uppercase tracking-[0.2em] transition-all duration-500 relative overflow-hidden group ${
                   tab === t
                     ? "bg-luxury-gold text-black font-semibold shadow-[0_10px_20px_rgba(212,175,55,0.2)]"
-                    : theme === 'dark' ? "text-white/40 hover:text-white hover:bg-white/5" : "text-black/40 hover:text-black hover:bg-black/5"
+                    : theme === 'dark' ? "text-white/90 hover:text-white hover:bg-white/5" : "text-black/40 hover:text-black hover:bg-black/5"
                 }`}
               >
                 <div className="relative z-10 flex items-center gap-2">
@@ -1608,9 +1749,11 @@ export default function AdminDashboard({
                             ? "Cupons"
                             : t === "pontuação"
                             ? "Pontuação"
+                            : t === "api"
+                            ? "Integração API"
                             : "Utilizadores"}
                   </span>
-                  {t === "refunds" && <Undo2 size={12} className={theme === 'dark' ? "text-white/20" : "text-black/20"} />}
+                  {t === "refunds" && <Undo2 size={12} className={theme === 'dark' ? "text-white/70" : "text-black/20"} />}
                   {t === "refunds" && orders.filter(o => o.status === 'refund_requested').length > 0 && (
                     <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
                   )}
@@ -1642,7 +1785,7 @@ export default function AdminDashboard({
                   variant="outline"
                   size="sm"
                   onClick={() => setIsSiteSettingsOpen(true)}
-                  className="border-white/10 text-white/50 hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5 lg:hidden"
+                  className="border-white/10 text-white hover:text-luxury-gold hover:border-luxury-gold/50 h-8 w-8 p-0 flex items-center justify-center transition-all bg-white/5 lg:hidden"
                   title="Configurações do Site"
                 >
                   <Settings size={14} />
@@ -1669,7 +1812,7 @@ export default function AdminDashboard({
               className={`flex-1 py-4 text-[9px] uppercase tracking-widest border-b-2 transition-all ${
                 tab === t
                   ? "border-luxury-gold text-luxury-gold bg-luxury-gold/5 font-bold"
-                  : theme === 'dark' ? "border-transparent text-white/40" : "border-transparent text-black/40"
+                  : theme === 'dark' ? "border-transparent text-white/90" : "border-transparent text-black/40"
               }`}
             >
               {t === "overview"
@@ -1682,6 +1825,8 @@ export default function AdminDashboard({
                         ? "Reembolsos"
                         : t === "coupons"
                           ? "Cupons"
+                          : t === "api"
+                          ? "API"
                           : "Users"}
             </button>
           ))}
@@ -1706,7 +1851,7 @@ export default function AdminDashboard({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
               <Card id="stats-revenue" className="bg-luxury-dark border-black/5 dark:border-white/5 rounded-none p-6 md:p-8 hover:border-luxury-gold/30 transition-all duration-500 group">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-black/30 dark:text-white/30 group-hover:text-luxury-gold/50 transition-colors">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-black/30 dark:text-white/85 group-hover:text-luxury-gold transition-colors">
                     Vendas Brutas
                   </div>
                 </div>
@@ -1738,7 +1883,7 @@ export default function AdminDashboard({
 
               <Card id="stats-profit" className="bg-luxury-dark border-black/5 dark:border-white/5 rounded-none p-6 md:p-8 sm:col-span-1 hover:border-emerald-500/30 transition-all duration-500 group border-l-4 border-l-emerald-500/20">
                 <div className="p-0 pb-4">
-                  <div className="text-[10px] uppercase tracking-[0.2em] text-black/30 dark:text-white/30 group-hover:text-emerald-400/50 transition-colors">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-black/30 dark:text-white/85 group-hover:text-emerald-400/50 transition-colors">
                     Lucro Líquido
                   </div>
                 </div>
@@ -1766,7 +1911,7 @@ export default function AdminDashboard({
                     <Clock size={18} />
                   </div>
                 </div>
-                <div className="mt-4 text-[9px] uppercase tracking-widest text-black/30 dark:text-white/20">
+                <div className="mt-4 text-[9px] uppercase tracking-widest text-black/30 dark:text-white/70">
                   Aguardando confirmação no separador "Reembolsos"
                 </div>
               </Card>
@@ -1775,7 +1920,7 @@ export default function AdminDashboard({
             {/* Charts Section */}
             <div className="space-y-8">
               <div className="flex items-center justify-between">
-                <h3 className={`text-sm font-medium uppercase tracking-widest ${theme === 'dark' ? 'text-white/50' : 'text-black/50'}`}>
+                <h3 className={`text-sm font-medium uppercase tracking-widest ${theme === 'dark' ? 'text-white' : 'text-black/50'}`}>
                   Fluxo de Desempenho
                 </h3>
                 <div className={`flex rounded-none p-1 border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
@@ -1786,7 +1931,7 @@ export default function AdminDashboard({
                       className={`px-4 py-1.5 text-[8px] uppercase tracking-widest transition-all ${
                         timeRange === range
                           ? "bg-luxury-gold text-black font-bold"
-                          : theme === 'dark' ? "text-white/40 hover:text-white" : "text-black/40 hover:text-black"
+                          : theme === 'dark' ? "text-white/90 hover:text-white" : "text-black/40 hover:text-black"
                       }`}
                     >
                       {range === "weekly"
@@ -1801,7 +1946,7 @@ export default function AdminDashboard({
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                 <div className="space-y-6">
-                  <div className={`text-[10px] uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/30' : 'text-black/30'}`}>
+                  <div className={`text-[10px] uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/85' : 'text-black/30'}`}>
                     Faturamento por Período
                   </div>
                   <div className="h-[350px] w-full bg-luxury-dark/30 border border-black/5 dark:border-white/5 p-8 relative min-h-[350px] group">
@@ -1884,7 +2029,7 @@ export default function AdminDashboard({
                 </div>
 
                 <div className="space-y-6">
-                  <div className={`text-[10px] uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/30' : 'text-black/30'}`}>
+                  <div className={`text-[10px] uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/85' : 'text-black/30'}`}>
                     Volume de Transações
                   </div>
                   <div className="h-[350px] w-full bg-luxury-dark/30 border border-black/5 dark:border-white/5 p-8 relative min-h-[350px]">
@@ -1971,7 +2116,7 @@ export default function AdminDashboard({
             {/* Recent Orders Table */}
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h3 className="text-sm font-medium uppercase tracking-widest text-white/50">
+                <h3 className="text-sm font-medium uppercase tracking-widest text-white">
                   Últimas Transações
                 </h3>
                 <Button
@@ -1988,28 +2133,28 @@ export default function AdminDashboard({
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className={`border-b ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-black/5 border-black/5'}`}>
-                      <th id="th-orderid" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-orderid" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         ID Ordem
                       </th>
-                      <th id="th-product" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-product" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Produto
                       </th>
-                      <th id="th-client" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-client" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Cliente
                       </th>
-                      <th id="th-details" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-details" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Detalhes
                       </th>
-                      <th id="th-date" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-date" className={`px-6 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Data
                       </th>
-                      <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-value" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Valor
                       </th>
-                      <th id="th-status" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-status" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Status
                       </th>
-                      <th id="th-actions" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-black/30 border-black/5'}`}>
+                      <th id="th-actions" className={`px-8 py-6 font-normal text-[10px] uppercase tracking-[0.2em] border-b hover:text-luxury-gold transition-colors duration-300 ${theme === 'dark' ? 'text-white/85 border-white/5' : 'text-black/30 border-black/5'}`}>
                         Ação
                       </th>
                     </tr>
@@ -2020,7 +2165,7 @@ export default function AdminDashboard({
                         key={order.id}
                         className={`${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'} transition-colors`}
                       >
-                        <td className="px-6 py-4 font-mono text-[10px] opacity-50">
+                        <td className="px-6 py-4 font-mono text-[10px] opacity-95">
                           SART-{order.id.split('-')[0].toUpperCase()}
                         </td>
                         <td className="px-6 py-4 font-serif">
@@ -2029,7 +2174,7 @@ export default function AdminDashboard({
                         <td className="px-6 py-4 opacity-60">
                           {order.customer_email}
                         </td>
-                        <td className="px-6 py-4 opacity-40">
+                        <td className="px-6 py-4 opacity-95">
                           <Button 
                             variant="ghost" 
                             onClick={() => setViewingOrder(order)}
@@ -2038,7 +2183,7 @@ export default function AdminDashboard({
                             Ver Detalhes
                           </Button>
                         </td>
-                        <td className="px-6 py-4 opacity-40">
+                        <td className="px-6 py-4 opacity-95">
                           {new Date(order.created_at).toLocaleDateString()}
                         </td>
 
@@ -2127,7 +2272,7 @@ export default function AdminDashboard({
                 <h2 className="text-2xl md:text-3xl font-serif">
                   Gestão de Portfólio Digital
                 </h2>
-                <div className="text-[10px] uppercase tracking-widest opacity-30 mt-2">
+                <div className="text-[10px] uppercase tracking-widest opacity-80 mt-2">
                   Adicione ou edite e-books exclusivos
                 </div>
               </div>
@@ -2142,7 +2287,7 @@ export default function AdminDashboard({
             {/* Search and Category Management */}
             <div className="flex flex-col md:flex-row gap-4 items-center">
               <div className="relative flex-1 w-full">
-                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20" />
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70" />
                 <input
                   type="text"
                   placeholder="Pesquisar por nome ou categoria..."
@@ -2178,7 +2323,7 @@ export default function AdminDashboard({
                   variant="outline"
                   onClick={handleResyncCategories}
                   title="Sincronizar categorias a partir da lista de produtos"
-                  className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 hover:border-white text-white/40 text-[10px] uppercase tracking-widest h-12 w-12 p-0 flex items-center justify-center transition-all"
+                  className="bg-black/5 dark:bg-white/5 border-black/10 dark:border-white/10 hover:border-white text-white/90 text-[10px] uppercase tracking-widest h-12 w-12 p-0 flex items-center justify-center transition-all"
                 >
                   <RefreshCcw size={14} />
                 </Button>
@@ -2191,7 +2336,7 @@ export default function AdminDashboard({
                       className={`px-4 py-1.5 h-full text-[8px] uppercase tracking-widest transition-all ${
                         productFeaturedFilter === mode
                           ? "bg-luxury-gold text-black font-bold shadow-lg"
-                          : "text-white/40 hover:text-white"
+                          : "text-white/90 hover:text-white"
                       }`}
                     >
                       {mode === "all" ? "Todos" : mode === "featured" ? "Destaques" : "Loja Base"}
@@ -2214,7 +2359,7 @@ export default function AdminDashboard({
                       }}
                       className="p-2 hover:bg-white/5 transition-colors absolute top-4 right-4 md:relative md:top-0 md:right-0"
                     >
-                      <X size={20} className="text-white/40 hover:text-white transition-colors" />
+                      <X size={20} className="text-white/90 hover:text-white transition-colors" />
                     </button>
                   </div>
                   
@@ -2235,7 +2380,7 @@ export default function AdminDashboard({
                   </div>
                   
                   <div className="space-y-6 pt-6">
-                    <label className="text-[10px] uppercase tracking-[0.4em] text-white/30 font-bold block">Categorias Ativas</label>
+                    <label className="text-[10px] uppercase tracking-[0.4em] text-white/85 font-bold block">Categorias Ativas</label>
                     <div className="max-h-[300px] md:max-h-[400px] overflow-y-auto space-y-3 pr-2 luxury-scrollbar">
                       {categories.map((cat) => (
                         <div key={cat.id} className="flex justify-between items-center bg-white/[0.02] p-4 group border border-white/5 hover:border-luxury-gold/40 transition-all duration-500">
@@ -2313,7 +2458,7 @@ export default function AdminDashboard({
                       <Trash2 size={32} className="text-red-500" />
                     </div>
                     <h4 className="text-2xl md:text-3xl font-serif text-white mb-4 italic">Confirmar Exclusão?</h4>
-                    <p className="text-[10px] md:text-[11px] uppercase tracking-[0.25em] text-white/40 mb-8 md:mb-10 max-w-sm leading-loose">
+                    <p className="text-[10px] md:text-[11px] uppercase tracking-[0.25em] text-white/90 mb-8 md:mb-10 max-w-sm leading-loose">
                       Tem a certeza absoluta que deseja eliminar a categoria <span className="text-luxury-gold font-black">"{categoryToDelete.name}"</span>?<br/>
                       <span className="text-red-500/50 mt-2 block">Produtos associados serão mantidos, mas a categoria será removida.</span>
                     </p>
@@ -2351,7 +2496,7 @@ export default function AdminDashboard({
                     </div>
                     <div>
                       <h3 className="text-lg font-serif text-white italic">International AliExpress Sync</h3>
-                      <p className="text-[10px] uppercase tracking-widest text-luxury-gold/60 font-bold">Importação via Link ou ID</p>
+                      <p className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Importação via Link ou ID</p>
                     </div>
                   </div>
                   <p className="text-xs text-zinc-500 leading-relaxed">
@@ -2395,9 +2540,9 @@ export default function AdminDashboard({
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="text-3xl font-serif text-white italic">Novo Produto</h3>
-                        <p className="text-[10px] uppercase tracking-[0.3em] text-white/30 font-medium mt-2">Selecione a origem logística para criação manual</p>
+                        <p className="text-[10px] uppercase tracking-[0.3em] text-white/85 font-medium mt-2">Selecione a origem logística para criação manual</p>
                       </div>
-                      <button onClick={() => setIsProductCreateModalOpen(false)} className="text-white/20 hover:text-white transition-colors">
+                      <button onClick={() => setIsProductCreateModalOpen(false)} className="text-white/70 hover:text-white transition-colors">
                         <X size={24} />
                       </button>
                     </div>
@@ -2410,10 +2555,10 @@ export default function AdminDashboard({
                       </div>
 
                       <div className="space-y-4">
-                        <p className="text-[10px] uppercase tracking-widest text-white/40 font-bold ml-1">Sincronização Automática (Recomendado)</p>
+                        <p className="text-[10px] uppercase tracking-widest text-white/90 font-bold ml-1">Sincronização Automática (Recomendado)</p>
                         <div className="flex flex-col md:flex-row gap-3">
                            <div className="relative flex-1">
-                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
+                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/70" />
                              <input
                               type="text"
                               placeholder="Link ou ID Internacional..."
@@ -2448,7 +2593,7 @@ export default function AdminDashboard({
                       </div>
 
                       <div className="relative h-px bg-white/5 flex items-center justify-center">
-                        <span className="bg-black px-4 text-[9px] uppercase tracking-[0.3em] text-white/20 font-bold">Ou Criar Manualmente</span>
+                        <span className="bg-black px-4 text-[9px] uppercase tracking-[0.3em] text-white/70 font-bold">Ou Criar Manualmente</span>
                       </div>
 
                       <div className="max-h-[50vh] overflow-y-auto luxury-scrollbar pr-2 pt-2">
@@ -2471,8 +2616,8 @@ export default function AdminDashboard({
               {filteredProducts.length === 0 ? (
                 <div className="col-span-full py-20 text-center border border-dashed border-white/10">
                   <ShoppingBag className="mx-auto text-white/10 mb-4" size={48} />
-                  <p className="text-white/40 text-sm italic">Nenhum produto encontrado.</p>
-                  <p className="text-white/20 text-[10px] uppercase tracking-widest mt-2">
+                  <p className="text-white/90 text-sm italic">Nenhum produto encontrado.</p>
+                  <p className="text-white/70 text-[10px] uppercase tracking-widest mt-2">
                     Ajuste os filtros.
                   </p>
                 </div>
@@ -2532,7 +2677,7 @@ export default function AdminDashboard({
                         <div className="text-luxury-gold text-xs font-bold">{renderPrice(Number(p.pvp || 0))}</div>
                         <div className="flex items-center gap-1">
                           {p.metadata?.base_price && (
-                            <span className="text-[7px] text-white/20 uppercase font-medium">
+                            <span className="text-[7px] text-white/70 uppercase font-medium">
                               Base: {renderPrice(Number(p.metadata.base_price))}
                             </span>
                           )}
@@ -2541,7 +2686,7 @@ export default function AdminDashboard({
                               href={p.admin_link}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-[8px] text-white/30 hover:text-luxury-gold uppercase tracking-widest flex items-center gap-1"
+                              className="text-[8px] text-white/85 hover:text-luxury-gold uppercase tracking-widest flex items-center gap-1"
                             >
                               <ExternalLink size={8} /> Gestão
                             </a>
@@ -2558,7 +2703,7 @@ export default function AdminDashboard({
                           Envio Grátis
                         </div>
                       ) : (
-                        <div className="text-[7px] text-white/20 uppercase font-medium mt-1 tracking-widest">
+                        <div className="text-[7px] text-white/70 uppercase font-medium mt-1 tracking-widest">
                           +{renderPrice(1.15)} Envio
                         </div>
                       )}
@@ -2579,7 +2724,7 @@ export default function AdminDashboard({
                     </h3>
                     <button
                       onClick={() => setEditingProduct(null)}
-                      className="text-white/30 hover:text-white p-2"
+                      className="text-white/85 hover:text-white p-2"
                     >
                       <XCircle size={24} />
                     </button>
@@ -2592,7 +2737,7 @@ export default function AdminDashboard({
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12">
                     <div className="space-y-4 md:space-y-6">
                       <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                           Nome do Produto
                         </label>
                         <input
@@ -2609,7 +2754,7 @@ export default function AdminDashboard({
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                           Fornecedor ID: International Code
                         </label>
                         <input
@@ -2625,7 +2770,7 @@ export default function AdminDashboard({
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                           Referência Logística (SKU)
                         </label>
                         <input
@@ -2641,7 +2786,7 @@ export default function AdminDashboard({
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                           Fornecedor Ativo (Provider)
                         </label>
                         <select 
@@ -2657,11 +2802,11 @@ export default function AdminDashboard({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                               Preço de Venda
                             </label>
                             {editingProduct.metadata?.base_price && (
-                              <span className="text-[8px] text-white/40 uppercase font-bold">
+                              <span className="text-[8px] text-white/90 uppercase font-bold">
                                 Fornecedor: {renderPrice(Number(editingProduct.metadata.base_price))}
                               </span>
                             )}
@@ -2690,7 +2835,7 @@ export default function AdminDashboard({
 
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                               Margem Global
                             </label>
                             <div className="flex items-center gap-2">
@@ -2741,13 +2886,13 @@ export default function AdminDashboard({
                             className="w-full bg-transparent border-b border-white/10 py-2 md:py-4 text-lg md:text-xl outline-none focus:border-orange-500 transition-colors font-mono text-orange-500"
                             placeholder="Valor a somar ao preço base"
                           />
-                          <p className="text-[8px] text-white/20 uppercase tracking-widest leading-relaxed">
+                          <p className="text-[8px] text-white/70 uppercase tracking-widest leading-relaxed">
                             Este valor será somado ao preço original de importação durante a sincronização automática.
                           </p>
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                           Categoria
                         </label>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-4 bg-black/40 border border-white/5 max-h-48 overflow-y-auto luxury-scrollbar">
@@ -2758,7 +2903,7 @@ export default function AdminDashboard({
                               className={`px-3 py-2 text-[10px] uppercase tracking-widest border transition-all ${
                                 editingProduct.category === cat
                                   ? "border-luxury-gold bg-luxury-gold/20 text-luxury-gold font-bold shadow-[0_0_15px_rgba(212,175,55,0.2)]"
-                                  : "border-white/5 text-white/30 hover:border-white/20 hover:text-white"
+                                  : "border-white/5 text-white/85 hover:border-white/20 hover:text-white"
                               }`}
                             >
                               {cat}
@@ -2767,7 +2912,7 @@ export default function AdminDashboard({
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40">
+                        <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90">
                           Manifesto / Descrição
                         </label>
                         <textarea
@@ -2788,7 +2933,7 @@ export default function AdminDashboard({
                           <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
                             Disponível para Compra?
                           </label>
-                          <p className="text-[8px] text-white/40 uppercase tracking-widest">
+                          <p className="text-[8px] text-white/90 uppercase tracking-widest">
                             Se inativo, será exibido como Esgotado ou oculto.
                           </p>
                         </div>
@@ -2805,7 +2950,7 @@ export default function AdminDashboard({
                           <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
                             Produto em Destaque?
                           </label>
-                          <p className="text-[8px] text-white/40 uppercase tracking-widest">
+                          <p className="text-[8px] text-white/90 uppercase tracking-widest">
                             Aparecerá na seção VIP do topo da loja.
                           </p>
                         </div>
@@ -2822,7 +2967,7 @@ export default function AdminDashboard({
                           <label className="text-[10px] uppercase tracking-widest text-white block mb-1">
                             Envio Grátis?
                           </label>
-                          <p className="text-[8px] text-white/40 uppercase tracking-widest">
+                          <p className="text-[8px] text-white/90 uppercase tracking-widest">
                             Se ativo, o cliente não pagará a taxa de {renderPrice(1.15)}.
                           </p>
                         </div>
@@ -2846,7 +2991,7 @@ export default function AdminDashboard({
                               disabled={aiOrganizing}
                               className={`text-[9px] uppercase tracking-wider font-bold py-1.5 px-3 border border-luxury-gold/50 rounded-sm transition-all focus:outline-none flex items-center justify-center gap-1.5 ${
                                 aiOrganizing 
-                                  ? "bg-white/5 text-white/40 border-white/10 cursor-not-allowed" 
+                                  ? "bg-white/5 text-white/90 border-white/10 cursor-not-allowed" 
                                   : "text-luxury-gold hover:bg-luxury-gold hover:text-black hover:border-luxury-gold"
                               }`}
                             >
@@ -2888,7 +3033,7 @@ export default function AdminDashboard({
                                 </button>
                               </div>
                               <div className="space-y-1 ml-2">
-                                <label className="text-[8px] uppercase text-white/30 tracking-widest pl-1">
+                                <label className="text-[8px] uppercase text-white/85 tracking-widest pl-1">
                                   Lista de Tamanhos {editingProduct.sizes_enabled ? "(Ativa na Loja)" : "(Inativa na Loja)"}
                                 </label>
                                 <input
@@ -2926,7 +3071,7 @@ export default function AdminDashboard({
                                 </button>
                               </div>
                               <div className="space-y-1 ml-2">
-                                <label className="text-[8px] uppercase text-white/30 tracking-widest pl-1">
+                                <label className="text-[8px] uppercase text-white/85 tracking-widest pl-1">
                                   Opções de Cores {editingProduct.colors_enabled ? "(Ativas na Loja)" : "(Inativas na Loja)"}
                                 </label>
                                 <input
@@ -2945,7 +3090,7 @@ export default function AdminDashboard({
                           </div>
 
                           <div className="space-y-3 pt-2">
-                             <label className="text-[9px] uppercase tracking-widest text-white/40 block">
+                             <label className="text-[9px] uppercase tracking-widest text-white/90 block">
                                Link de Gestão Externa (Shopify/Externo/etc)
                              </label>
                              <div className="relative group">
@@ -2962,13 +3107,13 @@ export default function AdminDashboard({
                                />
                                <ExternalLink
                                  size={12}
-                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold"
+                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-white/70 group-focus-within:text-luxury-gold"
                                />
                              </div>
                            </div>
 
                            <div className="space-y-3">
-                             <label className="text-[9px] uppercase tracking-widest text-white/40 block">
+                             <label className="text-[9px] uppercase tracking-widest text-white/90 block">
                                Imagens Adicionais (Galeria)
                              </label>
                              <textarea
@@ -3003,7 +3148,7 @@ export default function AdminDashboard({
                     <div className="space-y-6 md:space-y-8">
                        <div className="grid grid-cols-1 gap-6">
                          <div className="space-y-3">
-                           <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/40 block">
+                           <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-white/90 block">
                              Foto Principal (Capa)
                            </label>
                            <label
@@ -3017,7 +3162,7 @@ export default function AdminDashboard({
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center text-white/20">
+                              <div className="absolute inset-0 flex flex-col items-center justify-center text-white/70">
                                 <Upload size={24} strokeWidth={1} />
                                 <span className="text-[7px] md:text-[8px] uppercase mt-2">
                                   Upload Capa
@@ -3056,7 +3201,7 @@ export default function AdminDashboard({
 
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <label className="text-[9px] uppercase tracking-widest text-white/40">
+                          <label className="text-[9px] uppercase tracking-widest text-white/90">
                             Link Privado de Gestão (Apenas Admin)
                           </label>
                           <input
@@ -3100,7 +3245,7 @@ export default function AdminDashboard({
               <h2 className="text-3xl font-serif">
                 Gestão de Pedidos e Solicitações
               </h2>
-              <p className="text-[10px] uppercase tracking-widest text-white/30 mt-2">
+              <p className="text-[10px] uppercase tracking-widest text-white/85 mt-2">
                 Relatório completo de aquisições digitais e envios físicos
               </p>
             </div>
@@ -3146,28 +3291,28 @@ export default function AdminDashboard({
               <table className="w-full text-left text-sm min-w-[1200px]">
                 <thead>
                   <tr className="bg-white/5 border-b border-white/5">
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       ID da Ordem
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Produto Adquirido
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Email do Cliente
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Detalhes
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Data de Venda
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Total
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Progresso Logístico
                     </th>
-                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/30">
+                    <th className="px-8 py-6 font-normal text-[10px] uppercase tracking-widest text-white/85">
                       Pagamento
                     </th>
                   </tr>
@@ -3178,7 +3323,7 @@ export default function AdminDashboard({
                       key={order.id}
                       className="hover:bg-white/5 transition-colors"
                     >
-                      <td className="px-8 py-6 font-mono text-[10px] text-white/40">
+                      <td className="px-8 py-6 font-mono text-[10px] text-white/90">
                         SART-{order.id.split('-')[0].toUpperCase()}
                       </td>
                       <td className="px-8 py-6">
@@ -3208,7 +3353,7 @@ export default function AdminDashboard({
                                 `Cor: ${order.selected_options.color}`}
                             </div>
                           )}
-                        <div className="text-[9px] uppercase tracking-widest text-white/20 mt-1 flex items-center gap-2 flex-wrap">
+                        <div className="text-[9px] uppercase tracking-widest text-white/70 mt-1 flex items-center gap-2 flex-wrap">
                           <span>Ref: {order.product_id?.slice(0, 8) || "N/A"}</span>
                           {order.provider_order_id && (
                             <>
@@ -3232,7 +3377,7 @@ export default function AdminDashboard({
                           Ver Detalhes
                         </Button>
                       </td>
-                      <td className="px-8 py-6 text-white/40">
+                      <td className="px-8 py-6 text-white/90">
                         {order.created_at ? format(new Date(order.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR }) : "-"}
                       </td>
 
@@ -3248,7 +3393,7 @@ export default function AdminDashboard({
                           <div className="flex flex-col gap-1">
                             <span className={`text-[10px] uppercase font-black ${
                               order.shipping_status === "delivered" ? "text-emerald-500" :
-                              order.status === "pending" ? "text-gray-500" :
+                              order.status === "pending" ? "text-gray-200" :
                               order.shipping_status === "sent" ? "text-blue-500" :
                               order.shipping_status === "incident" ? "text-orange-500" :
                               order.shipping_status === "lost" ? "text-red-700" :
@@ -3268,7 +3413,7 @@ export default function AdminDashboard({
                                ['canceled', 'cancelled'].includes(order.status?.toLowerCase() || '') ? 'Cancelado' : 
                                (order.shipping_status_metadata?.manual_update ? 'Processado Manual' : 'Em Processamento')}
                             </span>
-                            <span className="text-[8px] text-white/30 font-mono tracking-tighter">
+                            <span className="text-[8px] text-white/85 font-mono tracking-tighter">
                                {order.provider_order_id || (order.shipping_status_metadata?.manual_update ? 'MANUAL' : '')} 
                                {(order.shipping_status_metadata?.trackingNumber || order.shipping_tracking_code) && ` | ${order.shipping_status_metadata?.trackingNumber || order.shipping_tracking_code}`}
                             </span>
@@ -3343,7 +3488,7 @@ export default function AdminDashboard({
                             )}
                           </div>
                         ) : (
-                          <span className="text-white/20 text-[9px] uppercase tracking-widest font-bold">
+                          <span className="text-white/70 text-[9px] uppercase tracking-widest font-bold">
                             Aguardando Pagamento
                           </span>
                         )}
@@ -3407,7 +3552,7 @@ export default function AdminDashboard({
                                }}
                                variant="outline"
                                title="Sincronizar dados com Stripe (Apenas leitura)"
-                               className="border-white/10 text-white/40 hover:text-luxury-gold hover:bg-white/5 h-8 px-3 text-[8px] uppercase tracking-widest font-bold whitespace-nowrap"
+                               className="border-white/10 text-white/90 hover:text-luxury-gold hover:bg-white/5 h-8 px-3 text-[8px] uppercase tracking-widest font-bold whitespace-nowrap"
                              >
                                <RefreshCw size={10} className="mr-1" /> Sincronizar
                              </Button>
@@ -3434,7 +3579,7 @@ export default function AdminDashboard({
                     <tr>
                       <td
                         colSpan={8}
-                        className="px-8 py-12 text-center text-white/40 text-xs uppercase tracking-widest"
+                        className="px-8 py-12 text-center text-white/90 text-xs uppercase tracking-widest"
                       >
                         Nenhuma ordem encontrada para a pesquisa.
                       </td>
@@ -3463,21 +3608,21 @@ export default function AdminDashboard({
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-white tracking-tight">Confirmar Reembolso</h3>
-                    <p className="text-white/40 text-xs uppercase tracking-widest mt-1">Ação Irreversível</p>
+                    <p className="text-white/90 text-xs uppercase tracking-widest mt-1">Ação Irreversível</p>
                   </div>
                 </div>
 
                 <div className="bg-white/5 border border-white/5 p-4 mb-6 space-y-3">
                   <div className="flex justify-between text-xs">
-                    <span className="text-white/40 uppercase tracking-widest">Pedido</span>
+                    <span className="text-white/90 uppercase tracking-widest">Pedido</span>
                     <span className="text-white font-mono">Sart-{orderToRefund.id.split('-')[0].toUpperCase()}</span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-white/40 uppercase tracking-widest">Valor</span>
+                    <span className="text-white/90 uppercase tracking-widest">Valor</span>
                     <span className="text-white font-bold">{renderPrice(Number(orderToRefund.total_amount))}</span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-white/40 uppercase tracking-widest">Cliente</span>
+                    <span className="text-white/90 uppercase tracking-widest">Cliente</span>
                     <span className="text-white truncate max-w-[150px]">{orderToRefund.customer_email}</span>
                   </div>
                 </div>
@@ -3516,7 +3661,7 @@ export default function AdminDashboard({
                 <h2 className="text-3xl md:text-5xl font-serif text-white tracking-tight leading-none">
                   Gestão de <span className="text-red-500 italic">Reembolsos</span>
                 </h2>
-                <p className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
+                <p className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/85 mt-4 font-light max-w-xl leading-relaxed">
                   Controle as solicitações de devolução de membros. A aprovação administrativa inicia o processo de estorno seguro via Stripe.
                 </p>
               </div>
@@ -3525,7 +3670,7 @@ export default function AdminDashboard({
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
                     <thead>
-                      <tr className="border-b border-white/5 text-[10px] uppercase tracking-[0.3em] text-white/30 bg-white/[0.02]">
+                      <tr className="border-b border-white/5 text-[10px] uppercase tracking-[0.3em] text-white/85 bg-white/[0.02]">
                         <th className="px-8 py-8 font-normal">Ordem / Produto</th>
                         <th className="px-8 py-8 font-normal">Cliente</th>
                         <th className="px-8 py-8 font-normal">Data Solicitação</th>
@@ -3540,7 +3685,7 @@ export default function AdminDashboard({
                         o.payment_status === 'refunded'
                       ).length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-8 py-20 text-center text-white/20 text-xs uppercase tracking-[0.2em]">
+                          <td colSpan={6} className="px-8 py-20 text-center text-white/70 text-xs uppercase tracking-[0.2em]">
                             Nenhuma solicitação de reembolso ativa encontrada.
                           </td>
                         </tr>
@@ -3558,14 +3703,14 @@ export default function AdminDashboard({
                                   <div className="w-10 h-14 bg-white/5 flex-shrink-0">
                                     <img 
                                       src={getImageUrl(order.product?.image_url || '')} 
-                                      className="w-full h-full object-cover grayscale opacity-50 group-hover:grayscale-0 group-hover:opacity-100 transition-all" 
+                                      className="w-full h-full object-cover grayscale opacity-95 group-hover:grayscale-0 group-hover:opacity-100 transition-all" 
                                     />
                                   </div>
                                   <div>
                                     <div className="text-[11px] text-white/90 font-medium tracking-wide">
                                       {order.product?.title || 'Produto Indisponível'}
                                     </div>
-                                    <div className="text-[9px] text-white/30 mt-1 uppercase tracking-widest font-mono">
+                                    <div className="text-[9px] text-white/85 mt-1 uppercase tracking-widest font-mono">
                                       Sart-{order.id.split('-')[0].toUpperCase()}
                                     </div>
                                   </div>
@@ -3573,9 +3718,9 @@ export default function AdminDashboard({
                               </td>
                               <td className="px-8 py-6">
                                 <div className="text-[11px] text-white/70">{order.customer_email || 'Anonimizado'}</div>
-                                <div className="text-[9px] text-white/30 uppercase tracking-widest mt-1">Ref: {order.shipping_details?.fullName || 'N/A'}</div>
+                                <div className="text-[9px] text-white/85 uppercase tracking-widest mt-1">Ref: {order.shipping_details?.fullName || 'N/A'}</div>
                               </td>
-                              <td className="px-8 py-6 text-[10px] text-white/40 uppercase tracking-widest">
+                              <td className="px-8 py-6 text-[10px] text-white/90 uppercase tracking-widest">
                                 {order.selected_options?.refund_requested_at ? format(new Date(order.selected_options.refund_requested_at), "dd MMM yyyy", { locale: ptBR }) : 'N/A'}
                               </td>
                               <td className="px-8 py-6">
@@ -3593,7 +3738,7 @@ export default function AdminDashboard({
                                         ? 'bg-slate-500/10 text-slate-500 border border-slate-500/20'
                                         : (order.status?.toLowerCase() === 'refunded' || order.payment_status === 'refunded' || order.status === 'reembolsado')
                                           ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                                          : 'bg-white/5 text-white/40 border border-white/10'
+                                          : 'bg-white/5 text-white/90 border border-white/10'
                                 }`}>
                                   {order.status?.toLowerCase() === 'refund_requested' ? 'Em Análise' : 
                                    order.status?.toLowerCase() === 'refund_pending' ? 'Processando Estorno' : 
@@ -3635,7 +3780,7 @@ export default function AdminDashboard({
                                         }
                                       }}
                                       variant="outline"
-                                      className="border-white/10 text-white/40 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none transition-all"
+                                      className="border-white/10 text-white/90 hover:bg-white/5 text-[8px] uppercase tracking-widest h-8 px-3 rounded-none transition-all"
                                       title="Sincronizar com Stripe"
                                     >
                                       <RefreshCw size={10} className="mr-1 sync-icon" />
@@ -3706,7 +3851,7 @@ export default function AdminDashboard({
                                         <Loader2 size={10} className="animate-spin" />
                                         Processamento Gateway
                                       </div>
-                                      <div className="text-[7px] text-white/40 uppercase tracking-[0.1em] mt-1 text-right">
+                                      <div className="text-[7px] text-white/90 uppercase tracking-[0.1em] mt-1 text-right">
                                         Clique em Sincronizar se o estorno já foi concluído
                                       </div>
                                     </div>
@@ -3734,7 +3879,7 @@ export default function AdminDashboard({
               <h2 className="text-2xl md:text-3xl font-serif">
                 {currentUserProfile?.is_admin ? "Ranking & Pontuação Geral" : "Sua Pontuação & Histórico"}
               </h2>
-              <div className="text-[10px] uppercase tracking-widest opacity-30 mt-2">
+              <div className="text-[10px] uppercase tracking-widest opacity-80 mt-2">
                 {currentUserProfile?.is_admin 
                   ? "Monitorização detalhada do carregamento de produtos por cada colaborador"
                   : "Lista dos produtos que você carregou para a boutique"}
@@ -3750,7 +3895,7 @@ export default function AdminDashboard({
                     </div>
                     <div>
                       <h4 className="text-3xl font-serif text-luxury-gold">{products.length}</h4>
-                      <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Produtos Totais</p>
+                      <p className="text-[10px] uppercase tracking-widest text-white/85 mt-1">Produtos Totais</p>
                     </div>
                   </Card>
 
@@ -3760,7 +3905,7 @@ export default function AdminDashboard({
                     </div>
                     <div>
                       <h4 className="text-3xl font-serif text-white">{users.filter(u => u.is_employee).length}</h4>
-                      <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Funcionários Ativos</p>
+                      <p className="text-[10px] uppercase tracking-widest text-white/85 mt-1">Funcionários Ativos</p>
                     </div>
                   </Card>
 
@@ -3772,7 +3917,7 @@ export default function AdminDashboard({
                       <h4 className="text-3xl font-serif text-white">
                         {Math.round((products.length / (users.filter(u => u.is_employee || u.is_admin).length || 1)) * 10) / 10}
                       </h4>
-                      <p className="text-[10px] uppercase tracking-widest text-white/30 mt-1">Média por Colaborador</p>
+                      <p className="text-[10px] uppercase tracking-widest text-white/85 mt-1">Média por Colaborador</p>
                     </div>
                   </Card>
                 </>
@@ -3783,12 +3928,12 @@ export default function AdminDashboard({
                     <TrendingUp size={40} />
                   </div>
                   <div>
-                    <p className="text-[14px] uppercase tracking-[0.4em] text-white/40 mb-2">Seus Resultados</p>
+                    <p className="text-[14px] uppercase tracking-[0.4em] text-white/90 mb-2">Seus Resultados</p>
                     <h4 className="text-7xl font-serif text-luxury-gold">
                       {products.filter(p => p.created_by === user.id).length}
                     </h4>
                     <p className="text-[12px] uppercase tracking-widest text-white/80 mt-4 font-bold border-t border-white/10 pt-4 px-12">Produtos Listados por Você</p>
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/30 mt-2">Obrigado pela sua contribuição!</p>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/85 mt-2">Obrigado pela sua contribuição!</p>
                   </div>
                 </Card>
               )}
@@ -3798,18 +3943,18 @@ export default function AdminDashboard({
               <div className="bg-luxury-dark border border-white/5 overflow-hidden">
                 <div className="px-8 py-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
                   <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Ranking de Performance</h3>
-                  <span className="text-[9px] uppercase tracking-widest text-white/30">Total de produtos carregados</span>
+                  <span className="text-[9px] uppercase tracking-widest text-white/85">Total de produtos carregados</span>
                 </div>
                 {/* ... Ranking table only for admin ... */}
                 <div className="overflow-x-auto luxury-scrollbar">
                   <table className="w-full text-left min-w-[800px]">
                     <thead>
                       <tr className="border-b border-white/5 bg-black/20">
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Posição</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Utilizador</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-center">Produtos</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Cargo</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Ação</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Posição</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Utilizador</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85 text-center">Produtos</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Cargo</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Ação</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -3823,7 +3968,7 @@ export default function AdminDashboard({
                                 idx === 0 ? "bg-luxury-gold text-black font-black" : 
                                 idx === 1 ? "bg-zinc-300 text-black font-black" :
                                 idx === 2 ? "bg-amber-700 text-white font-black" :
-                                "bg-white/5 text-white/40"
+                                "bg-white/5 text-white/90"
                               }`}>
                                 {idx + 1}
                               </span>
@@ -3834,12 +3979,12 @@ export default function AdminDashboard({
                                   {u.avatar_url ? (
                                     <img src={getImageUrl(u.avatar_url || u.email)} className="w-full h-full object-cover" />
                                   ) : (
-                                    <span className="text-[10px] font-bold text-white/20">{u.full_name?.charAt(0) || u.email?.charAt(0)}</span>
+                                    <span className="text-[10px] font-bold text-white/70">{u.full_name?.charAt(0) || u.email?.charAt(0)}</span>
                                   )}
                                 </div>
                                 <div className="flex flex-col">
                                   <span className="text-xs font-serif text-white">{u.full_name || "Sem Nome"}</span>
-                                  <span className="text-[9px] text-white/20 uppercase tracking-widest">{u.email}</span>
+                                  <span className="text-[9px] text-white/70 uppercase tracking-widest">{u.email}</span>
                                 </div>
                               </div>
                             </td>
@@ -3863,7 +4008,7 @@ export default function AdminDashboard({
                                   setSelectedUserForProducts(u);
                                   setIsUserDetailsModalOpen(true);
                                 }}
-                                className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10 h-8 font-bold"
+                                className="text-[8px] uppercase tracking-widest text-white/90 hover:text-luxury-gold hover:bg-luxury-gold/10 h-8 font-bold"
                               >
                                 Ver Detalhes
                               </Button>
@@ -3881,17 +4026,17 @@ export default function AdminDashboard({
               <div className="bg-luxury-dark border border-white/5 overflow-hidden">
                 <div className="px-8 py-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
                   <h3 className="text-xs uppercase tracking-[0.2em] font-bold">Seus Produtos Listados</h3>
-                  <span className="text-[9px] uppercase tracking-widest text-white/30">Total: {products.filter(p => p.created_by === user.id).length}</span>
+                  <span className="text-[9px] uppercase tracking-widest text-white/85">Total: {products.filter(p => p.created_by === user.id).length}</span>
                 </div>
                 <div className="overflow-x-auto luxury-scrollbar">
                   <table className="w-full text-left min-w-[800px]">
                     <thead>
                       <tr className="border-b border-white/5 bg-black/20">
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Capa</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Produto</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Preço</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Estado</th>
-                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-right">Data</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Capa</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Produto</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Preço</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Estado</th>
+                        <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85 text-right">Data</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -3906,7 +4051,7 @@ export default function AdminDashboard({
                             <td className="px-8 py-4">
                               <div className="flex flex-col">
                                 <span className="text-xs font-serif text-white">{p.title}</span>
-                                <span className="text-[9px] text-white/20 uppercase tracking-widest">{p.category}</span>
+                                <span className="text-[9px] text-white/70 uppercase tracking-widest">{p.category}</span>
                               </div>
                             </td>
                             <td className="px-8 py-4 font-mono text-xs text-luxury-gold">
@@ -3917,7 +4062,7 @@ export default function AdminDashboard({
                                 {p.is_active ? "Ativo" : "Inativo"}
                               </span>
                             </td>
-                            <td className="px-8 py-4 text-right text-[10px] text-white/20 font-mono">
+                            <td className="px-8 py-4 text-right text-[10px] text-white/70 font-mono">
                               {p.created_at ? format(new Date(p.created_at), "dd/MM/yyyy") : "-"}
                             </td>
                           </tr>
@@ -3925,7 +4070,7 @@ export default function AdminDashboard({
                     </tbody>
                   </table>
                   {products.filter(p => (p as any).created_by === user.id).length === 0 && (
-                    <div className="px-8 py-12 text-center text-white/20 text-[10px] uppercase tracking-widest italic">
+                    <div className="px-8 py-12 text-center text-white/70 text-[10px] uppercase tracking-widest italic">
                       Parece que você ainda não tem produtos registrados no seu nome.
                     </div>
                   )}
@@ -3942,12 +4087,12 @@ export default function AdminDashboard({
                 <h2 id="title-management" className="text-3xl md:text-5xl font-serif text-white tracking-tight leading-none">
                   Gestão de <span className="text-luxury-gold italic">Utilizadores</span>
                 </h2>
-                <p id="desc-management" className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/30 mt-4 font-light max-w-xl leading-relaxed">
+                <p id="desc-management" className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/85 mt-4 font-light max-w-xl leading-relaxed">
                   Controle absoluto sobre os membros da boutique. Monitorize o carregamento de produtos e performance de cada colaborador.
                 </p>
               </div>
               <div className="w-full md:max-w-xs relative group">
-                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-luxury-gold transition-colors" />
+                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 group-focus-within:text-luxury-gold transition-colors" />
                 <input
                   type="text"
                   placeholder="Pesquisar utilizador..."
@@ -3962,7 +4107,7 @@ export default function AdminDashboard({
               <div className="overflow-x-auto luxury-scrollbar">
                 <table className="w-full text-left min-w-[1000px]">
                   <thead>
-                    <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.25em] text-white/30 bg-white/[0.02]">
+                    <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.25em] text-white/85 bg-white/[0.02]">
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Utilizador</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">E-mail Corporativo</th>
                     <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Membro Desde</th>
@@ -4010,7 +4155,7 @@ export default function AdminDashboard({
                             <div className="flex items-center gap-2">
                               <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `Sart-${profile.id.substring(0, 4).toUpperCase()}`}</p>
                               <span className="text-white/10">|</span>
-                              <p className="text-[8px] text-white/20 font-mono tracking-tighter truncate max-w-[100px]">{profile.id}</p>
+                              <p className="text-[8px] text-white/70 font-mono tracking-tighter truncate max-w-[100px]">{profile.id}</p>
                             </div>
                           </div>
                         </div>
@@ -4029,7 +4174,7 @@ export default function AdminDashboard({
                           <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold ${
                             profile.is_admin 
                               ? "bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30" 
-                              : "bg-white/5 text-white/40 border border-white/10"
+                              : "bg-white/5 text-white/90 border border-white/10"
                           }`}>
                             {profile.is_admin ? <ShieldCheck size={10} /> : <Users size={10} />}
                             {profile.is_admin ? "Administrador" : "Cliente"}
@@ -4071,7 +4216,7 @@ export default function AdminDashboard({
                               }}
                               variant="ghost" 
                               size="sm"
-                              className="rounded-none text-[8px] uppercase tracking-widest h-8 text-white/40 hover:text-luxury-gold hover:bg-luxury-gold/10"
+                              className="rounded-none text-[8px] uppercase tracking-widest h-8 text-white/90 hover:text-luxury-gold hover:bg-luxury-gold/10"
                             >
                               Ver Contribuições
                             </Button>
@@ -4082,6 +4227,497 @@ export default function AdminDashboard({
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "api" && currentUserProfile?.is_admin && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          {/* Header */}
+          <div>
+            <h2 className="text-3xl md:text-5xl font-serif text-white tracking-tight leading-none">
+              Chaves de <span className="text-luxury-gold italic">API & Integração</span>
+            </h2>
+            <div className="text-[10px] uppercase tracking-widest opacity-80 mt-2">
+              Crie e faça a gestão das suas chaves de acesso para alimentar outras aplicações e canais com as fotos e dados dos produtos.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left Column: API Key Generator & List */}
+            <div className="lg:col-span-5 space-y-6">
+              {/* Generator Form */}
+              <Card className="bg-luxury-dark border-white/5 p-6 rounded-none">
+                <CardHeader className="p-0 pb-4">
+                  <CardTitle className="text-sm uppercase tracking-widest font-serif text-white">Gerar Nova Chave de API</CardTitle>
+                  <p className="text-[9px] text-white/90 uppercase tracking-wider mt-1">Insira um nome descritivo para identificar a integração</p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <form onSubmit={handleGenerateApiKey} className="space-y-4">
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Ex: App de Dropshipping, E-commerce Externo..."
+                        value={newKeyName}
+                        onChange={(e) => setNewKeyName(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 px-4 py-3 text-xs text-white placeholder-white/20 focus:outline-none focus:border-luxury-gold rounded-none"
+                        disabled={generatingKey}
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={generatingKey}
+                      className="w-full bg-luxury-gold text-black hover:bg-luxury-gold/80 hover:shadow-[0_0_20px_rgba(212,175,55,0.3)] font-semibold uppercase text-[9px] tracking-widest h-10 rounded-none flex items-center justify-center gap-2"
+                    >
+                      {generatingKey ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          A Gerar...
+                        </>
+                      ) : (
+                        <>
+                          <Plus size={12} />
+                          Gerar Chave
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {/* API Keys List */}
+              <div className="bg-luxury-dark border border-white/5 rounded-none overflow-hidden">
+                <div className="px-6 py-4 border-b border-white/5 bg-white/[0.01] flex justify-between items-center">
+                  <h3 className="text-xs uppercase tracking-[0.2em] font-bold text-white">Chaves Ativas</h3>
+                  <span className="text-[9px] uppercase tracking-widest text-white/85 font-mono">{apiKeys.length} chaves</span>
+                </div>
+
+                {loadingApiKeys ? (
+                  <div className="p-12 text-center text-white/85 text-xs flex flex-col items-center gap-2">
+                    <Loader2 size={20} className="animate-spin text-luxury-gold" />
+                    A carregar chaves...
+                  </div>
+                ) : apiKeys.length === 0 ? (
+                  <div className="p-12 text-center text-white/85 text-[10px] uppercase tracking-widest italic border border-dashed border-white/5">
+                    Nenhuma chave de API gerada ainda. Use o formulário acima para criar a sua primeira chave.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {apiKeys.map((key) => {
+                      const isVisible = !!visibleKeyIds[key.id];
+                      return (
+                        <div key={key.id} className="p-5 hover:bg-white/[0.01] transition-colors space-y-3">
+                          <div className="flex justify-between items-start gap-4">
+                            <div>
+                              <h4 className="text-xs font-serif text-white font-medium">{key.name}</h4>
+                              <p className="text-[8px] text-white/85 font-mono mt-0.5">Criado em: {key.created_at ? format(new Date(key.created_at), "dd/MM/yyyy HH:mm") : "-"}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteApiKey(key.id)}
+                              className="h-6 w-6 p-0 text-white/70 hover:text-red-500 hover:bg-red-500/10 rounded-none"
+                              title="Eliminar Chave"
+                            >
+                              <Trash2 size={12} />
+                            </Button>
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-black/40 border border-white/5 px-3 py-2 rounded-none">
+                            <span className="font-mono text-[9px] text-luxury-gold/90 break-all select-all flex-1">
+                              {isVisible ? key.token : `${key.token.substring(0, 12)}••••••••••••••••••••••••`}
+                            </span>
+                            
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => toggleKeyVisibility(key.id)}
+                              className="h-6 px-2 text-[8px] uppercase font-bold tracking-widest text-white/90 hover:text-white hover:bg-white/5 rounded-none"
+                            >
+                              {isVisible ? "Ocultar" : "Mostrar"}
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => copyToClipboard(key.token, key.id)}
+                              className="h-6 w-6 p-0 text-white/90 hover:text-luxury-gold hover:bg-luxury-gold/10 rounded-none flex items-center justify-center"
+                              title="Copiar Token"
+                            >
+                              {copiedKeyId === key.id ? (
+                                <Check size={12} className="text-emerald-500" />
+                              ) : (
+                                <Copy size={12} />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right Column: Documentation Portal */}
+            <div className="lg:col-span-7 space-y-6">
+              <div className="bg-luxury-dark border border-white/10 p-8 rounded-none space-y-8">
+                <div>
+                  <h3 className="text-lg uppercase tracking-widest font-serif text-white flex items-center gap-3">
+                    <Terminal size={18} className="text-luxury-gold" />
+                    Manual de Integração & Endpoints REST
+                  </h3>
+                  <p className="text-[10px] text-luxury-gold uppercase tracking-wider font-bold mt-1.5">
+                    Guia técnico completo e detalhado para extrair produtos, galerias e stock em tempo real
+                  </p>
+                </div>
+
+                <Separator className="bg-white/10" />
+
+                {/* Paso a paso */}
+                <div className="space-y-4">
+                  <h4 className="text-xs uppercase tracking-widest font-bold text-luxury-gold flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-luxury-gold" /> Como funciona a integração (Passo a Passo)
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div className="bg-black/50 border border-white/5 p-4 space-y-2">
+                      <div className="text-luxury-gold font-bold font-serif text-sm">01. Autenticação</div>
+                      <p className="text-white/90 leading-relaxed text-[11px]">
+                        Gere a sua Chave de API no painel esquerdo. Mantenha o token seguro e envie-o no cabeçalho <code className="text-luxury-gold bg-black/80 px-1 font-mono text-[10px]">Authorization</code>.
+                      </p>
+                    </div>
+
+                    <div className="bg-black/50 border border-white/5 p-4 space-y-2">
+                      <div className="text-luxury-gold font-bold font-serif text-sm">02. Endpoints</div>
+                      <p className="text-white/90 leading-relaxed text-[11px]">
+                        Aceda à nossa URL base segura para consultar a lista completa de produtos ativos, descrições ricas, categorias e imagens em alta resolução.
+                      </p>
+                    </div>
+
+                    <div className="bg-black/50 border border-white/5 p-4 space-y-2">
+                      <div className="text-luxury-gold font-bold font-serif text-sm">03. Sincronização</div>
+                      <p className="text-white/90 leading-relaxed text-[11px]">
+                        Os dados do stock e dos preços são atualizados automaticamente na nossa base de dados e refletem-se instantaneamente na sua chamada de API.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator className="bg-white/10" />
+
+                {/* Auth Guide */}
+                <div className="space-y-4">
+                  <h4 className="text-xs uppercase tracking-widest font-bold text-luxury-gold flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-luxury-gold" /> Autenticação das Chamadas de API
+                  </h4>
+                  <p className="text-xs text-white leading-relaxed">
+                    A URL base oficial para as chamadas é <strong className="text-luxury-gold">https://sart-full.pt</strong>. Pode autenticar as suas chamadas de duas formas distintas:
+                  </p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider text-white/90 font-bold block mb-1.5">MÉTODO RECOMENDADO: Cabeçalho HTTP Authorization (Bearer Token)</span>
+                      <pre className="bg-black border border-white/10 p-3.5 font-mono text-[10.5px] text-emerald-400 overflow-x-auto select-all rounded-none shadow-inner">
+                        Authorization: Bearer s_art_vossa_chave_gerada_aqui
+                      </pre>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase tracking-wider text-white/90 font-bold block mb-1.5">MÉTODO ALTERNATIVO: Parâmetro de URL (Query Parameter)</span>
+                      <pre className="bg-black border border-white/10 p-3.5 font-mono text-[10.5px] text-emerald-400 overflow-x-auto select-all rounded-none shadow-inner">
+                        https://sart-full.pt/api/v1/products?key=s_art_vossa_chave_gerada_aqui
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator className="bg-white/10" />
+
+                {/* Interactive Multi-Language Code Snippets */}
+                <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <h4 className="text-xs uppercase tracking-widest font-bold text-luxury-gold flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-luxury-gold" /> Exemplos de Código por Linguagem
+                    </h4>
+                    <span className="text-[8px] uppercase tracking-wider text-white/60 bg-white/5 border border-white/10 px-2 py-0.5">Siga o padrão da sua stack</span>
+                  </div>
+
+                  {/* Language Tab buttons */}
+                  <div className="flex flex-wrap gap-1 border-b border-white/10 pb-2">
+                    {(["js", "py", "php", "go", "curl"] as const).map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => setApiLang(lang)}
+                        className={`px-3.5 py-1.5 text-[9px] font-mono uppercase tracking-widest border transition-all ${
+                          apiLang === lang
+                            ? "bg-luxury-gold text-black border-luxury-gold font-bold"
+                            : "bg-black/40 text-white border-white/10 hover:border-white/30 hover:bg-white/5"
+                        }`}
+                      >
+                        {lang === "js" && "JavaScript (Fetch)"}
+                        {lang === "py" && "Python"}
+                        {lang === "php" && "PHP"}
+                        {lang === "go" && "Go (Golang)"}
+                        {lang === "curl" && "cURL (Bash)"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Code Container */}
+                  <div className="relative group">
+                    {apiLang === "js" && (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-white/90 leading-relaxed">
+                          Utilize a API nativa <code className="bg-black px-1.5 py-0.5 text-luxury-gold rounded-none font-mono">fetch</code> do JavaScript em ambientes modernos (Node.js, React, Vue, Svelte ou direto no Browser):
+                        </p>
+                        <pre className="bg-black border border-white/10 p-4 font-mono text-[10px] text-white/90 overflow-x-auto rounded-none leading-relaxed max-h-96 overflow-y-auto shadow-inner select-all">
+{`// Chamada em JavaScript (ES6+ / Async/Await)
+const fetchSartProducts = async () => {
+  const API_URL = 'https://sart-full.pt/api/v1/products';
+  const API_KEY = 'Sua_Chave_De_API_Aqui'; // Substitua pelo seu token gerado
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'GET',
+      headers: {
+        'Authorization': \`Bearer \${API_KEY}\`,
+        'Accept': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(\`Erro HTTP: \${response.status}\`);
+    }
+
+    const produtos = await response.json();
+    console.log('Sucesso! Produtos importados:', produtos);
+    return produtos;
+  } catch (erro) {
+    console.error('Erro de rede ou autenticação na S.art:', erro);
+  }
+};`}
+                        </pre>
+                      </div>
+                    )}
+
+                    {apiLang === "py" && (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-white/90 leading-relaxed">
+                          Recomendado para scripts de automação, pipelines ou backend integrado (Flask, Django, FastAPI) utilizando a biblioteca <code className="bg-black px-1.5 py-0.5 text-luxury-gold rounded-none font-mono">requests</code>:
+                        </p>
+                        <pre className="bg-black border border-white/10 p-4 font-mono text-[10px] text-white/90 overflow-x-auto rounded-none leading-relaxed max-h-96 overflow-y-auto shadow-inner select-all">
+{`# Chamada em Python 3 usando a biblioteca 'requests'
+import requests
+
+def importar_produtos_sart():
+    api_url = "https://sart-full.pt/api/v1/products"
+    api_key = "Sua_Chave_De_API_Aqui"  # Cole aqui a sua chave de API gerada
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json"
+    }
+
+    try:
+        response = requests.get(api_url, headers=headers, timeout=10)
+        response.raise_for_status()  # Dispara um erro para códigos 4xx ou 5xx
+        
+        produtos = response.json()
+        print(f"Sucesso! {len(produtos)} produtos ativos na boutique S.art foram lidos.")
+        for item in produtos:
+            print(f"- {item['name']} | Preço: {item['price']} EUR (Stock: {item['stock']})")
+        return produtos
+    except requests.exceptions.HTTPError as http_err:
+        print(f"Erro HTTP na autenticação ou rota: {http_err}")
+    except Exception as err:
+        print(f"Ocorreu um erro na requisição: {err}")
+
+# Executar função
+importar_produtos_sart()`}
+                        </pre>
+                      </div>
+                    )}
+
+                    {apiLang === "php" && (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-white/90 leading-relaxed">
+                          Perfeito para integrações legadas, sites WordPress, WooCommerce ou backends customizados em PHP utilizando cURL:
+                        </p>
+                        <pre className="bg-black border border-white/10 p-4 font-mono text-[10px] text-white/90 overflow-x-auto rounded-none leading-relaxed max-h-96 overflow-y-auto shadow-inner select-all">
+{`<?php
+// Exemplo de chamada de API estruturada em PHP usando cURL
+$apiUrl = "https://sart-full.pt/api/v1/products";
+$apiKey = "Sua_Chave_De_API_Aqui"; // Token gerado no painel administrativo
+
+$ch = curl_init();
+
+curl_setopt_array($ch, [
+    CURLOPT_URL => $apiUrl,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 15,
+    CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+    CURLOPT_CUSTOMREQUEST => "GET",
+    CURLOPT_HTTPHEADER => [
+        "Authorization: Bearer " . $apiKey,
+        "Accept: application/json"
+    ]
+]);
+
+$response = curl_exec($ch);
+$err = curl_error($ch);
+
+if ($err) {
+    echo "Erro na ligação cURL: " . $err;
+} else {
+    $statusCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    if ($statusCode === 200) {
+        $produtos = json_decode($response, true);
+        echo "Sucesso! Foram encontrados " . count($produtos) . " produtos.\n";
+        foreach ($produtos as $produto) {
+            echo "• ID: " . $produto['id'] . " | Nome: " . $produto['name'] . " | Preço: " . $produto['price'] . " EUR\n";
+        }
+    } else {
+        echo "A API retornou código de erro " . $statusCode . "\n";
+        echo "Resposta do servidor: " . $response;
+    }
+}
+
+curl_close($ch);
+?>`}
+                        </pre>
+                      </div>
+                    )}
+
+                    {apiLang === "go" && (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-white/90 leading-relaxed">
+                          Implementação performática nativa em Go (Golang) com tipagem estática e decodificação eficiente de JSON:
+                        </p>
+                        <pre className="bg-black border border-white/10 p-4 font-mono text-[10px] text-white/90 overflow-x-auto rounded-none leading-relaxed max-h-96 overflow-y-auto shadow-inner select-all">
+{`package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+)
+
+type Product struct {
+	ID          string   \`json:"id"\`
+	Name        string   \`json:"name"\`
+	Price       float64  \`json:"price"\`
+	Stock       int      \`json:"stock"\`
+	ImageURL    string   \`json:"image_url"\`
+	ExtraImages []string \`json:"extra_images"\`
+}
+
+func main() {
+	url := "https://sart-full.pt/api/v1/products"
+	apiKey := "Sua_Chave_De_API_Aqui"
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequest("GET", url, nil)
+	
+	req.Header.Add("Authorization", "Bearer " + apiKey)
+	req.Header.Add("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Erro na requisição: %v\\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Erro do servidor: Código %d\\n", resp.StatusCode)
+		return
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	var products []Product
+	if err := json.Unmarshal(body, &products); err != nil {
+		fmt.Printf("Erro no parse JSON: %v\\n", err)
+		return
+	}
+
+	fmt.Printf("Sucesso! %d produtos importados para Go\\n", len(products))
+	for _, p := range products {
+		fmt.Printf("- %s: %.2f EUR (Stock: %d)\\n", p.Name, p.Price, p.Stock)
+	}
+}`}
+                        </pre>
+                      </div>
+                    )}
+
+                    {apiLang === "curl" && (
+                      <div className="space-y-2">
+                        <p className="text-[11px] text-white/90 leading-relaxed">
+                          Ideal para testes rápidos direto no terminal Bash do seu computador ou servidores Linux:
+                        </p>
+                        <pre className="bg-black border border-white/10 p-4 font-mono text-[10px] text-white/90 overflow-x-auto rounded-none leading-relaxed shadow-inner select-all">
+{`# Chamar API e obter lista de produtos estruturada em formato JSON
+curl -X GET "https://sart-full.pt/api/v1/products" \\
+  -H "Authorization: Bearer Sua_Chave_De_API_Aqui" \\
+  -H "Accept: application/json"`}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Separator className="bg-white/10" />
+
+                {/* Endpoints */}
+                <div className="space-y-6">
+                  <h4 className="text-xs uppercase tracking-widest font-bold text-luxury-gold flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-luxury-gold" /> Endpoints REST Disponíveis
+                  </h4>
+
+                  {/* Endpoint 1 */}
+                  <div className="space-y-2 border-l-2 border-luxury-gold pl-4">
+                    <div className="flex items-center gap-3">
+                      <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-none font-mono text-[9px] font-bold">GET</span>
+                      <span className="font-mono text-xs text-white font-semibold">/api/v1/products</span>
+                    </div>
+                    <p className="text-[11px] text-white/90 leading-relaxed">
+                      Puxa todos os produtos cadastrados e sincronizados na boutique de luxo, incluindo todos os detalhes cruciais: ID único, título/nome, preços formatados, quantidade disponível em stock e imagem principal + galeria completa de fotos adicionais.
+                    </p>
+                  </div>
+
+                  {/* Endpoint 2 */}
+                  <div className="space-y-2 border-l-2 border-luxury-gold pl-4">
+                    <div className="flex items-center gap-3">
+                      <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-none font-mono text-[9px] font-bold">GET</span>
+                      <span className="font-mono text-xs text-white font-semibold">/api/v1/products/:id</span>
+                    </div>
+                    <p className="text-[11px] text-white/90 leading-relaxed">
+                      Carrega todos os dados detalhados e estruturados de um produto específico na base de dados nacional a partir do seu ID único correspondente.
+                    </p>
+                  </div>
+
+                  {/* Endpoint 3 */}
+                  <div className="space-y-2 border-l-2 border-luxury-gold pl-4">
+                    <div className="flex items-center gap-3">
+                      <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-none font-mono text-[9px] font-bold">GET</span>
+                      <span className="font-mono text-xs text-white font-semibold">/api/v1/products/:id/image</span>
+                    </div>
+                    <p className="text-[11px] text-white/90 leading-relaxed">
+                      Obtém diretamente a imagem ou imagens associadas a um produto. Suporta duas abordagens técnicas:
+                    </p>
+                    <ul className="list-disc pl-5 text-[11px] text-white/90 space-y-1">
+                      <li>
+                        <strong>Renderização Direta (Tag HTML):</strong> Utilize a URL diretamente como origem de uma imagem em HTML: <code className="text-luxury-gold bg-black px-1 py-0.5 font-mono text-[10px]">&lt;img src="https://sart-full.pt/api/v1/products/ID/image?key=..." /&gt;</code>. O servidor responderá com um redirecionamento HTTP direto para a CDN da foto.
+                      </li>
+                      <li>
+                        <strong>JSON de Mídias (Galeria):</strong> Passe o cabeçalho <code className="text-white bg-black px-1 py-0.5 font-mono text-[10px]">Accept: application/json</code> ou o parâmetro <code className="text-luxury-gold bg-black px-1 py-0.5 font-mono text-[10px]">?json=true</code> para receber um objeto JSON com o array completo de imagens adicionais.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -4103,13 +4739,13 @@ export default function AdminDashboard({
                   {selectedUserForProducts.avatar_url ? (
                     <img src={selectedUserForProducts.avatar_url} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-xl font-serif text-white/20">{selectedUserForProducts.full_name?.charAt(0) || selectedUserForProducts.email?.charAt(0)}</span>
+                    <span className="text-xl font-serif text-white/70">{selectedUserForProducts.full_name?.charAt(0) || selectedUserForProducts.email?.charAt(0)}</span>
                   )}
                 </div>
                 <div>
                   <h3 className="text-2xl font-serif text-white">{selectedUserForProducts.full_name || "Sem Nome"}</h3>
                   <div className="flex items-center gap-4 mt-1">
-                    <p className="text-[10px] uppercase tracking-widest text-white/40">{selectedUserForProducts.email}</p>
+                    <p className="text-[10px] uppercase tracking-widest text-white/90">{selectedUserForProducts.email}</p>
                     <span className="text-white/10">|</span>
                     <span className={`text-[8px] uppercase tracking-widest font-black px-2 py-0.5 ${
                       selectedUserForProducts.is_admin ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
@@ -4121,7 +4757,7 @@ export default function AdminDashboard({
               </div>
               <button 
                 onClick={() => setIsUserDetailsModalOpen(false)}
-                className="w-10 h-10 flex items-center justify-center text-white/20 hover:text-white hover:bg-white/5 transition-all"
+                className="w-10 h-10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/5 transition-all"
               >
                 <X size={24} />
               </button>
@@ -4131,7 +4767,7 @@ export default function AdminDashboard({
             <div className="flex-1 overflow-y-auto luxury-scrollbar p-0">
                <div className="px-8 py-6 border-b border-white/5 flex justify-between items-center bg-black/40">
                   <h4 className="text-[10px] uppercase tracking-[0.3em] font-bold text-luxury-gold">Produtos Carregados por este Utilizador</h4>
-                  <span className="text-[9px] uppercase tracking-widest text-white/30 font-mono">
+                  <span className="text-[9px] uppercase tracking-widest text-white/85 font-mono">
                     Total: {products.filter(p => p.created_by === selectedUserForProducts.id).length}
                   </span>
                </div>
@@ -4139,10 +4775,10 @@ export default function AdminDashboard({
                <table className="w-full text-left">
                   <thead className="bg-white/5 sticky top-0 z-10">
                     <tr>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Capa</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Produto</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30">Preço</th>
-                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/30 text-right">Controlo Adm</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Capa</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Produto</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85">Preço</th>
+                      <th className="px-8 py-4 text-[9px] uppercase tracking-widest text-white/85 text-right">Controlo Adm</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
@@ -4162,7 +4798,7 @@ export default function AdminDashboard({
                            <td className="px-8 py-4">
                               <div className="flex flex-col">
                                 <span className="text-xs font-serif text-white group-hover:text-luxury-gold transition-colors">{p.title}</span>
-                                <span className="text-[8px] uppercase tracking-widest text-white/20 mt-1 font-mono">{p.category || "Sem Categoria"}</span>
+                                <span className="text-[8px] uppercase tracking-widest text-white/70 mt-1 font-mono">{p.category || "Sem Categoria"}</span>
                               </div>
                            </td>
                            <td className="px-8 py-4">
@@ -4179,7 +4815,7 @@ export default function AdminDashboard({
                                     // Keep modal open or close it? Let's close this one so the edit modal is visible
                                     setIsUserDetailsModalOpen(false);
                                   }}
-                                  className="h-8 w-8 p-0 text-white/20 hover:text-luxury-gold hover:bg-luxury-gold/10"
+                                  className="h-8 w-8 p-0 text-white/70 hover:text-luxury-gold hover:bg-luxury-gold/10"
                                 >
                                   <Edit size={14} />
                                 </Button>
@@ -4191,7 +4827,7 @@ export default function AdminDashboard({
                                     setProductToDelete(p);
                                     setIsUserDetailsModalOpen(false);
                                   }}
-                                  className="h-8 w-8 p-0 text-white/20 hover:text-red-500 hover:bg-red-500/10"
+                                  className="h-8 w-8 p-0 text-white/70 hover:text-red-500 hover:bg-red-500/10"
                                 >
                                   <Trash2 size={14} />
                                 </Button>
@@ -4202,7 +4838,7 @@ export default function AdminDashboard({
                     {products.filter(p => p.created_by === selectedUserForProducts.id).length === 0 && (
                       <tr>
                         <td colSpan={4} className="px-8 py-20 text-center">
-                          <p className="text-[10px] uppercase tracking-[0.2em] text-white/20">Este utilizador ainda não carregou nenhum produto.</p>
+                          <p className="text-[10px] uppercase tracking-[0.2em] text-white/70">Este utilizador ainda não carregou nenhum produto.</p>
                         </td>
                       </tr>
                     )}
@@ -4215,7 +4851,7 @@ export default function AdminDashboard({
               <Button 
                 variant="outline" 
                 onClick={() => setIsUserDetailsModalOpen(false)}
-                className="rounded-none border-white/10 text-white/40 hover:text-white uppercase tracking-widest text-[9px] px-8 h-12"
+                className="rounded-none border-white/10 text-white/90 hover:text-white uppercase tracking-widest text-[9px] px-8 h-12"
               >
                 Fechar Visualização
               </Button>
@@ -4241,7 +4877,7 @@ export default function AdminDashboard({
           <Card className="max-w-2xl w-full bg-luxury-dark border-white/10 rounded-sm p-8 space-y-6 animate-in zoom-in-95 duration-500 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center pb-4 border-b border-white/10">
               <h3 className="text-xl font-serif text-luxury-gold">Detalhes do Pedido</h3>
-              <Button variant="ghost" onClick={() => setViewingOrder(null)} className="text-white/40 hover:text-white">
+              <Button variant="ghost" onClick={() => setViewingOrder(null)} className="text-white/90 hover:text-white">
                 <X size={20} />
               </Button>
             </div>
@@ -4254,7 +4890,7 @@ export default function AdminDashboard({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-luxury-gold/60 font-bold">ID Exclusivo AliExpress</label>
+                    <label className="text-[9px] uppercase tracking-widest text-luxury-gold font-bold">ID Exclusivo AliExpress</label>
                     <div className="relative group">
                       <input 
                         type="text"
@@ -4269,7 +4905,7 @@ export default function AdminDashboard({
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40">Estado Geral</label>
+                    <label className="text-[9px] uppercase tracking-widest text-white/90">Estado Geral</label>
                     <select 
                       value={manualStatus || viewingOrder.status}
                       onChange={(e) => setManualStatus(e.target.value)}
@@ -4284,7 +4920,7 @@ export default function AdminDashboard({
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40">Estado Logístico</label>
+                    <label className="text-[9px] uppercase tracking-widest text-white/90">Estado Logístico</label>
                     <select 
                       value={manualShippingStatus || viewingOrder.shipping_status || "pending"}
                       onChange={(e) => setManualShippingStatus(e.target.value)}
@@ -4304,7 +4940,7 @@ export default function AdminDashboard({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40">Código de Rastreio</label>
+                    <label className="text-[9px] uppercase tracking-widest text-white/90">Código de Rastreio</label>
                     <input 
                       type="text"
                       value={manualTrackingCode}
@@ -4314,7 +4950,7 @@ export default function AdminDashboard({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-white/40">Link de Rastreio</label>
+                    <label className="text-[9px] uppercase tracking-widest text-white/90">Link de Rastreio</label>
                     <input 
                       type="text"
                       value={manualTrackingUrl}
@@ -4382,7 +5018,7 @@ export default function AdminDashboard({
                   </div>
                 )}
                 <div>
-                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Produto Adquirido</p>
+                  <p className="text-[10px] uppercase tracking-widest text-white/90 mb-1">Produto Adquirido</p>
                   <div className="flex justify-between items-start">
                     <h4 className="font-serif text-lg text-white">
                       {viewingOrder.product?.title || "Produto Removido"} 
@@ -4404,7 +5040,7 @@ export default function AdminDashboard({
               </div>
 
               <div>
-                <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Cliente</p>
+                <p className="text-[10px] uppercase tracking-widest text-white/90 mb-1">Cliente</p>
                 <div className="text-base text-white">{viewingOrder.customer_email}</div>
                 {shippingData && (
                   <div className="text-sm text-white/80 mt-1">{shippingData.fullName || `${shippingData.firstName || ''} ${shippingData.lastName || ''}`.trim() || shippingData.name}</div>
@@ -4417,11 +5053,11 @@ export default function AdminDashboard({
                     <Truck size={14} /> Morada de Envio Completa
                   </div>
                   <div className="text-sm space-y-1 text-white/80">
-                    <p><span className="text-white/40">Morada:</span> {shippingData.address || "N/A"}</p>
-                    <p><span className="text-white/40">Código Postal:</span> {shippingData.postalCode || shippingData.zip || "N/A"}</p>
-                    <p><span className="text-white/40">Localidade:</span> {shippingData.city || "N/A"}</p>
-                    <p><span className="text-white/40">País:</span> {shippingData.country || "N/A"}</p>
-                    <p><span className="text-white/40">Telemóvel:</span> {shippingData.phone || "N/A"}</p>
+                    <p><span className="text-white/90">Morada:</span> {shippingData.address || "N/A"}</p>
+                    <p><span className="text-white/90">Código Postal:</span> {shippingData.postalCode || shippingData.zip || "N/A"}</p>
+                    <p><span className="text-white/90">Localidade:</span> {shippingData.city || "N/A"}</p>
+                    <p><span className="text-white/90">País:</span> {shippingData.country || "N/A"}</p>
+                    <p><span className="text-white/90">Telemóvel:</span> {shippingData.phone || "N/A"}</p>
                     {shippingData.identification && (
                       <p className="bg-luxury-gold/10 p-2 mt-2 border border-luxury-gold/30">
                         <span className="text-luxury-gold font-bold">Identificação (CPF/NIF/ID):</span> {shippingData.identification}
@@ -4442,7 +5078,7 @@ export default function AdminDashboard({
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 pt-6 border-t border-white/10">
                 <div className="p-4 bg-white/5 border border-white/10">
-                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Pedido</p>
+                  <p className="text-[10px] uppercase tracking-widest text-white/90 mb-2">Estado do Pedido</p>
                   <div className="flex items-center gap-2">
                      <span className={`text-[10px] uppercase font-black px-2 py-1 ${
                        ["paid", "completed", "succeeded", "pago"].includes(viewingOrder.status?.toLowerCase() || "") ? "bg-emerald-500/10 text-emerald-500" :
@@ -4460,7 +5096,7 @@ export default function AdminDashboard({
                   </div>
                 </div>
                 <div className="p-4 bg-white/5 border border-white/10">
-                  <p className="text-[10px] uppercase tracking-widest text-white/40 mb-2">Estado do Envio</p>
+                  <p className="text-[10px] uppercase tracking-widest text-white/90 mb-2">Estado do Envio</p>
                   <div className="flex items-center gap-2">
                      <span className={`text-[10px] uppercase font-black px-2 py-1 ${
                        viewingOrder.shipping_status === 'delivered' ? 'bg-emerald-500/10 text-emerald-500' :
@@ -4477,10 +5113,10 @@ export default function AdminDashboard({
               </div>
 
               <div>
-                <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">Identificadores do Sistema</p>
+                <p className="text-[10px] uppercase tracking-widest text-white/90 mb-1">Identificadores do Sistema</p>
                 <div className="p-4 border border-white/10 bg-black/20 text-xs font-mono space-y-3">
-                  <div className="select-all block"><span className="text-white/40 select-none">Ordem ID:</span> Sart-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
-                  <div className="select-all block"><span className="text-white/40 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
+                  <div className="select-all block"><span className="text-white/90 select-none">Ordem ID:</span> Sart-{viewingOrder.id.split('-')[0].toUpperCase()} ({viewingOrder.id})</div>
+                  <div className="select-all block"><span className="text-white/90 select-none">Produto ID:</span> {viewingOrder.product_id}</div>
                   
                   {viewingOrder.fulfillment_error && (
                     <div className="mt-4 p-4 bg-red-500/5 border border-red-500/20 rounded-xl">
@@ -4552,7 +5188,7 @@ export default function AdminDashboard({
                          return (
                            <>
                               <div className="flex flex-col gap-1">
-                                <span className="text-white/40 select-none uppercase text-[8px] tracking-[0.2em]">Status {providerLabel}</span>
+                                <span className="text-white/90 select-none uppercase text-[8px] tracking-[0.2em]">Status {providerLabel}</span>
                                 <div className="flex items-center gap-2">
                                   {externalId || (viewingOrder.shipping_tracking_code || viewingOrder.shipping_status_metadata?.trackingNumber) ? (
                                     <>
@@ -4574,7 +5210,7 @@ export default function AdminDashboard({
                                 {(externalId || viewingOrder.shipping_tracking_code || viewingOrder.shipping_status_metadata?.trackingNumber) ? (
                                   <div className="flex flex-col gap-2 flex-1">
                                      <div className="bg-orange-500/10 border border-orange-500/20 p-3 flex flex-col items-center justify-center gap-1">
-                                       <p className="text-[8px] uppercase tracking-[0.2em] text-white/40 font-bold">Estado Logístico Real-Time</p>
+                                       <p className="text-[8px] uppercase tracking-[0.2em] text-white/90 font-bold">Estado Logístico Real-Time</p>
                                        <p className="text-sm text-orange-500 font-black uppercase tracking-widest">
                                          {viewingOrder.shipping_status_metadata?.lastExternalStatus || viewingOrder.shipping_status || 'Processado'}
                                        </p>
@@ -4673,7 +5309,7 @@ export default function AdminDashboard({
 
                   {viewingOrder.shipping_status_metadata && (
                     <div className="pt-3 mt-3 border-t border-white/5 space-y-2">
-                      <p className="text-[8px] uppercase tracking-[0.2em] text-white/40">Informações de Rastreio</p>
+                      <p className="text-[8px] uppercase tracking-[0.2em] text-white/90">Informações de Rastreio</p>
                       <div className="flex justify-between items-center text-[10px]">
                         <span className="text-white font-mono">{viewingOrder.shipping_status_metadata.trackingNumber || "Aguardando código..."}</span>
                         {viewingOrder.shipping_status_metadata.trackingUrl && (
@@ -4764,14 +5400,14 @@ export default function AdminDashboard({
             
             <div className="space-y-2 text-center">
               <h3 className="text-2xl font-serif text-luxury-gold tracking-tight">Testar SMTP</h3>
-              <p className="text-xs text-white/40 uppercase tracking-[0.2em]">
+              <p className="text-xs text-white/90 uppercase tracking-[0.2em]">
                 Validação do Servidor de E-mail
               </p>
             </div>
             
             <div className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase tracking-widest text-white/20 font-bold">E-mail de Destino</label>
+                <label className="text-[10px] uppercase tracking-widest text-white/70 font-bold">E-mail de Destino</label>
                 <input
                   type="email"
                   value={testEmailInput}
@@ -4786,7 +5422,7 @@ export default function AdminDashboard({
                     }
                   }}
                 />
-                <p className="text-[9px] text-white/20 mt-2 leading-relaxed">
+                <p className="text-[9px] text-white/70 mt-2 leading-relaxed">
                   Isto enviará um e-mail real utilizando a configuração de porta 465 definida no servidor. Verifique a sua caixa de entrada (e SPAM).
                 </p>
               </div>
@@ -4795,7 +5431,7 @@ export default function AdminDashboard({
                 <Button 
                   onClick={() => setIsTestEmailModalOpen(false)}
                   variant="ghost"
-                  className="flex-1 text-white/40 hover:text-white hover:bg-white/5 rounded-none h-12 uppercase tracking-widest text-[9px]"
+                  className="flex-1 text-white/90 hover:text-white hover:bg-white/5 rounded-none h-12 uppercase tracking-widest text-[9px]"
                 >
                   Voltar
                 </Button>
@@ -4833,12 +5469,12 @@ export default function AdminDashboard({
                 </div>
                 <div>
                   <h3 className="text-lg font-serif text-white leading-none">Configurações do Site</h3>
-                  <p className="text-[9px] text-white/30 uppercase tracking-[0.2em] mt-1.5">Identidade Visual da Boutique</p>
+                  <p className="text-[9px] text-white/85 uppercase tracking-[0.2em] mt-1.5">Identidade Visual da Boutique</p>
                 </div>
               </div>
               <button 
                 onClick={() => setIsSiteSettingsOpen(false)}
-                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/5 transition-colors text-white/40 hover:text-white"
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-white/5 transition-colors text-white/90 hover:text-white"
               >
                 <X size={20} />
               </button>
@@ -4849,7 +5485,7 @@ export default function AdminDashboard({
               <div className="space-y-6">
                 {/* Theme Selector */}
                 <div className="space-y-3 pb-6 border-b border-white/5">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold block">Tema Ativo da Boutique</label>
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold block">Tema Ativo da Boutique</label>
                   <div className="grid grid-cols-3 gap-3">
                     {/* Luxury Theme */}
                     <button
@@ -4867,7 +5503,7 @@ export default function AdminDashboard({
                       </div>
                       <div>
                         <h4 className="font-serif text-[11px] text-white font-semibold">Luxury Gold</h4>
-                        <p className="text-[7px] text-white/40 mt-0.5">Preto & Ouro</p>
+                        <p className="text-[7px] text-white/90 mt-0.5">Preto & Ouro</p>
                       </div>
                     </button>
 
@@ -4887,7 +5523,7 @@ export default function AdminDashboard({
                       </div>
                       <div>
                         <h4 className="font-serif text-[11px] text-white font-semibold">Natalino</h4>
-                        <p className="text-[7px] text-white/40 mt-0.5">Vermelho & Neve</p>
+                        <p className="text-[7px] text-white/90 mt-0.5">Vermelho & Neve</p>
                       </div>
                     </button>
 
@@ -4907,7 +5543,7 @@ export default function AdminDashboard({
                       </div>
                       <div>
                         <h4 className="font-serif text-[11px] text-white font-semibold">Pôr-do-Sol</h4>
-                        <p className="text-[7px] text-white/40 mt-0.5">Laranja & Calor</p>
+                        <p className="text-[7px] text-white/90 mt-0.5">Laranja & Calor</p>
                       </div>
                     </button>
                   </div>
@@ -4915,7 +5551,7 @@ export default function AdminDashboard({
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Vídeo do Banner (Background)</label>
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Vídeo do Banner (Background)</label>
                     <label className="cursor-pointer text-[10px] text-luxury-gold uppercase tracking-widest font-black hover:opacity-100 opacity-60">
                       {uploading ? "A carregar..." : "Carregar Vídeo"}
                       <input
@@ -4936,7 +5572,7 @@ export default function AdminDashboard({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Imagem Hero (Background URL)</label>
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Imagem Hero (Background URL)</label>
                   <input
                     value={siteHero.image}
                     onChange={(e) => setSiteHero({ ...siteHero, image: e.target.value })}
@@ -4946,7 +5582,7 @@ export default function AdminDashboard({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Título do Banner</label>
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Título do Banner</label>
                   <input
                     value={siteHero.title}
                     onChange={(e) => setSiteHero({ ...siteHero, title: e.target.value })}
@@ -4956,7 +5592,7 @@ export default function AdminDashboard({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Subtítulo do Banner</label>
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Subtítulo do Banner</label>
                   <input
                     value={siteHero.subtitle}
                     onChange={(e) => setSiteHero({ ...siteHero, subtitle: e.target.value })}
@@ -4966,7 +5602,7 @@ export default function AdminDashboard({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Texto do Botão Hero</label>
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Texto do Botão Hero</label>
                   <input
                     value={siteHero.buttonText}
                     onChange={(e) => setSiteHero({ ...siteHero, buttonText: e.target.value })}
@@ -4977,7 +5613,7 @@ export default function AdminDashboard({
                 
                 {siteHero.video_url && (
                   <div className="space-y-3 pt-2">
-                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/20">Pré-visualização do Vídeo</label>
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/70">Pré-visualização do Vídeo</label>
                     <div className="aspect-[21/9] w-full border border-white/5 relative overflow-hidden bg-black">
                        <video 
                          key={siteHero.video_url}
@@ -4994,7 +5630,7 @@ export default function AdminDashboard({
 
                 {siteHero.image && (
                   <div className="space-y-3 pt-2">
-                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/20">Pré-visualização da Hero</label>
+                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/70">Pré-visualização da Hero</label>
                     <div className="aspect-[21/9] w-full bg-cover bg-center border border-white/5 relative overflow-hidden" style={{ backgroundImage: `url(${siteHero.image})` }}>
                       <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4">
                         <h4 className="text-[10px] md:text-sm font-serif text-white text-center max-w-[80%] drop-shadow-lg">{siteHero.title}</h4>
@@ -5013,7 +5649,7 @@ export default function AdminDashboard({
               <Button
                 variant="outline"
                 onClick={() => setIsSiteSettingsOpen(false)}
-                className="flex-1 border-white/5 text-white/40 hover:text-white h-12 text-[10px] uppercase tracking-[.25em] bg-white/5 rounded-none"
+                className="flex-1 border-white/5 text-white/90 hover:text-white h-12 text-[10px] uppercase tracking-[.25em] bg-white/5 rounded-none"
               >
                 Cancelar
               </Button>

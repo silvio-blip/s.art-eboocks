@@ -77,7 +77,7 @@ export const CouponManager = () => {
                 {loading ? <Loader2 className="animate-spin text-white w-8 h-8 mx-auto"/> : (
                     <table className="w-full text-left text-white">
                         <thead>
-                            <tr className="border-b border-white/10 uppercase text-[10px] tracking-widest text-white/40">
+                            <tr className="border-b border-white/10 uppercase text-[10px] tracking-widest text-white/90">
                                 <th className="p-4">Código</th>
                                 <th className="p-4">Desconto (%)</th>
                                 <th className="p-4 text-right">Ação</th>

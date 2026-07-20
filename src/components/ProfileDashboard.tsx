@@ -411,7 +411,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
           <button 
             onClick={() => setActiveTab('general')}
             className={`relative px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
-              activeTab === 'general' ? 'text-black' : 'text-white/40 hover:text-white'
+              activeTab === 'general' ? 'text-black' : 'text-white/90 hover:text-white'
             }`}
           >
             {activeTab === 'general' && (
@@ -428,7 +428,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
           <button 
             onClick={() => setActiveTab('orders')}
             className={`relative px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
-              activeTab === 'orders' ? 'text-black' : 'text-white/40 hover:text-white'
+              activeTab === 'orders' ? 'text-black' : 'text-white/90 hover:text-white'
             }`}
           >
             {activeTab === 'orders' && (
@@ -493,7 +493,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                        <ShoppingBag size={18} />
                      </div>
                      <div>
-                       <p className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Total Gastos</p>
+                       <p className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Total Gastos</p>
                        <p className="text-xl font-serif text-white">{formatPrice ? formatPrice(purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0)) : `€${purchasedProducts.reduce((acc, curr) => acc + (curr.total_amount || 0), 0).toFixed(2)}`}</p>
                      </div>
                    </div>
@@ -506,7 +506,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                          <FileText size={18} />
                        </div>
                        <div>
-                         <p className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Produtos Carregados</p>
+                         <p className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Produtos Carregados</p>
                          <p className="text-xl font-serif text-white">{profile?.products_count || 0}</p>
                        </div>
                      </div>
@@ -581,7 +581,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       placeholder="Descreva a sua essência artística..."
                     />
                   ) : (
-                    <p className="text-sm text-white/50 leading-relaxed font-serif italic bg-white/5 p-6 border-l-2 border-luxury-gold/30">
+                    <p className="text-sm text-white leading-relaxed font-serif italic bg-white/5 p-6 border-l-2 border-luxury-gold/30">
                       {profile?.description || 'A sua voz artística ainda não foi manifestada. Edite o seu perfil para partilhar a sua visão.'}
                     </p>
                   )}
@@ -593,7 +593,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     <label className="text-[9px] uppercase tracking-[0.4em] text-luxury-gold font-black block">Endereço de Entrega Predefinido</label>
                     <button 
                       onClick={() => isEditingSavedAddress ? handleSaveSavedAddress() : setIsEditingSavedAddress(true)}
-                      className="text-[8px] uppercase tracking-widest text-white/40 hover:text-luxury-gold transition-colors flex items-center gap-2"
+                      className="text-[8px] uppercase tracking-widest text-white/90 hover:text-luxury-gold transition-colors flex items-center gap-2"
                     >
                       {isEditingSavedAddress ? <><Save size={12} /> GUARDAR</> : <><Edit size={12} /> ALTERAR</>}
                     </button>
@@ -602,7 +602,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                   {isEditingSavedAddress ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white/5 p-6 border border-white/10 animate-in fade-in duration-500">
                       <div className="space-y-2">
-                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Nome de Recibo</label>
+                        <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Nome de Recibo</label>
                         <input 
                           type="text" 
                           placeholder="Nome completo para envio"
@@ -612,7 +612,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Telefone</label>
+                        <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Telefone</label>
                         <input 
                           type="text" 
                           placeholder="+351 912 345 678"
@@ -622,7 +622,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         />
                       </div>
                       <div className="space-y-2 md:col-span-2">
-                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Morada</label>
+                        <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Morada</label>
                         <input 
                           type="text" 
                           placeholder="Rua, Número, Andar..."
@@ -632,7 +632,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Cidade</label>
+                        <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Cidade</label>
                         <input 
                           type="text" 
                           placeholder="Lisboa"
@@ -642,7 +642,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">País</label>
+                        <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">País</label>
                         <select 
                           value={savedAddressForm.country} 
                           onChange={e => setSavedAddressForm({
@@ -678,7 +678,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         savedAddressForm.country === 'Chile' ||
                         savedAddressForm.country === 'Coreia do Sul') && (
                         <div className="space-y-2">
-                          <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">
+                          <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">
                             {savedAddressForm.country === 'Brasil' ? 'CPF' : 
                              savedAddressForm.country === 'Espanha' ? 'DNI/NIE' : 
                              savedAddressForm.country === 'Itália' ? 'Codice Fiscale' :
@@ -696,7 +696,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         </div>
                       )}
                       <div className="space-y-2">
-                        <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Código Postal</label>
+                        <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Código Postal</label>
                         <input 
                           type="text" 
                           placeholder="1000-001"
@@ -723,11 +723,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div className="space-y-4">
                                <div>
-                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Destinatário</p>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/85 font-black mb-1">Destinatário</p>
                                  <p className="text-sm text-white font-serif italic">{profile.saved_address.full_name || 'N/A'}</p>
                                </div>
                                <div>
-                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Localização</p>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/85 font-black mb-1">Localização</p>
                                  <p className="text-sm text-white/80 leading-relaxed font-serif">
                                    {profile.saved_address.address}<br />
                                    {profile.saved_address.zip} {profile.saved_address.city}<br />
@@ -746,11 +746,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                             </div>
                             <div className="space-y-4">
                                <div>
-                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Contacto</p>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/85 font-black mb-1">Contacto</p>
                                  <p className="text-sm text-white font-mono">{profile.saved_address.phone || 'N/A'}</p>
                                </div>
                                <div>
-                                 <p className="text-[7px] uppercase tracking-widest text-white/30 font-black mb-1">Estado</p>
+                                 <p className="text-[7px] uppercase tracking-widest text-white/85 font-black mb-1">Estado</p>
                                  <div className="flex items-center gap-2">
                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                    <p className="text-[9px] text-emerald-500 font-black uppercase tracking-widest">Pronto para Checkout</p>
@@ -760,7 +760,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                          </div>
                        ) : (
                          <div className="py-8 text-center space-y-4">
-                            <p className="text-xs text-white/40 font-serif italic">Ainda não definiu um endereço predefinido para as suas aquisições.</p>
+                            <p className="text-xs text-white/90 font-serif italic">Ainda não definiu um endereço predefinido para as suas aquisições.</p>
                             <Button 
                               onClick={() => setIsEditingSavedAddress(true)}
                               className="bg-transparent border border-white/20 text-white rounded-none text-[8px] uppercase tracking-widest font-black hover:border-luxury-gold hover:text-luxury-gold"
@@ -779,7 +779,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                   <div className="flex items-center justify-between p-6 bg-white/5 border border-white/10 group hover:border-luxury-gold/30 transition-all duration-500">
                     <div className="space-y-1">
                       <p className="text-xs text-white font-serif">Cursor de Fluxo Artístico</p>
-                      <p className="text-[9px] text-white/40 uppercase tracking-widest">Habilita a partícula de luxo que segue os seus movimentos</p>
+                      <p className="text-[9px] text-white/90 uppercase tracking-widest">Habilita a partícula de luxo que segue os seus movimentos</p>
                     </div>
                     <button 
                       onClick={() => {
@@ -809,11 +809,11 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 <div className="flex flex-col md:flex-row items-center justify-between gap-8">
                   <div className="flex gap-10">
                     <div className="space-y-1">
-                      <p className="text-[8px] uppercase tracking-[0.3em] text-white/30 font-bold">Membro Desde</p>
+                      <p className="text-[8px] uppercase tracking-[0.3em] text-white/85 font-bold">Membro Desde</p>
                       <p className="text-xs text-white/70">{new Date(user.created_at).toLocaleDateString('pt-PT', { year: 'numeric', month: 'long' })}</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-[8px] uppercase tracking-[0.3em] text-white/30 font-bold">Tipo de Assinante</p>
+                      <p className="text-[8px] uppercase tracking-[0.3em] text-white/85 font-bold">Tipo de Assinante</p>
                       <p className="text-xs text-white/70">Prestígio</p>
                     </div>
                   </div>
@@ -857,7 +857,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     key={f}
                     onClick={() => setOrderFilter(f)}
                     className={`relative px-6 py-2 text-[8px] uppercase tracking-[0.2em] font-black transition-all rounded-full whitespace-nowrap ${
-                      orderFilter === f ? 'text-black' : 'text-white/40 hover:text-white'
+                      orderFilter === f ? 'text-black' : 'text-white/90 hover:text-white'
                     }`}
                   >
                     {orderFilter === f && (
@@ -882,7 +882,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     <ShoppingBag size={40} />
                   </div>
                   <div className="space-y-2">
-                    <p className="text-[10px] uppercase tracking-[0.4em] text-white/30 font-black">Nenhuma obra encontrada</p>
+                    <p className="text-[10px] uppercase tracking-[0.4em] text-white/85 font-black">Nenhuma obra encontrada</p>
                     <p className="text-sm text-white/10 font-serif italic">A sua galeria pessoal aguarda o primeiro manifesto.</p>
                   </div>
                 </div>
@@ -936,12 +936,12 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'REEMBOLSADO' :
                                'EM PROCESSAMENTO'}
                             </span>
-                            <p className="text-[7px] font-mono text-white/20 uppercase tracking-widest whitespace-nowrap">ID: Sart-{order.id.split('-')[0].toUpperCase()}</p>
+                            <p className="text-[7px] font-mono text-white/70 uppercase tracking-widest whitespace-nowrap">ID: Sart-{order.id.split('-')[0].toUpperCase()}</p>
                           </div>
                           <h4 className="text-lg md:text-xl font-serif text-white truncate max-w-[200px] lg:max-w-xs group-hover:text-luxury-gold transition-colors duration-500">
                             {order.product?.title?.length > 50 ? `${order.product.title.slice(0, 47)}...` : (order.product?.title || 'Manifestação Sem Nome')}
                           </h4>
-                          <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold mb-4 md:mb-0">
+                          <div className="flex flex-wrap justify-center md:justify-start items-center gap-4 text-[9px] uppercase tracking-[0.2em] text-white/90 font-bold mb-4 md:mb-0">
                             <div className="flex items-center gap-2"><Calendar size={12} className="text-luxury-gold" /> {new Date(order.created_at).toLocaleDateString()}</div>
                             <div className="flex items-center gap-2 font-mono font-black text-white">{formatPrice ? formatPrice(order.total_amount) : `€${order.total_amount.toFixed(2)}`}</div>
                           </div>
@@ -950,7 +950,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         {/* Status Pillars */}
                         <div className="flex flex-row md:flex-col lg:flex-row items-center gap-3 md:gap-4 w-full md:w-auto shrink-0 md:ml-auto">
                            <div className="flex-1 md:w-32 shrink-0 p-3 bg-white/5 border border-white/10 text-center space-y-1">
-                              <p className="text-[7px] uppercase tracking-widest text-white/30 font-black">LOGÍSTICA</p>
+                              <p className="text-[7px] uppercase tracking-widest text-white/85 font-black">LOGÍSTICA</p>
                               <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
                                 order.shipping_status === 'delivered' ? 'text-emerald-500' : 
                                 ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' :
@@ -969,7 +969,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                               </p>
                            </div>
                            <div className="flex-1 md:w-32 shrink-0 p-3 bg-white/5 border border-white/10 text-center space-y-1">
-                              <p className="text-[7px] uppercase tracking-widest text-white/30 font-black">FINANCEIRO</p>
+                              <p className="text-[7px] uppercase tracking-widest text-white/85 font-black">FINANCEIRO</p>
                               <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
                                 ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' : 'text-emerald-500'
                               }`}>
@@ -1014,7 +1014,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 <img 
                   src={getImageUrl(selectedOrder.product?.image_url || '')} 
                   alt="" 
-                  className="w-full h-full object-cover grayscale opacity-40 hover:grayscale-0 hover:opacity-70 transition-all duration-1000" 
+                  className="w-full h-full object-cover grayscale opacity-95 hover:grayscale-0 hover:opacity-70 transition-all duration-1000" 
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
                 <button 
@@ -1062,7 +1062,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                 <div className="col-span-2 space-y-6 animate-in fade-in zoom-in-95 duration-500">
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="space-y-2">
-                                      <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Morada</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Morada</label>
                                       <input 
                                         type="text" 
                                         value={addressForm.address} 
@@ -1071,7 +1071,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                       />
                                     </div>
                                     <div className="space-y-2">
-                                      <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Cidade</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Cidade</label>
                                       <input 
                                         type="text" 
                                         value={addressForm.city} 
@@ -1080,7 +1080,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                       />
                                     </div>
                                     <div className="space-y-2">
-                                      <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Cód. Postal</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Cód. Postal</label>
                                       <input 
                                         type="text" 
                                         value={addressForm.zip} 
@@ -1089,7 +1089,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                       />
                                     </div>
                                     <div className="space-y-2">
-                                      <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Telefone</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Telefone</label>
                                       <input 
                                         type="text" 
                                         value={addressForm.phone} 
@@ -1098,7 +1098,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                       />
                                     </div>
                                     <div className="space-y-2 md:col-span-2">
-                                      <label className="text-[8px] uppercase tracking-widest text-white/40 font-bold">Email de Contacto</label>
+                                      <label className="text-[8px] uppercase tracking-widest text-white/90 font-bold">Email de Contacto</label>
                                       <input 
                                         type="email" 
                                         value={addressForm.email} 
@@ -1127,7 +1127,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                               ) : (
                                 <>
                                   <div className="space-y-3">
-                                    <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Destinatário</p>
+                                    <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">Destinatário</p>
                                     <p className="text-sm text-white font-serif italic leading-relaxed">
                                       {details.fullName || 
                                        `${details.firstName || ''} ${details.lastName || ''}`.trim() || 
@@ -1135,7 +1135,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                     </p>
                                   </div>
                                   <div className="space-y-3">
-                                    <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Residência de Entrega</p>
+                                    <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">Residência de Entrega</p>
                                     <p className="text-sm text-white/70 font-mono leading-relaxed">
                                       {details.address}<br />
                                       {details.zip || details.postalCode} {details.city}<br />
@@ -1143,7 +1143,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                                     </p>
                                   </div>
                                   <div className="md:col-span-2 space-y-3 border-t border-white/5 pt-4">
-                                     <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Contacto Seguro</p>
+                                     <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">Contacto Seguro</p>
                                      <p className="text-sm text-white font-mono">{details.phone || 'Privado'}</p>
                                   </div>
                                 </>
@@ -1151,7 +1151,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                             </div>
                           );
                         })() : (
-                          <p className="text-sm text-white/20 font-serif italic bg-white/5 p-6 border border-white/10">Os detalhes logísticos estão em fase de digitalização.</p>
+                          <p className="text-sm text-white/70 font-serif italic bg-white/5 p-6 border border-white/10">Os detalhes logísticos estão em fase de digitalização.</p>
                         )}
                     </div>
 
@@ -1163,7 +1163,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                      <div className="p-6 md:p-8 bg-white/5 border border-white/10 space-y-6">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
                            <div className="space-y-1">
-                              <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Estado Atual</p>
+                              <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">Estado Atual</p>
                               <p className="text-xs text-white font-black uppercase tracking-widest">
                                 {selectedOrder.shipping_status === 'out_for_delivery' ? 'EM DISTRIBUIÇÃO' : 
                                  selectedOrder.shipping_status === 'sent' ? 'EM TRÂNSITO' :
@@ -1175,14 +1175,14 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                            </div>
                            {selectedOrder.shipping_status_metadata?.lastExternalStatus && (
                              <div className="space-y-1">
-                                <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">Status Logística</p>
+                                <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">Status Logística</p>
                                 <p className="text-xs text-orange-500 font-black uppercase tracking-widest">
                                   {selectedOrder.shipping_status_metadata.lastExternalStatus}
                                 </p>
                              </div>
                            )}
                            <div className="space-y-1">
-                              <p className="text-[8px] uppercase tracking-widest text-white/30 font-bold">SLA Estimado</p>
+                              <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">SLA Estimado</p>
                               <p className="text-xs text-luxury-gold font-black uppercase tracking-widest">Premium (4-7 Dias)</p>
                            </div>
                         </div>
@@ -1240,7 +1240,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                          <Hash size={18} />
                          <span className="text-[10px] uppercase tracking-[0.4em] font-black">METADADOS</span>
                       </div>
-                      <div className="space-y-4 text-[10px] font-mono text-white/40 leading-relaxed max-w-full overflow-hidden">
+                      <div className="space-y-4 text-[10px] font-mono text-white/90 leading-relaxed max-w-full overflow-hidden">
                          <div className="grid grid-cols-2 gap-4">
                             <span className="uppercase tracking-widest">REFERÊNCIA</span>
                             <span className="text-white select-all text-right break-all">Sart-{selectedOrder.id.toUpperCase()}</span>
@@ -1283,7 +1283,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
 
               {/* Modal Footer Controls */}
               <div className="p-8 bg-white/5 border-t border-white/10 flex flex-col md:flex-row gap-4 items-center justify-between">
-                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/30 font-bold italic">A qualidade da sua aquisição é garantida pela curadoria da S.art.</p>
+                 <p className="text-[9px] uppercase tracking-[0.2em] text-white/85 font-bold italic">A qualidade da sua aquisição é garantida pela curadoria da S.art.</p>
                  <Button 
                    onClick={() => setSelectedOrder(null)}
                    className="w-full md:w-auto h-14 px-12 bg-white text-black rounded-none text-[10px] uppercase tracking-[0.4em] font-black hover:bg-luxury-gold transition-all duration-500"

@@ -434,6 +434,211 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: none;
 }
 
+/* Custom theme-aware overrides for Admin Dashboard */
+.admin-dashboard-wrapper {
+  background-color: var(--bg-main) !important;
+  color: #FFFFFF !important;
+}
+
+/* Force dark theme-specific values inside the admin dashboard wrapper */
+.admin-dashboard-wrapper.theme-luxury,
+.admin-dashboard-wrapper[class*="theme-luxury"] {
+  background-color: #050505 !important;
+  --bg-main: #050505 !important;
+  --bg-card: #0f0f0f !important;
+  --luxury-dark: #0a0a0a !important;
+  --gold: #c78b7d !important;
+  --borda: rgba(255, 255, 255, 0.08) !important;
+  --foreground: #FFFFFF !important;
+}
+
+.admin-dashboard-wrapper.theme-christmas,
+.admin-dashboard-wrapper[class*="theme-christmas"] {
+  background-color: #120507 !important;
+  --bg-main: #120507 !important;
+  --bg-card: #1A080C !important;
+  --luxury-dark: #0d0204 !important;
+  --gold: #F59E0B !important;
+  --borda: rgba(239, 68, 68, 0.15) !important;
+  --foreground: #FFFFFF !important;
+}
+
+.admin-dashboard-wrapper.theme-summer,
+.admin-dashboard-wrapper[class*="theme-summer"] {
+  background-color: #0F0A06 !important;
+  --bg-main: #0F0A06 !important;
+  --bg-card: #19110B !important;
+  --luxury-dark: #0B0704 !important;
+  --gold: #F59E0B !important;
+  --borda: rgba(249, 115, 22, 0.15) !important;
+  --foreground: #FFFFFF !important;
+}
+
+/* Ensure all nested elements inherit correct text color */
+.admin-dashboard-wrapper .text-white {
+  color: #FFFFFF !important;
+}
+.admin-dashboard-wrapper .text-white\/90 {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+.admin-dashboard-wrapper .text-white\/85 {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+.admin-dashboard-wrapper .text-white\/80 {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+.admin-dashboard-wrapper .text-white\/70 {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+.admin-dashboard-wrapper .text-white\/60 {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+.admin-dashboard-wrapper .text-white\/50 {
+  color: rgba(255, 255, 255, 0.5) !important;
+}
+.admin-dashboard-wrapper .text-white\/40 {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+.admin-dashboard-wrapper .bg-white\/5 {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+.admin-dashboard-wrapper .bg-white\/10 {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+.admin-dashboard-wrapper .bg-white\/20 {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+}
+.admin-dashboard-wrapper .bg-white\/30 {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+}
+.admin-dashboard-wrapper .border-white\/10 {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+.admin-dashboard-wrapper .border-white\/5 {
+  border-color: rgba(255, 255, 255, 0.05) !important;
+}
+.admin-dashboard-wrapper .border-white\/20 {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Overriding card backgrounds & board borders to prevent light mode bleed */
+.admin-dashboard-wrapper [data-slot="card"],
+.admin-dashboard-wrapper .bg-card,
+.admin-dashboard-wrapper .bg-luxury-dark {
+  background-color: var(--bg-card) !important;
+  border-color: var(--borda) !important;
+  color: #FFFFFF !important;
+}
+
+/* Handling Recharts tooltip portal */
+.recharts-default-tooltip {
+  background-color: #0A0A0A !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #FFFFFF !important;
+}
+.recharts-tooltip-item {
+  color: #FFFFFF !important;
+}
+
+/* Text contrast overrides (Convert all light-mode fallback text-black classes to white) */
+.admin-dashboard-wrapper .text-black,
+.admin-dashboard-wrapper .text-card-foreground {
+  color: #FFFFFF !important;
+}
+.admin-dashboard-wrapper .text-black\/95 { color: rgba(255, 255, 255, 0.95) !important; }
+.admin-dashboard-wrapper .text-black\/90 { color: rgba(255, 255, 255, 0.9) !important; }
+.admin-dashboard-wrapper .text-black\/85 { color: rgba(255, 255, 255, 0.85) !important; }
+.admin-dashboard-wrapper .text-black\/80 { color: rgba(255, 255, 255, 0.8) !important; }
+.admin-dashboard-wrapper .text-black\/70 { color: rgba(255, 255, 255, 0.7) !important; }
+.admin-dashboard-wrapper .text-black\/60 { color: rgba(255, 255, 255, 0.6) !important; }
+.admin-dashboard-wrapper .text-black\/50 { color: rgba(255, 255, 255, 0.5) !important; }
+.admin-dashboard-wrapper .text-black\/40 { color: rgba(255, 255, 255, 0.4) !important; }
+.admin-dashboard-wrapper .text-black\/30 { color: rgba(255, 255, 255, 0.3) !important; }
+.admin-dashboard-wrapper .text-black\/20 { color: rgba(255, 255, 255, 0.2) !important; }
+.admin-dashboard-wrapper .text-black\/10 { color: rgba(255, 255, 255, 0.1) !important; }
+
+/* Border color replacements for dark backgrounds */
+.admin-dashboard-wrapper .border-black\/5 { border-color: rgba(255, 255, 255, 0.05) !important; }
+.admin-dashboard-wrapper .border-black\/10 { border-color: rgba(255, 255, 255, 0.1) !important; }
+.admin-dashboard-wrapper .border-black\/20 { border-color: rgba(255, 255, 255, 0.2) !important; }
+.admin-dashboard-wrapper .border-black\/30 { border-color: rgba(255, 255, 255, 0.3) !important; }
+
+/* Background transparency adjustments */
+.admin-dashboard-wrapper .bg-black\/5 { background-color: rgba(255, 255, 255, 0.04) !important; }
+.admin-dashboard-wrapper .bg-black\/10 { background-color: rgba(255, 255, 255, 0.08) !important; }
+.admin-dashboard-wrapper .bg-black\/20 { background-color: rgba(255, 255, 255, 0.15) !important; }
+.admin-dashboard-wrapper .bg-black\/30 { background-color: rgba(255, 255, 255, 0.25) !important; }
+.admin-dashboard-wrapper .bg-black\/40 { background-color: rgba(0, 0, 0, 0.45) !important; }
+.admin-dashboard-wrapper .bg-black\/50 { background-color: rgba(0, 0, 0, 0.6) !important; }
+
+/* Modal & Portal Overrides (Specifically for CouponManager, API and active modals) */
+.admin-dashboard-wrapper .fixed.inset-0,
+[data-slot="dialog-overlay"] {
+  background-color: rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(4px) !important;
+}
+.admin-dashboard-wrapper .fixed.inset-0 .bg-zinc-900,
+.admin-dashboard-wrapper .fixed.inset-0 [data-slot="dialog"],
+.admin-dashboard-wrapper [data-slot="dialog-content"] {
+  background-color: var(--bg-card) !important;
+  border-color: var(--borda) !important;
+  color: #FFFFFF !important;
+}
+.admin-dashboard-wrapper .fixed.inset-0 h3,
+.admin-dashboard-wrapper .fixed.inset-0 h4,
+.admin-dashboard-wrapper .fixed.inset-0 p,
+.admin-dashboard-wrapper .fixed.inset-0 span,
+.admin-dashboard-wrapper .fixed.inset-0 div,
+.admin-dashboard-wrapper .fixed.inset-0 label {
+  color: #FFFFFF !important;
+}
+
+/* Inputs, selects, and textareas inside Admin Dashboard */
+.admin-dashboard-wrapper input,
+.admin-dashboard-wrapper textarea,
+.admin-dashboard-wrapper select,
+.admin-dashboard-wrapper .fixed.inset-0 input,
+.admin-dashboard-wrapper .fixed.inset-0 textarea,
+.admin-dashboard-wrapper .fixed.inset-0 select {
+  color: #FFFFFF !important;
+  background-color: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+.admin-dashboard-wrapper input:focus,
+.admin-dashboard-wrapper textarea:focus,
+.admin-dashboard-wrapper select:focus {
+  border-color: var(--gold) !important;
+}
+
+/* Buttons inside Admin Dashboard wrapper */
+.admin-dashboard-wrapper button:not(.bg-luxury-gold):not(.bg-gold):not(.bg-red-500):not(.bg-emerald-500) {
+  color: #FFFFFF !important;
+}
+.admin-dashboard-wrapper button.bg-luxury-gold,
+.admin-dashboard-wrapper button.bg-gold,
+.admin-dashboard-wrapper .bg-luxury-gold {
+  background-color: var(--gold) !important;
+  color: #000000 !important;
+}
+.admin-dashboard-wrapper button.bg-luxury-gold *,
+.admin-dashboard-wrapper button.bg-gold *,
+.admin-dashboard-wrapper .bg-luxury-gold * {
+  color: #000000 !important;
+}
+
+/* Forms, table row selections, separators and specific widgets */
+.admin-dashboard-wrapper .border-t,
+.admin-dashboard-wrapper .border-b,
+.admin-dashboard-wrapper .border-l,
+.admin-dashboard-wrapper .border-r,
+.admin-dashboard-wrapper .border {
+  border-color: var(--borda) !important;
+}
+.admin-dashboard-wrapper hr,
+.admin-dashboard-wrapper .bg-white\/10 {
+  background-color: var(--borda) !important;
+}
+
 /* Light theme overrides for Profile Dashboard */
 .profile-dashboard-wrapper {
   color: #1C1B19 !important;
