@@ -158,6 +158,26 @@ const initDB = async () => {
           INSERT INTO site_settings (key, value)
           SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
           WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
+
+          -- Ensure store_events table exists
+          CREATE TABLE IF NOT EXISTS store_events (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            event_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            product_id UUID,
+            payload JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+          );
+
+          ALTER TABLE IF EXISTS store_events ENABLE ROW LEVEL SECURITY;
+          
+          DO $$ 
+          BEGIN 
+            DROP POLICY IF EXISTS "Anyone can view store events" ON store_events;
+          END $$;
+
+          CREATE POLICY "Anyone can view store events" ON store_events FOR SELECT USING (true);
         ` });
       } catch(e) { console.error('[INIT] Error ensuring tables/RLS:', e); }
 
@@ -1028,6 +1048,114 @@ apiRouter.post('/recovery/reset', async (req, res) => {
 
 // --- API ROUTES ---
 
+// --- SERVER-SENT EVENTS (SSE) FOR REAL-TIME NOTIFICATIONS ---
+const storeEventsClients: express.Response[] = [];
+
+async function broadcastProductCreated(product: any) {
+  try {
+    const supabase = getSupabase();
+    const event_type = 'product_created';
+    const title = `Novo Produto Adicionado`;
+    const message = `O produto "${product.title}" foi adicionado à loja.`;
+    const payload = {
+      id: product.id,
+      title: product.title,
+      price: product.price,
+      image_url: product.image_url,
+      category: product.category || 'Geral',
+      created_at: product.created_at || new Date().toISOString()
+    };
+
+    const { data: dbEvent, error: dbError } = await supabase
+      .from('store_events')
+      .insert([{
+        event_type,
+        title,
+        message,
+        product_id: product.id,
+        payload
+      }])
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('[SSE BROADCAST] Error saving event to database:', dbError);
+    }
+
+    const eventToSend = dbEvent || {
+      id: crypto.randomUUID(),
+      event_type,
+      title,
+      message,
+      product_id: product.id,
+      payload,
+      created_at: new Date().toISOString()
+    };
+
+    console.log(`[SSE BROADCAST] Sending 'product_created' for "${product.title}" to ${storeEventsClients.length} clients...`);
+    const sseFormattedData = `data: ${JSON.stringify(eventToSend)}\n\n`;
+    
+    storeEventsClients.forEach((client, index) => {
+      try {
+        client.write(sseFormattedData);
+      } catch (err) {
+        // Ignored, closed connections are handled by 'close' listener
+      }
+    });
+  } catch (err) {
+    console.error('[SSE BROADCAST FATAL ERROR]', err);
+  }
+}
+
+apiRouter.get('/products/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  
+  res.write(': sse connection established\n\n');
+  storeEventsClients.push(res);
+  console.log(`[SSE] Client connected. Total clients: ${storeEventsClients.length}`);
+
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(': keepalive\n\n');
+    } catch(e) {}
+  }, 30000);
+
+  req.on('close', () => {
+    clearInterval(heartbeatInterval);
+    const index = storeEventsClients.indexOf(res);
+    if (index !== -1) {
+      storeEventsClients.splice(index, 1);
+    }
+    console.log(`[SSE] Client disconnected. Total clients: ${storeEventsClients.length}`);
+  });
+});
+
+apiRouter.get('/products/recent-events', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('store_events')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (error) {
+      if (error.message?.includes('does not exist')) {
+        return res.json([]);
+      }
+      throw error;
+    }
+    res.json(data || []);
+  } catch (error: any) {
+    console.error('[API RECENT EVENTS ERROR]', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check
 apiRouter.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -1230,6 +1358,7 @@ apiRouter.post('/products/extract-ingest', async (req, res) => {
       if (insertError) throw insertError;
       result = inserted;
       console.log(`[CYBEREXTRACT] Novo produto Temu/AliExpress instanciado com sucesso. ID Local: ${result.id}`);
+      broadcastProductCreated(result).catch(err => console.error('[EVENT BROADCAST ERROR]', err));
     }
 
     // Forçar recarga do cache de schemas do PostgREST para refletir o novo produto instantaneamente
@@ -2261,6 +2390,7 @@ adminRouter.post('/products', async (req, res) => {
       console.error(`[ADMIN] Error creating product:`, error);
       throw error;
     }
+    broadcastProductCreated(data).catch(err => console.error('[EVENT BROADCAST ERROR]', err));
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -2690,6 +2820,7 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
         .select().single();
       if (insertError) throw insertError;
       result_data = inserted;
+      broadcastProductCreated(result_data).catch(err => console.error('[EVENT BROADCAST ERROR]', err));
     }
 
     const isUpdate = !!existing;
@@ -2923,6 +3054,7 @@ adminRouter.post('/products/import-temu-raw', async (req, res) => {
         .select().single();
       if (insertError) throw insertError;
       result_data = inserted;
+      broadcastProductCreated(result_data).catch(err => console.error('[EVENT BROADCAST ERROR]', err));
     }
 
     // Forçar recarga do schema do PostgREST

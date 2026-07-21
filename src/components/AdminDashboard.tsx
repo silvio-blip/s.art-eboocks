@@ -44,6 +44,7 @@ import {
   Key,
   Terminal,
   Copy,
+  Bell,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -154,12 +155,16 @@ export default function AdminDashboard({
   formatPrice,
   siteTheme,
   onThemeChange,
+  unreadCount = 0,
+  onNotificationClick,
 }: {
   user: SupabaseUser;
   onBack: () => void;
   formatPrice?: (price: number) => string;
   siteTheme?: { active: string };
   onThemeChange?: (theme: { active: string }) => void;
+  unreadCount?: number;
+  onNotificationClick?: () => void;
 }) {
   const renderPrice = (val: number) => {
     const rounded = Math.round(val * 100) / 100;
@@ -1770,6 +1775,20 @@ export default function AdminDashboard({
           </div>
 
           <div className="flex items-center gap-2">
+            {onNotificationClick && (
+              <button
+                onClick={onNotificationClick}
+                className="relative p-2 rounded-full border border-luxury-gold/20 hover:border-luxury-gold/50 text-luxury-gold hover:bg-luxury-gold/10 transition-all cursor-pointer mr-1 flex items-center justify-center h-8 w-8 bg-white/5"
+                title="Notificações da Loja"
+              >
+                <Bell size={14} className="stroke-[2.5]" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 bg-red-500 text-white font-mono text-[9px] font-black rounded-full flex items-center justify-center px-1 animate-pulse border border-black shadow">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
             {currentUserProfile?.is_admin && (
               <>
                 <Button

@@ -39,6 +39,8 @@ import {
   Globe,
   Truck,
   Crown,
+  Bell,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -884,6 +886,8 @@ const Navbar = ({
   onCountryChange,
   currentLanguage,
   view,
+  unreadCount = 0,
+  onNotificationClick,
 }: {
   user: any;
   profile: any;
@@ -898,6 +902,8 @@ const Navbar = ({
   onCountryChange: (c: any) => void;
   currentLanguage: string;
   view: string;
+  unreadCount?: number;
+  onNotificationClick?: () => void;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1051,6 +1057,22 @@ const Navbar = ({
                 exit={{ opacity: 0, scale: 0.9 }}
                 className="flex items-center gap-3 md:gap-5"
               >
+                {/* Real-time Notification Bell */}
+                {onNotificationClick && (
+                  <button
+                    onClick={onNotificationClick}
+                    className={`relative ${iconClass} p-1 rounded-full hover:bg-neutral-500/10 transition-colors flex items-center justify-center`}
+                    aria-label="Notifications"
+                    title="Notificações da Loja"
+                  >
+                    <Bell size={18} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 bg-red-500 text-white font-mono text-[8px] font-black rounded-full flex items-center justify-center px-1 animate-pulse border border-black shadow">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )}
                 {user ? (
                   <div className="flex items-center gap-3 md:gap-5">
                     {(ADMIN_IDS.includes(user.id || "") || profile?.is_admin || profile?.is_employee) && (
@@ -2363,6 +2385,120 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  const [storeEvents, setStoreEvents] = useState<any[]>([]);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [lastReadEvents, setLastReadEvents] = useState<number>(() => {
+    try {
+      return parseInt(localStorage.getItem("lastReadStoreEvents") || "0", 10);
+    } catch (e) {
+      return 0;
+    }
+  });
+
+  // Fetch initial event logs on page load
+  useEffect(() => {
+    fetch("/api/products/recent-events")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setStoreEvents(data);
+        }
+      })
+      .catch(err => console.error("Error fetching recent store events:", err));
+  }, []);
+
+  // Listen for live Server-Sent Events for real-time notifications
+  useEffect(() => {
+    const eventSource = new EventSource("/api/products/events");
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("[SSE] Real-time store event received:", data);
+
+        if (data.event_type === "product_created") {
+          setStoreEvents(prev => [data, ...prev].slice(0, 50));
+
+          // Trigger sonner toast with custom luxury styling matching the store theme
+          toast.custom((t) => (
+            <div 
+              className="flex bg-neutral-950/95 backdrop-blur-md text-white border border-amber-500/30 p-4 shadow-2xl items-center gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-sm rounded-lg"
+              id="new-product-toast"
+            >
+              {data.payload?.image_url ? (
+                <img 
+                  src={data.payload.image_url} 
+                  alt="" 
+                  className="w-12 h-12 rounded object-cover border border-white/10" 
+                  referrerPolicy="no-referrer" 
+                />
+              ) : (
+                <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded flex items-center justify-center">
+                  <Bell className="w-5 h-5 text-amber-500" />
+                </div>
+              )}
+              <div className="flex-1 text-left min-w-0">
+                <p className="text-[10px] text-amber-500 uppercase tracking-[0.2em] font-medium">Novidade na Loja!</p>
+                <h4 className="text-xs uppercase font-bold tracking-widest truncate">{data.payload?.title || "Novo Produto"}</h4>
+                <p className="text-[10px] text-white/60 mt-0.5">
+                  {data.payload?.price ? `€${parseFloat(data.payload.price).toFixed(2)}` : 'Preço sob consulta'}
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  toast.dismiss(t);
+                  if (data.payload?.id) {
+                    const minimalProduct: any = {
+                      id: data.payload.id,
+                      title: data.payload.title,
+                      price: data.payload.price,
+                      image_url: data.payload.image_url,
+                      category: data.payload.category || 'Geral',
+                      product_type: 'physical',
+                      is_active: true
+                    };
+                    setDetailProduct(minimalProduct);
+                    setView("product-detail");
+                  } else {
+                    const element = document.getElementById("boutique");
+                    if (element) {
+                      element.scrollIntoView({ behavior: "smooth" });
+                    }
+                  }
+                }}
+                className="text-[9px] uppercase tracking-widest font-black text-amber-500 border border-amber-500/30 hover:bg-amber-500 hover:text-black transition-all px-3 py-1.5 rounded"
+              >
+                Ver
+              </button>
+            </div>
+          ), { duration: 8000 });
+        }
+      } catch (err) {
+        console.error("[SSE] Error parsing event message:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn("[SSE] EventSource connection encountered an error, reconnecting automatically...", err);
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, []);
+
+  const unreadCount = useMemo(() => {
+    return storeEvents.filter(e => new Date(e.created_at).getTime() > lastReadEvents).length;
+  }, [storeEvents, lastReadEvents]);
+
+  const handleMarkAllRead = () => {
+    const now = Date.now();
+    setLastReadEvents(now);
+    try {
+      localStorage.setItem("lastReadStoreEvents", String(now));
+    } catch(e) {}
+  };
   const getInitialView = () => {
     if (typeof window === "undefined") return "home";
     const params = new URLSearchParams(window.location.search);
@@ -3818,6 +3954,8 @@ export default function App() {
                 }));
               }}
               view={view}
+              unreadCount={unreadCount}
+              onNotificationClick={() => setIsNotificationOpen(true)}
             />
           )}
 
@@ -3897,6 +4035,8 @@ export default function App() {
                 formatPrice={formatPrice}
                 siteTheme={siteTheme}
                 onThemeChange={setSiteTheme}
+                unreadCount={unreadCount}
+                onNotificationClick={() => setIsNotificationOpen(true)}
               />
             </motion.div>
           )}
@@ -5045,6 +5185,191 @@ export default function App() {
           setView("terms");
         }}
       />
+      {/* Real-time Notifications Slide-out Drawer */}
+      <AnimatePresence>
+        {isNotificationOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setIsNotificationOpen(false);
+                handleMarkAllRead();
+              }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[10000]"
+            />
+
+            {/* Panel */}
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 w-full sm:w-[450px] h-full bg-[#FCFAF7] dark:bg-[#0A0A0A] border-l border-black/10 dark:border-white/5 shadow-2xl z-[10001] flex flex-col text-luxury-foreground dark:text-white"
+            >
+              {/* Header */}
+              <div className="p-6 border-b border-black/10 dark:border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-500/10 rounded-full border border-amber-500/20 text-amber-500">
+                    <Bell size={18} className="animate-bounce" />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-base tracking-widest uppercase font-bold text-black dark:text-white">
+                      Notificações
+                    </h3>
+                    <p className="text-[10px] text-black/50 dark:text-white/40 uppercase tracking-widest mt-0.5">
+                      Atualizações em tempo real
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setIsNotificationOpen(false);
+                    handleMarkAllRead();
+                  }}
+                  className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-full text-black/50 dark:text-white/40 hover:text-black dark:hover:text-white transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Actions & Meta */}
+              <div className="px-6 py-3 bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/5 flex items-center justify-between text-[10px]">
+                <span className="font-mono text-black/60 dark:text-white/60 uppercase tracking-wider">
+                  {unreadCount > 0 ? `${unreadCount} novas` : 'Sem novas mensagens'}
+                </span>
+                {storeEvents.length > 0 && (
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="text-amber-500 hover:text-amber-600 uppercase font-black tracking-widest transition-colors font-mono"
+                  >
+                    Marcar como lidas
+                  </button>
+                )}
+              </div>
+
+              {/* Scrollable Events list */}
+              <ScrollArea className="flex-1">
+                <div className="p-6 space-y-4">
+                  {storeEvents.length === 0 ? (
+                    <div className="py-16 text-center space-y-4 flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-amber-500/5 border border-amber-500/15 flex items-center justify-center text-amber-500/40">
+                        <Bell size={24} />
+                      </div>
+                      <div className="max-w-[260px] space-y-1">
+                        <p className="font-serif text-sm font-semibold tracking-wide text-black dark:text-white">
+                          Nenhum evento recente
+                        </p>
+                        <p className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed">
+                          Quando novos produtos forem adicionados à loja, você receberá notificações e alertas em tempo real aqui.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    storeEvents.map((event) => {
+                      const isUnread = new Date(event.created_at).getTime() > lastReadEvents;
+                      const productPayload = event.payload || {};
+                      
+                      return (
+                        <motion.div
+                          key={event.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={`p-4 border border-black/5 dark:border-white/5 rounded-lg flex gap-4 items-start relative transition-all duration-300 ${
+                            isUnread 
+                              ? "bg-amber-500/5 border-amber-500/10 shadow-[0_4px_12px_rgba(245,158,11,0.02)]" 
+                              : "bg-white/50 dark:bg-black/20"
+                          }`}
+                        >
+                          {/* Unread indicator dot */}
+                          {isUnread && (
+                            <span className="absolute top-4 right-4 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                          )}
+
+                          {/* Image thumbnail */}
+                          {productPayload.image_url ? (
+                            <img
+                              src={productPayload.image_url}
+                              alt=""
+                              className="w-16 h-16 rounded object-cover border border-black/10 dark:border-white/10 shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded bg-amber-500/5 border border-amber-500/10 flex items-center justify-center shrink-0">
+                              <Bell className="w-6 h-6 text-amber-500/40" />
+                            </div>
+                          )}
+
+                          {/* Info */}
+                          <div className="flex-1 space-y-1 text-left min-w-0">
+                            <p className="text-[9px] text-amber-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
+                              <Clock size={10} />
+                              {new Date(event.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                              {" • "}
+                              {new Date(event.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
+                            </p>
+                            <h4 className="font-serif text-sm font-semibold tracking-wide text-black dark:text-white truncate">
+                              {productPayload.title || event.title}
+                            </h4>
+                            <p className="text-xs text-black/60 dark:text-white/50 line-clamp-2 leading-relaxed">
+                              {event.message}
+                            </p>
+                            {productPayload.price && (
+                              <p className="text-xs font-mono font-bold text-amber-500 mt-1">
+                                €{parseFloat(productPayload.price).toFixed(2)}
+                              </p>
+                            )}
+                            
+                            <div className="pt-2">
+                              <button
+                                onClick={() => {
+                                  setIsNotificationOpen(false);
+                                  handleMarkAllRead();
+                                  
+                                  if (productPayload.id) {
+                                    const minimalProduct: any = {
+                                      id: productPayload.id,
+                                      title: productPayload.title,
+                                      price: productPayload.price,
+                                      image_url: productPayload.image_url,
+                                      category: productPayload.category || 'Geral',
+                                      product_type: 'physical',
+                                      is_active: true
+                                    };
+                                    setDetailProduct(minimalProduct);
+                                    setView("product-detail");
+                                  } else {
+                                    const element = document.getElementById("boutique");
+                                    if (element) {
+                                      element.scrollIntoView({ behavior: "smooth" });
+                                    }
+                                  }
+                                }}
+                                className="text-[9px] uppercase tracking-widest font-black text-amber-500 hover:text-white hover:bg-amber-500 border border-amber-500/20 hover:border-transparent px-3 py-1 rounded transition-all inline-block"
+                              >
+                                Explorar Produto
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+              
+              {/* Footer */}
+              <div className="p-4 border-t border-black/10 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.01] text-center">
+                <p className="text-[9px] text-black/40 dark:text-white/30 uppercase tracking-[0.25em] font-mono">
+                  S.art Boutique • Event Bus Online
+                </p>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
         </>
       )}
       <Toaster
