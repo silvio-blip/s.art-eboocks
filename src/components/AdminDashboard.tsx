@@ -471,6 +471,10 @@ export default function AdminDashboard({
     buttonText: ""
   });
 
+  const [aliAppKey, setAliAppKey] = useState("");
+  const [aliAppSecret, setAliAppSecret] = useState("");
+  const [aliAccessToken, setAliAccessToken] = useState("");
+
   // Categories are strictly managed from the categories table
   const allAvailableCategories = useMemo(() => {
     return categories.map(c => c.name).sort();
@@ -722,6 +726,18 @@ export default function AdminDashboard({
         const data = await res.json();
         setSiteHero(data);
       }
+
+      const aliRes = await fetch(`/api/admin/settings/aliexpress_config`, {
+        headers: { "x-user-id": user.id }
+      });
+      if (aliRes.ok) {
+        const data = await aliRes.json();
+        if (data) {
+          setAliAppKey(data.app_key || "");
+          setAliAppSecret(data.app_secret || "");
+          setAliAccessToken(data.access_token || "");
+        }
+      }
     } catch (e) {
       console.error("Error fetching site settings:", e);
     }
@@ -741,9 +757,19 @@ export default function AdminDashboard({
         body: JSON.stringify({ active: localTheme }),
       });
 
-      const [heroRes, themeRes] = await Promise.all([heroPromise, themePromise]);
+      const aliPromise = fetch("/api/admin/settings/aliexpress_config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": user.id },
+        body: JSON.stringify({
+          app_key: aliAppKey,
+          app_secret: aliAppSecret,
+          access_token: aliAccessToken
+        }),
+      });
 
-      if (heroRes.ok && themeRes.ok) {
+      const [heroRes, themeRes, aliRes] = await Promise.all([heroPromise, themePromise, aliPromise]);
+
+      if (heroRes.ok && themeRes.ok && aliRes.ok) {
         toast.success("Configurações salvas com sucesso!");
         if (onThemeChange) {
           onThemeChange({ active: localTheme });
@@ -5565,6 +5591,57 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                         <p className="text-[7px] text-white/90 mt-0.5">Laranja & Calor</p>
                       </div>
                     </button>
+                  </div>
+                </div>
+
+                {/* Integração AliExpress */}
+                <div className="space-y-4 pb-6 border-b border-white/5 bg-white/[0.01] p-4 border border-white/5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-luxury-gold rounded-full animate-pulse" />
+                      <h4 className="text-[10px] uppercase tracking-[0.2em] text-white/95 font-black">Integração Oficial AliExpress</h4>
+                    </div>
+                    <span className="text-[8px] bg-luxury-gold/10 text-luxury-gold px-2 py-0.5 uppercase tracking-wider font-bold">API Ativa</span>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">App Key</label>
+                      <input
+                        value={aliAppKey}
+                        onChange={(e) => setAliAppKey(e.target.value)}
+                        placeholder="Ex: 504381"
+                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">App Secret (Segredo)</label>
+                      <input
+                        type="password"
+                        value={aliAppSecret}
+                        onChange={(e) => setAliAppSecret(e.target.value)}
+                        placeholder="••••••••••••••••••••"
+                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">Token de Acesso (Session Key)</label>
+                        <span className="text-[8px] text-luxury-gold/90 uppercase tracking-widest font-black">Obrigatório para importar</span>
+                      </div>
+                      <textarea
+                        value={aliAccessToken}
+                        onChange={(e) => setAliAccessToken(e.target.value)}
+                        placeholder="Cole aqui o seu Token de Acesso (Session Key) completo do console do AliExpress..."
+                        rows={3}
+                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono resize-none custom-scrollbar"
+                      />
+                      <p className="text-[8px] text-white/40 leading-relaxed mt-1">
+                        Este Token de Acesso permite a importação direta de produtos com todas as variações e imagens 100% integradas.
+                      </p>
+                    </div>
                   </div>
                 </div>
 

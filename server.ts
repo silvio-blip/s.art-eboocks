@@ -635,68 +635,111 @@ function extractAliExpressPrice(field: any): number {
   }
   return 0;
 }
+async function getAliExpressCredentials() {
+  let appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
+  let appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
+  let accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
+
+  try {
+    const supabase = getSupabase();
+    const { data } = await supabase
+      .from('site_settings')
+      .select('value')
+      .eq('key', 'aliexpress_config')
+      .maybeSingle();
+
+    if (data && data.value) {
+      const config = data.value as any;
+      if (config.app_key) appKey = config.app_key.trim();
+      if (config.app_secret) appSecret = config.app_secret.trim();
+      if (config.access_token) accessToken = config.access_token.trim();
+    }
+  } catch (err) {
+    console.error("[ALIEXPRESS CREDENTIALS DB FETCH ERROR] falling back to env:", err);
+  }
+
+  return { appKey, appSecret, accessToken };
+}
+
 async function fetchAliExpressProduct(productId: string) {
-  const appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
-  const appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
-  const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
+  const { appKey, appSecret, accessToken } = await getAliExpressCredentials();
 
   if (!appKey || !appSecret) {
-    throw new Error('Credenciais de integração ausentes no servidor.');
+    throw new Error('Credenciais de integração (App Key / App Secret) ausentes no servidor. Configure-as nas Definições do Painel Administrativo.');
   }
 
   const currentTimestamp = getAliExpressTimestamp();
-  const systemParams: Record<string, any> = {
-    app_key: appKey,
-    timestamp: currentTimestamp,
-    sign_method: 'md5',
-    method: 'aliexpress.ds.product.get',
-    format: 'json',
-    v: '2.0',
-  };
 
-  if (accessToken) systemParams.session = accessToken;
+  const makeRequestInternal = async (useSession: boolean): Promise<any> => {
+    const systemParams: Record<string, any> = {
+      app_key: appKey,
+      timestamp: currentTimestamp,
+      sign_method: 'md5',
+      method: 'aliexpress.ds.product.get',
+      format: 'json',
+      v: '2.0',
+    };
 
-  const businessParams: Record<string, any> = {
-    product_id: cleanAliExpressId(productId),
-    target_currency: 'EUR',
-    target_language: 'PT',
-    ship_to_country: 'PT',
-  };
-
-  const allParams: Record<string, any> = { ...systemParams };
-  for (const [k, v] of Object.entries(businessParams)) {
-    if (v !== null && v !== undefined && v !== '') {
-      allParams[k] = v;
+    if (useSession && accessToken) {
+      systemParams.session = accessToken;
     }
-  }
 
-  const sign = generateAliExpressSignature(allParams, appSecret);
-  const formData = new URLSearchParams();
-  const sortedKeys = Object.keys(allParams).sort();
-  for (const key of sortedKeys) {
-    const val = allParams[key];
-    const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
-    formData.append(key, stringVal);
-  }
-  formData.append('sign', sign);
+    const businessParams: Record<string, any> = {
+      product_id: cleanAliExpressId(productId),
+      target_currency: 'EUR',
+      target_language: 'PT',
+      ship_to_country: 'PT',
+    };
 
-  const aliRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
-    timeout: 30000
-  });
+    const allParams: Record<string, any> = { ...systemParams };
+    for (const [k, v] of Object.entries(businessParams)) {
+      if (v !== null && v !== undefined && v !== '') {
+        allParams[k] = v;
+      }
+    }
 
-  const responseKey = 'aliexpress_ds_product_get_response';
-  const data = aliRes.data[responseKey]?.result || aliRes.data[responseKey];
-  
-  if (aliRes.data.error_response) {
-    throw new Error(`Erro no Provedor: ${aliRes.data.error_response.msg}`);
-  }
+    const sign = generateAliExpressSignature(allParams, appSecret);
+    const formData = new URLSearchParams();
+    const sortedKeys = Object.keys(allParams).sort();
+    for (const key of sortedKeys) {
+      const val = allParams[key];
+      const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
+      formData.append(key, stringVal);
+    }
+    formData.append('sign', sign);
 
-  if (!data) {
-    throw new Error('Produto não encontrado no fornecedor.');
-  }
+    const aliRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+      timeout: 30000
+    });
 
-  return data;
+    const responseKey = 'aliexpress_ds_product_get_response';
+    const data = aliRes.data[responseKey]?.result || aliRes.data[responseKey];
+    
+    if (aliRes.data.error_response) {
+      const msg = aliRes.data.error_response.msg || '';
+      const subMsg = aliRes.data.error_response.sub_msg || '';
+      const isSessionError = msg.toLowerCase().includes('session') || 
+                            msg.toLowerCase().includes('token') || 
+                            msg.toLowerCase().includes('expired') ||
+                            subMsg.toLowerCase().includes('session') ||
+                            subMsg.toLowerCase().includes('token') ||
+                            subMsg.toLowerCase().includes('expired');
+
+      if (isSessionError) {
+        throw new Error('Erro de Autenticação AliExpress: O Token de Acesso (Session Key) está ausente, expirou ou é inválido. Por favor, atualize o token nas configurações do site no Painel Administrativo.');
+      }
+      throw new Error(`Erro no Provedor: ${aliRes.data.error_response.msg} (${aliRes.data.error_response.sub_msg || ''})`);
+    }
+
+    if (!data) {
+      throw new Error('Produto não encontrado no fornecedor.');
+    }
+
+    return data;
+  };
+
+  return makeRequestInternal(true);
 }
 
 /**
@@ -745,68 +788,83 @@ function getAliExpressTimestamp(): string {
 apiRouter.post('/aliexpress/proxy', async (req, res) => {
   const { method, params } = req.body;
   try {
-    const appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
-    const appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
-    const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
-    console.log("🔍 Token lido do ENV:", accessToken ? `${accessToken.substring(0, 10)}... (protegido)` : "NÃO DEFINIDO");
+    const { appKey, appSecret, accessToken } = await getAliExpressCredentials();
+    console.log("🔍 Token lido do Banco/ENV:", accessToken ? `${accessToken.substring(0, 10)}... (protegido)` : "NÃO DEFINIDO");
 
     if (!appKey || !appSecret) {
       return res.status(500).json({ error: 'Integração não configurada no servidor (CREDENTIALS_MISSING).' });
     }
 
-    const currentTimestamp = getAliExpressTimestamp();
-    const systemParams: Record<string, any> = {
-      app_key: appKey,
-      timestamp: currentTimestamp,
-      sign_method: 'md5',
-      method: method,
-      format: 'json',
-      v: '2.0',
+    const executeCall = async (useSession: boolean): Promise<any> => {
+      const currentTimestamp = getAliExpressTimestamp();
+      const systemParams: Record<string, any> = {
+        app_key: appKey,
+        timestamp: currentTimestamp,
+        sign_method: 'md5',
+        method: method,
+        format: 'json',
+        v: '2.0',
+      };
+
+      if (useSession && accessToken) {
+        systemParams.session = accessToken;
+      }
+
+      const allParams: Record<string, any> = { ...systemParams };
+      for (const [key, value] of Object.entries(params || {})) {
+        if (value !== null && value !== undefined && value !== '') {
+            if (['product_id', 'aliexpress_id', 'order_id', 'parent_order_id'].includes(key.toLowerCase())) {
+              allParams[key] = cleanAliExpressId(value as string);
+            } else {
+              allParams[key] = value;
+            }
+        }
+      }
+      
+      const sign = generateAliExpressSignature(allParams, appSecret);
+      const sortedKeys = Object.keys(allParams).sort();
+      
+      // Construir o corpo x-www-form-urlencoded purista
+      const bodySegments: string[] = [];
+      for (const key of sortedKeys) {
+          const val = allParams[key];
+          const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
+          bodySegments.push(`${key}=${encodeURIComponent(stringVal)}`);
+      }
+      bodySegments.push(`sign=${sign}`);
+      const body = bodySegments.join('&');
+
+      console.log(`[ALIEXPRESS PROXY] Call: ${method} | ParamsKeys: ${Object.keys(params || {}).join(',')} | Sign: ${sign}`);
+
+      const response = await axios.post('https://api-sg.aliexpress.com/sync', body, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+        timeout: 60000
+      });
+
+      if (response.data.error_response) {
+        const msg = response.data.error_response.msg || '';
+        const subMsg = response.data.error_response.sub_msg || '';
+        const isSessionError = msg.toLowerCase().includes('session') || 
+                              msg.toLowerCase().includes('token') || 
+                              msg.toLowerCase().includes('expired') ||
+                              subMsg.toLowerCase().includes('session') ||
+                              subMsg.toLowerCase().includes('token') ||
+                              subMsg.toLowerCase().includes('expired');
+
+        if (useSession && isSessionError) {
+          console.warn(`[ALIEXPRESS PROXY] Access token is invalid or expired. Retrying WITHOUT session parameter...`);
+          return executeCall(false);
+        }
+        console.error('⚠️ [ALIEXPRESS API RETURNED ERROR]', response.data.error_response);
+      } else {
+        console.log('✅ [ALIEXPRESS API SUCCESS]');
+      }
+
+      return response.data;
     };
 
-    // Usamos 'session' conforme padrão para Dropshipping/Top API
-    if (accessToken) {
-      systemParams.session = accessToken;
-    }
-
-    const allParams: Record<string, any> = { ...systemParams };
-    for (const [key, value] of Object.entries(params || {})) {
-      if (value !== null && value !== undefined && value !== '') {
-          if (['product_id', 'aliexpress_id', 'order_id', 'parent_order_id'].includes(key.toLowerCase())) {
-            allParams[key] = cleanAliExpressId(value as string);
-          } else {
-            allParams[key] = value;
-          }
-      }
-    }
-    
-    const sign = generateAliExpressSignature(allParams, appSecret);
-    const sortedKeys = Object.keys(allParams).sort();
-    
-    // Construir o corpo x-www-form-urlencoded purista
-    const bodySegments: string[] = [];
-    for (const key of sortedKeys) {
-        const val = allParams[key];
-        const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
-        bodySegments.push(`${key}=${encodeURIComponent(stringVal)}`);
-    }
-    bodySegments.push(`sign=${sign}`);
-    const body = bodySegments.join('&');
-
-    console.log(`[ALIEXPRESS PROXY] Call: ${method} | ParamsKeys: ${Object.keys(params || {}).join(',')} | Sign: ${sign}`);
-
-    const response = await axios.post('https://api-sg.aliexpress.com/sync', body, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
-      timeout: 60000
-    });
-
-    if (response.data.error_response) {
-      console.error('⚠️ [ALIEXPRESS API RETURNED ERROR]', response.data.error_response);
-    } else {
-      console.log('✅ [ALIEXPRESS API SUCCESS]');
-    }
-
-    res.json(response.data);
+    const result = await executeCall(true);
+    res.json(result);
   } catch (error: any) {
     console.error('[ALIEXPRESS PROXY ERROR]', error.response?.data || error.message);
     res.status(500).json({ error: error.message, details: error.response?.data });
@@ -2084,6 +2142,19 @@ adminRouter.get('/categories', async (req, res) => {
   }
 });
 
+adminRouter.get('/settings/:key', async (req, res) => {
+  try {
+    const { key } = req.params;
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('site_settings').select('value').eq('key', key).maybeSingle();
+    if (error) throw error;
+    res.json(data ? data.value : {});
+  } catch (err: any) {
+    console.error('[ADMIN SETTINGS FETCH ERROR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 adminRouter.post('/settings/:key', async (req, res) => {
   try {
     const { key } = req.params;
@@ -2872,6 +2943,19 @@ adminRouter.post('/products/import-aliexpress', async (req, res) => {
     res.json({ ...result_data, _isUpdate: isUpdate });
   } catch (error: any) {
     console.error(`[ADMIN ALIEXPRESS IMPORT ERROR]`, error.message);
+    const errMessage = error.message || '';
+    if (
+      errMessage.toLowerCase().includes('access_token') ||
+      errMessage.toLowerCase().includes('token') ||
+      errMessage.toLowerCase().includes('session') ||
+      errMessage.toLowerCase().includes('not supplied') ||
+      errMessage.toLowerCase().includes('expired') ||
+      errMessage.toLowerCase().includes('provedor')
+    ) {
+      return res.status(400).json({
+        error: 'Erro de Autenticação na API AliExpress: O Token de Acesso (Session Key) está ausente, expirou ou é inválido.\n\n💡 SOLUÇÃO:\nPor favor, atualize as suas credenciais e o Token de Acesso do AliExpress nas "Configurações do Site" (botão de engrenagem no topo do Painel Administrativo). Assim que guardar o novo token, as importações voltarão a funcionar instantaneamente!'
+      });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -4505,58 +4589,56 @@ async function getAliExpressProductDetail(aliexpressId: string) {
 }
 
 async function callAliExpressAPIInternal(method: string, params: any) {
-    const appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
-    const appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
-    const accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
+    const { appKey, appSecret, accessToken } = await getAliExpressCredentials();
 
     if (!appKey || !appSecret) {
-        console.error("[ALIEXPRESS API] ERRO: Credenciais ausentes no environment (APP_KEY ou SECRET)");
+        console.error("[ALIEXPRESS API] ERRO: Credenciais ausentes no banco/environment (APP_KEY ou SECRET)");
         throw new Error("Credenciais de Fornecedor Ausentes");
     }
 
-    const currentTimestamp = getAliExpressTimestamp();
+    const executeCall = async (useSession: boolean): Promise<any> => {
+        const currentTimestamp = getAliExpressTimestamp();
 
-    const fullParams: Record<string, any> = {
-      app_key: appKey,
-      timestamp: currentTimestamp,
-      sign_method: 'md5',
-      method: method,
-      format: 'json',
-      v: '2.0',
-    };
-    
-    if (accessToken) {
-        fullParams.session = accessToken;
-    }
+        const fullParams: Record<string, any> = {
+          app_key: appKey,
+          timestamp: currentTimestamp,
+          sign_method: 'md5',
+          method: method,
+          format: 'json',
+          v: '2.0',
+        };
+        
+        if (useSession && accessToken) {
+            fullParams.session = accessToken;
+        }
 
-    // Mesclar com parâmetros de negócio remediando vazios e limpando IDs
-    for (const [key, value] of Object.entries(params)) {
-        if (value !== null && value !== undefined && value !== '') {
-            if (['product_id', 'aliexpress_id', 'order_id'].includes(key.toLowerCase())) {
-                fullParams[key] = cleanAliExpressId(value as string);
-            } else {
-                fullParams[key] = value;
+        // Mesclar com parâmetros de negócio remediando vazios e limpando IDs
+        for (const [key, value] of Object.entries(params)) {
+            if (value !== null && value !== undefined && value !== '') {
+                if (['product_id', 'aliexpress_id', 'order_id'].includes(key.toLowerCase())) {
+                    fullParams[key] = cleanAliExpressId(value as string);
+                } else {
+                    fullParams[key] = value;
+                }
             }
         }
-    }
 
-    // Gerar assinatura usando a lógica definitiva
-    const sign = generateAliExpressSignature(fullParams, appSecret);
-    
-    // Construir o corpo da requisição de forma idêntica à assinatura
-    const sortedKeys = Object.keys(fullParams).sort();
-    const bodySegments: string[] = [];
-    for (const key of sortedKeys) {
-        const val = fullParams[key];
-        const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
-        bodySegments.push(`${key}=${encodeURIComponent(stringVal)}`);
-    }
-    bodySegments.push(`sign=${sign}`);
-    const body = bodySegments.join('&');
+        // Gerar assinatura usando a lógica definitiva
+        const sign = generateAliExpressSignature(fullParams, appSecret);
+        
+        // Construir o corpo da requisição de forma idêntica à assinatura
+        const sortedKeys = Object.keys(fullParams).sort();
+        const bodySegments: string[] = [];
+        for (const key of sortedKeys) {
+            const val = fullParams[key];
+            const stringVal = (typeof val === 'object') ? JSON.stringify(val) : String(val);
+            bodySegments.push(`${key}=${encodeURIComponent(stringVal)}`);
+        }
+        bodySegments.push(`sign=${sign}`);
+        const body = bodySegments.join('&');
 
-    console.log(`[ALIEXPRESS API] Call: ${method} | Sign: ${sign.substring(0, 8)}...`);
+        console.log(`[ALIEXPRESS API] Call: ${method} | Sign: ${sign.substring(0, 8)}...`);
 
-    try {
         const response = await axios.post('https://api-sg.aliexpress.com/sync', body, {
           headers: { 
               'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' 
@@ -4567,10 +4649,27 @@ async function callAliExpressAPIInternal(method: string, params: any) {
         const result = response.data;
         if (result && result.error_response) {
             const err = result.error_response;
+            const msg = err.msg || '';
+            const subMsg = err.sub_msg || '';
+            const isSessionError = msg.toLowerCase().includes('session') || 
+                                  msg.toLowerCase().includes('token') || 
+                                  msg.toLowerCase().includes('expired') ||
+                                  subMsg.toLowerCase().includes('session') ||
+                                  subMsg.toLowerCase().includes('token') ||
+                                  subMsg.toLowerCase().includes('expired');
+                                  
+            if (useSession && isSessionError) {
+                console.warn(`[ALIEXPRESS INTERNAL] Access token is invalid or expired. Retrying WITHOUT session parameter...`);
+                return executeCall(false);
+            }
             console.error("[ALIEXPRESS API ERROR]", JSON.stringify(err));
             throw new Error(`AliExpress API Error: ${err.msg} (${err.code})`);
         }
         return result;
+    };
+
+    try {
+        return await executeCall(true);
     } catch (error: any) {
         const errorData = error.response?.data || error.message;
         console.error(`[ALIEXPRESS API FATAL ERROR] ${method}:`, JSON.stringify(errorData));
