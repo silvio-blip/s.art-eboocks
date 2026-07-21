@@ -4579,7 +4579,10 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
 
 async function getAliExpressProductDetail(aliexpressId: string) {
     const result = await callAliExpressAPIInternal('aliexpress.ds.product.get', {
-        product_id: cleanAliExpressId(aliexpressId)
+        product_id: cleanAliExpressId(aliexpressId),
+        ship_to_country: 'PT',
+        target_currency: 'EUR',
+        target_language: 'PT'
     });
     const responseKey = 'aliexpress_ds_product_get_response';
     if (result && result[responseKey] && result[responseKey].result) {
@@ -4811,7 +4814,7 @@ v1Router.get('/products', async (req, res) => {
     if (error) throw error;
 
     const mapped = (data || []).map(p => ({
-      id: p.id,
+      id: p.id ? p.id.split('-')[0].toUpperCase() : '',
       name: p.title,
       title: p.title,
       price: typeof p.price === 'string' ? parseFloat(p.price) : p.price,
@@ -4836,17 +4839,40 @@ v1Router.get('/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const supabase = getSupabase();
-    const { data: p, error } = await supabase
+    const queryId = id.trim().toLowerCase();
+
+    let p = null;
+    let { data: exactProduct } = await supabase
       .from('products')
       .select('*')
       .eq('id', id)
       .maybeSingle();
 
-    if (error) throw error;
+    if (exactProduct) {
+      p = exactProduct;
+    } else {
+      const { data: matchedProducts } = await supabase
+        .from('products')
+        .select('*')
+        .ilike('id', `${queryId}-%`);
+
+      if (matchedProducts && matchedProducts.length > 0) {
+        p = matchedProducts[0];
+      } else {
+        const { data: matchedFallback } = await supabase
+          .from('products')
+          .select('*')
+          .ilike('id', `${queryId}%`);
+        if (matchedFallback && matchedFallback.length > 0) {
+          p = matchedFallback[0];
+        }
+      }
+    }
+
     if (!p) return res.status(404).json({ error: 'Produto não encontrado.' });
 
     const mapped = {
-      id: p.id,
+      id: p.id ? p.id.split('-')[0].toUpperCase() : '',
       name: p.title,
       title: p.title,
       price: typeof p.price === 'string' ? parseFloat(p.price) : p.price,
@@ -4871,13 +4897,36 @@ v1Router.get('/products/:id/image', async (req, res) => {
   try {
     const { id } = req.params;
     const supabase = getSupabase();
-    const { data: p, error } = await supabase
+    const queryId = id.trim().toLowerCase();
+
+    let p = null;
+    let { data: exactProduct } = await supabase
       .from('products')
-      .select('image_url, extra_images')
+      .select('image_url, extra_images, id')
       .eq('id', id)
       .maybeSingle();
 
-    if (error) throw error;
+    if (exactProduct) {
+      p = exactProduct;
+    } else {
+      const { data: matchedProducts } = await supabase
+        .from('products')
+        .select('image_url, extra_images, id')
+        .ilike('id', `${queryId}-%`);
+
+      if (matchedProducts && matchedProducts.length > 0) {
+        p = matchedProducts[0];
+      } else {
+        const { data: matchedFallback } = await supabase
+          .from('products')
+          .select('image_url, extra_images, id')
+          .ilike('id', `${queryId}%`);
+        if (matchedFallback && matchedFallback.length > 0) {
+          p = matchedFallback[0];
+        }
+      }
+    }
+
     if (!p) return res.status(404).json({ error: 'Produto não encontrado.' });
 
     const images = {

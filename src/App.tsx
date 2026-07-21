@@ -2162,7 +2162,7 @@ const ProductDetailsPage = ({
             </div>
             
             <div className="space-y-4">
-              <h1 className={`font-serif leading-tight dark:text-white text-balance ${product.title.length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
+              <h1 className={`font-serif leading-tight dark:text-white text-balance ${(product.title || '').length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
                 {product.title}
               </h1>
               <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
@@ -2177,12 +2177,12 @@ const ProductDetailsPage = ({
             <div className="relative">
               <div 
                 className={`text-sm text-black/80 dark:text-zinc-300 leading-relaxed font-normal text-justify prose prose-sm dark:prose-invert max-w-none overflow-hidden transition-all duration-700 ${isExpanded ? "max-h-[2000px]" : "max-h-40"}`} 
-                dangerouslySetInnerHTML={{ __html: product.description }} 
+                dangerouslySetInnerHTML={{ __html: product.description || "" }} 
               />
-              {!isExpanded && product.description.length > 400 && (
+              {!isExpanded && (product.description || '').length > 400 && (
                 <div className="absolute bottom-0 inset-x-0 h-12 bg-gradient-to-t from-white dark:from-[#050505] to-transparent" />
               )}
-              {product.description.length > 400 && (
+              {(product.description || '').length > 400 && (
                 <button 
                   onClick={() => setIsExpanded(!isExpanded)}
                   className="mt-2 text-[10px] uppercase tracking-widest text-luxury-gold font-bold hover:text-black dark:hover:text-white transition-colors relative z-10"
