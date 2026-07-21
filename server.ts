@@ -1715,6 +1715,51 @@ apiRouter.get('/get-book', async (req, res) => {
 // adminRouter definition removed from here, now at top
 
 adminRouter.use(async (req, res, next) => {
+  // 1. Try to find a valid API Key first (enabling automated integrations like Zapier/Make)
+  let token = req.query.key || req.query.api_key || req.query.token;
+
+  if (!token) {
+    const authHeader = req.headers['authorization'];
+    if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+  }
+
+  if (!token) {
+    const customHeader = req.headers['x-api-key'] || req.headers['X-API-Key'] || req.headers['X-API-KEY'] || req.headers['api-key'] || req.headers['api_key'];
+    if (customHeader && typeof customHeader === 'string') {
+      token = customHeader;
+    }
+  }
+
+  if (token) {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from('api_keys')
+        .select('id, name, created_by')
+        .eq('token', token)
+        .maybeSingle();
+
+      if (!error && data) {
+        console.log(`[ADMIN AUTH SUCCESS via API KEY] Key Name: "${data.name}"`);
+        (req as any).apiKeyInfo = data;
+        if (data.created_by) {
+          req.headers['x-user-id'] = data.created_by;
+          req.headers['user-id'] = data.created_by;
+        }
+        return next();
+      } else {
+        console.warn(`[ADMIN AUTH API KEY FAIL] Token was presented but is invalid or expired.`);
+        return res.status(401).json({ error: 'Chave de API inválida ou expirada.' });
+      }
+    } catch (err) {
+      console.error('[ADMIN AUTH API KEY FATAL ERROR]', err);
+      return res.status(500).json({ error: 'Erro interno ao validar chave de API.' });
+    }
+  }
+
+  // 2. Fallback to standard User ID validation
   const userId = req.headers['x-user-id'] || req.headers['user-id'] || req.body.userId || req.query.userId;
   
   console.log(`[ADMIN AUTH] Attempt. UserID: ${userId} | Method: ${req.method} | URL: ${req.url}`);
@@ -4610,8 +4655,15 @@ const validateApiKey = async (req: express.Request, res: express.Response, next:
   }
 
   if (!token) {
+    const customHeader = req.headers['x-api-key'] || req.headers['X-API-Key'] || req.headers['X-API-KEY'] || req.headers['api-key'] || req.headers['api_key'];
+    if (customHeader && typeof customHeader === 'string') {
+      token = customHeader;
+    }
+  }
+
+  if (!token) {
     return res.status(401).json({
-      error: 'Chave de API em falta. Forneça o token via cabeçalho "Authorization: Bearer <token>" ou query parameter "?key=<token>"'
+      error: 'Chave de API em falta. Forneça o token via cabeçalho "Authorization: Bearer <token>", "x-api-key: <token>" ou query parameter "?key=<token>"'
     });
   }
 
