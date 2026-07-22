@@ -2458,8 +2458,7 @@ export default function App() {
                       product_type: 'physical',
                       is_active: true
                     };
-                    setDetailProduct(minimalProduct);
-                    setView("product-detail");
+                    handleExploreProduct(data.payload.id, minimalProduct);
                   } else {
                     const element = document.getElementById("boutique");
                     if (element) {
@@ -2498,6 +2497,47 @@ export default function App() {
     try {
       localStorage.setItem("lastReadStoreEvents", String(now));
     } catch(e) {}
+  };
+
+  const handleExploreProduct = async (productId: string, fallbackMinimalProduct: any) => {
+    // Primeiro tenta encontrar na lista local
+    let found = products.find(p => p.id === productId || p.supabase_id === productId);
+    if (found) {
+      setDetailProduct(found);
+      setView("product-detail");
+      return;
+    }
+    
+    // Se não encontrar, faz o fetch atualizado dos produtos
+    try {
+      const { data: dbProducts, error: dbError } = await supabase
+        .from("products")
+        .select("*")
+        .order('created_at', { ascending: false });
+
+      if (!dbError && dbProducts) {
+        const productsWithPvp = dbProducts.map(p => ({
+          ...p,
+          pvp: p.price || 0,
+          is_active: (p.is_active === undefined || p.is_active === null) ? true : p.is_active, 
+          supabase_id: p.id
+        }));
+        setProducts(productsWithPvp);
+        
+        const newlyFound = productsWithPvp.find(p => p.id === productId || p.supabase_id === productId);
+        if (newlyFound) {
+          setDetailProduct(newlyFound);
+          setView("product-detail");
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("Error refreshing products list on explore:", err);
+    }
+    
+    // Fallback para o produto mínimo caso falhe tudo
+    setDetailProduct(fallbackMinimalProduct);
+    setView("product-detail");
   };
   const getInitialView = () => {
     if (typeof window === "undefined") return "home";
@@ -5338,8 +5378,7 @@ export default function App() {
                                       product_type: 'physical',
                                       is_active: true
                                     };
-                                    setDetailProduct(minimalProduct);
-                                    setView("product-detail");
+                                    handleExploreProduct(productPayload.id, minimalProduct);
                                   } else {
                                     const element = document.getElementById("boutique");
                                     if (element) {

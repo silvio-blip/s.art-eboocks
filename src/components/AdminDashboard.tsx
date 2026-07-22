@@ -2463,7 +2463,7 @@ export default function AdminDashboard({
                               <div className="flex flex-col">
                                 <span className="text-[11px] uppercase tracking-[0.2em] text-white/90 font-medium">{cat.name}</span>
                               </div>
-                              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300">
+                              <div className="flex gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-300">
                                 <button 
                                   onClick={() => {
                                     setEditingCategoryId(cat.id);
@@ -2679,7 +2679,7 @@ export default function AdminDashboard({
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                     />
 
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <div className="absolute inset-0 bg-black/60 opacity-0 md:group-hover:opacity-100 transition-opacity hidden md:flex items-center justify-center gap-2">
                        <Button
                         variant="outline"
                         className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest hover:bg-white hover:text-black"
@@ -2693,6 +2693,7 @@ export default function AdminDashboard({
                         variant="outline"
                         className="border-white/20 rounded-none h-8 w-8 p-0 text-[10px] uppercase tracking-widest hover:bg-white hover:text-black"
                         onClick={() => setEditingProduct(p)}
+                        title="Editar Produto"
                       >
                         <Edit size={12} />
                       </Button>
@@ -2752,6 +2753,42 @@ export default function AdminDashboard({
                           +{renderPrice(1.15)} Envio
                         </div>
                       )}
+
+                      {/* Ações Visíveis em Telas Menores / Touch */}
+                      <div className="flex items-center gap-1 pt-2 mt-2 border-t border-white/10 md:hidden">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 border-white/20 rounded-none h-7 px-1 text-[9px] uppercase tracking-wider bg-white/5 hover:bg-white hover:text-black text-white flex items-center justify-center gap-1"
+                          onClick={() => handleVerifyProduct(p)}
+                          title="Verificar Estoque/Link"
+                          disabled={verifying === p.id}
+                        >
+                          {verifying === p.id ? <Loader2 size={10} className="animate-spin" /> : <ShieldCheck size={10} />}
+                          <span className="truncate">Verificar</span>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 border-white/20 rounded-none h-7 px-1 text-[9px] uppercase tracking-wider bg-white/5 hover:bg-white hover:text-black text-white flex items-center justify-center gap-1"
+                          onClick={() => setEditingProduct(p)}
+                          title="Editar Produto"
+                        >
+                          <Edit size={10} />
+                          <span className="truncate">Editar</span>
+                        </Button>
+                        {(currentUserProfile?.is_admin || currentUserProfile?.is_employee) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-red-500/30 rounded-none h-7 px-2 text-[9px] uppercase tracking-wider bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white flex items-center justify-center"
+                            onClick={() => handleDeleteProduct(p)}
+                            title="Eliminar Produto"
+                          >
+                            <Trash2 size={10} />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
