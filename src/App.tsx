@@ -41,6 +41,11 @@ import {
   Crown,
   Bell,
   Clock,
+  Trash2,
+  Info,
+  SlidersHorizontal,
+  RotateCcw,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -649,7 +654,7 @@ function ScrollToTop() {
   return null;
 }
 
-const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onChange: (c: any) => void; className?: string }) => {
+const CountryDropdown = ({ value, onChange, className = "", isScrolled = false }: { value: any; onChange: (c: any) => void; className?: string; isScrolled?: boolean }) => {
   const [isOpen, setIsOpen] = useState(false);
   const getCurrencySymbol = (code: string) => {
     switch (code) {
@@ -671,13 +676,18 @@ const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onCh
     <div className={`relative ${className}`}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-2 md:px-3 py-1.5 bg-white/5 border border-white/10 hover:border-luxury-gold/40 transition-all rounded-full group transition-all duration-300"
+        className={`flex items-center gap-2 px-3 py-1.5 border rounded-full transition-all duration-300 shadow-sm group ${
+          isScrolled 
+            ? "border-luxury-border bg-luxury-card text-luxury-foreground hover:border-luxury-gold/60" 
+            : "border-white/20 bg-black/40 text-white hover:border-luxury-gold/60"
+        }`}
       >
         <div className="flex items-center gap-1.5">
-          <Globe size={14} className="text-luxury-gold md:w-4 md:h-4" />
-          <span className="text-[10px] md:text-[11px] font-mono font-bold text-white leading-none">
-            {getCurrencySymbol(value.currency)}
+          <span className="text-sm leading-none shrink-0">{value.flag || "🌐"}</span>
+          <span className="text-[10px] md:text-[11px] font-mono font-bold leading-none tracking-tight">
+            {value.code || value.currency} ({getCurrencySymbol(value.currency)})
           </span>
+          <ChevronDown size={12} className="text-luxury-gold transition-transform duration-300 group-hover:translate-y-0.5 shrink-0" />
         </div>
       </button>
 
@@ -686,39 +696,54 @@ const CountryDropdown = ({ value, onChange, className = "" }: { value: any; onCh
           <>
             <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
             <motion.div 
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              initial={{ opacity: 0, y: 8, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="absolute top-full right-0 mt-3 w-64 bg-black/90 backdrop-blur-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[101] overflow-hidden rounded-xl"
+              exit={{ opacity: 0, y: 8, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              className="absolute top-full right-0 mt-2 w-64 bg-luxury-card border border-luxury-border shadow-2xl z-[101] overflow-hidden rounded-xl"
             >
-              <div className="p-2 border-b border-white/5 bg-white/5">
-                <span className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold px-2">Seleções Internacionais</span>
+              <div className="p-2.5 border-b border-luxury-border bg-black/10 dark:bg-white/5 flex items-center justify-between">
+                <span className="text-[9px] uppercase tracking-[0.2em] text-luxury-gold font-bold flex items-center gap-1.5">
+                  <Globe size={12} />
+                  Moeda & Região
+                </span>
+                <span className="text-[9px] font-mono font-bold text-luxury-foreground/60">
+                  {COUNTRIES.length} Países
+                </span>
               </div>
-              <div className="max-h-80 overflow-y-auto luxury-scrollbar p-1">
-                {COUNTRIES.map(country => (
-                  <button 
-                    key={country.code}
-                    onClick={() => {
-                      onChange(country);
-                      setIsOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-4 py-3.5 text-left transition-all hover:bg-white/10 group rounded-lg mb-0.5 ${value.code === country.code ? 'bg-white/5' : ''}`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-xl filter grayscale group-hover:grayscale-0 transition-all duration-500">{country.flag}</span>
-                      <div className="flex flex-col">
-                        <span className={`text-[10px] uppercase tracking-widest font-black ${value.code === country.code ? 'text-luxury-gold' : 'text-white'}`}>
-                          {country.name}
-                        </span>
-                        <span className="text-[8px] text-white/30 uppercase tracking-tighter">Premium Delivery</span>
+              <div className="max-h-80 overflow-y-auto luxury-scrollbar p-1.5 space-y-0.5">
+                {COUNTRIES.map(country => {
+                  const isSelected = value.code === country.code;
+                  return (
+                    <button 
+                      key={country.code}
+                      onClick={() => {
+                        onChange(country);
+                        setIsOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 text-left transition-all rounded-lg ${
+                        isSelected 
+                          ? 'bg-luxury-gold/15 border border-luxury-gold/40 text-luxury-gold font-bold' 
+                          : 'hover:bg-luxury-bg text-luxury-foreground/80 hover:text-luxury-foreground'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl shrink-0">{country.flag}</span>
+                        <div className="flex flex-col">
+                          <span className={`text-[10px] uppercase tracking-wider font-bold ${isSelected ? 'text-luxury-gold' : 'text-luxury-foreground'}`}>
+                            {country.name}
+                          </span>
+                          <span className="text-[8px] text-luxury-foreground/40 font-mono">
+                            {country.currency} ({getCurrencySymbol(country.currency)})
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <span className={`text-[11px] font-mono font-black ${value.code === country.code ? 'text-luxury-gold' : 'text-white/40 group-hover:text-white'}`}>
-                      {getCurrencySymbol(country.currency)}
-                    </span>
-                  </button>
-                ))}
+                      <span className={`text-[11px] font-mono font-black ${isSelected ? 'text-luxury-gold' : 'text-luxury-foreground/50'}`}>
+                        {getCurrencySymbol(country.currency)}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </motion.div>
           </>
@@ -1003,11 +1028,11 @@ const Navbar = ({
         </nav>
 
         {/* Right: Actions Toolbar */}
-        <div className="flex items-center gap-3 md:gap-5">
+        <div className="flex items-center gap-2.5 md:gap-4">
           <CountryDropdown 
             value={selectedCountry} 
             onChange={onCountryChange} 
-            className={`transition-all ${isScrolled ? "border-black/10 text-luxury-foreground bg-white/50" : "border-white/20 text-white bg-black/20"}`} 
+            isScrolled={isScrolled}
           />
 
           {/* Luxury Search Bar */}
@@ -2396,6 +2421,102 @@ export default function App() {
     }
   });
 
+  // Notificações removidas individualmente pelo utilizador
+  const [dismissedEvents, setDismissedEvents] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("dismissedStoreEvents") || "[]");
+    } catch (e) {
+      return [];
+    }
+  });
+
+  // Timestamps de visualização de cada evento para o contador regressivo de 3 dias
+  const [viewedEventsMap, setViewedEventsMap] = useState<Record<string, number>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("viewedStoreEventsMap") || "{}");
+    } catch (e) {
+      return {};
+    }
+  });
+
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+  // Marca notificação como vista
+  const markEventAsViewed = (eventId: string) => {
+    if (!eventId) return;
+    const now = Date.now();
+    setViewedEventsMap(prev => {
+      if (prev[eventId]) return prev;
+      const updated = { ...prev, [eventId]: now };
+      try {
+        localStorage.setItem("viewedStoreEventsMap", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  // Remove notificação individual
+  const handleDismissEvent = (eventId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setDismissedEvents(prev => {
+      if (prev.includes(eventId)) return prev;
+      const updated = [...prev, eventId];
+      try {
+        localStorage.setItem("dismissedStoreEvents", JSON.stringify(updated));
+      } catch (err) {}
+      return updated;
+    });
+  };
+
+  // Limpa todas as notificações
+  const handleClearAllEvents = () => {
+    const ids = storeEvents.map(ev => ev.id).filter(Boolean);
+    setDismissedEvents(prev => {
+      const updated = Array.from(new Set([...prev, ...ids]));
+      try {
+        localStorage.setItem("dismissedStoreEvents", JSON.stringify(updated));
+      } catch (err) {}
+      return updated;
+    });
+  };
+
+  // Calcula o texto do contador para expirar em 3 dias após ser visto
+  const getExpiryCountdownText = (eventId: string) => {
+    const viewedAt = viewedEventsMap[eventId];
+    if (!viewedAt) return null;
+    const remainingMs = (viewedAt + THREE_DAYS_MS) - Date.now();
+    if (remainingMs <= 0) return "Expirado";
+    
+    const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((remainingMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    if (days > 0) {
+      return `Expira em ${days}d ${hours}h`;
+    } else if (hours > 0) {
+      return `Expira em ${hours}h ${minutes}m`;
+    } else {
+      return `Expira em ${minutes}m`;
+    }
+  };
+
+  // Filtra notificações ativas (não removidas e que não expiraram há mais de 3 dias após vistas)
+  const activeStoreEvents = useMemo(() => {
+    const now = Date.now();
+    return storeEvents.filter(event => {
+      if (!event || !event.id) return false;
+      if (dismissedEvents.includes(event.id)) return false;
+
+      const viewedAt = viewedEventsMap[event.id];
+      if (viewedAt) {
+        if ((now - viewedAt) >= THREE_DAYS_MS) {
+          return false; // expira após 3 dias da visualização
+        }
+      }
+      return true;
+    });
+  }, [storeEvents, dismissedEvents, viewedEventsMap]);
+
   // Fetch initial event logs on page load
   useEffect(() => {
     fetch("/api/products/recent-events")
@@ -2458,7 +2579,7 @@ export default function App() {
                       product_type: 'physical',
                       is_active: true
                     };
-                    handleExploreProduct(data.payload.id, minimalProduct);
+                    handleExploreProduct(data.payload.id, minimalProduct, data.id);
                   } else {
                     const element = document.getElementById("boutique");
                     if (element) {
@@ -2488,8 +2609,12 @@ export default function App() {
   }, []);
 
   const unreadCount = useMemo(() => {
-    return storeEvents.filter(e => new Date(e.created_at).getTime() > lastReadEvents).length;
-  }, [storeEvents, lastReadEvents]);
+    return activeStoreEvents.filter(e => {
+      const isAfterLastRead = new Date(e.created_at).getTime() > lastReadEvents;
+      const isNotViewed = !viewedEventsMap[e.id];
+      return isAfterLastRead && isNotViewed;
+    }).length;
+  }, [activeStoreEvents, lastReadEvents, viewedEventsMap]);
 
   const handleMarkAllRead = () => {
     const now = Date.now();
@@ -2497,47 +2622,101 @@ export default function App() {
     try {
       localStorage.setItem("lastReadStoreEvents", String(now));
     } catch(e) {}
+
+    setViewedEventsMap(prev => {
+      const updated = { ...prev };
+      activeStoreEvents.forEach(e => {
+        if (e.id && !updated[e.id]) {
+          updated[e.id] = now;
+        }
+      });
+      try {
+        localStorage.setItem("viewedStoreEventsMap", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
   };
 
-  const handleExploreProduct = async (productId: string, fallbackMinimalProduct: any) => {
-    // Primeiro tenta encontrar na lista local
-    let found = products.find(p => p.id === productId || p.supabase_id === productId);
+  const handleExploreProduct = async (productId: string, fallbackMinimalProduct: any, eventId?: string) => {
+    if (eventId) {
+      markEventAsViewed(eventId);
+    } else if (productId) {
+      markEventAsViewed(productId);
+    }
+
+    const targetId = String(productId || "").trim();
+    const cleanId = targetId.toLowerCase();
+
+    // 1. Procura na lista local de produtos (por id, supabase_id, aliexpress_id, sku ou inclusão)
+    let found = products.find(p => {
+      if (!p) return false;
+      const pId = String(p.id || "").toLowerCase();
+      const pSupa = String(p.supabase_id || "").toLowerCase();
+      const pAli = String(p.aliexpress_id || "").toLowerCase();
+      const pSku = String(p.sku || "").toLowerCase();
+      return pId === cleanId || pSupa === cleanId || pAli === cleanId || pSku === cleanId || (pId && pId.includes(cleanId)) || (cleanId && cleanId.includes(pId));
+    });
+
     if (found) {
       setDetailProduct(found);
       setView("product-detail");
       return;
     }
-    
-    // Se não encontrar, faz o fetch atualizado dos produtos
+
+    // 2. Se não encontrou no estado React, busca diretamente na base de dados Supabase pelo ID completo
     try {
-      const { data: dbProducts, error: dbError } = await supabase
+      const { data: dbProduct } = await supabase
         .from("products")
         .select("*")
-        .order('created_at', { ascending: false });
+        .or(`id.eq.${targetId},aliexpress_id.eq.${targetId},sku.eq.${targetId}`)
+        .maybeSingle();
 
-      if (!dbError && dbProducts) {
-        const productsWithPvp = dbProducts.map(p => ({
-          ...p,
-          pvp: p.price || 0,
-          is_active: (p.is_active === undefined || p.is_active === null) ? true : p.is_active, 
-          supabase_id: p.id
-        }));
-        setProducts(productsWithPvp);
-        
-        const newlyFound = productsWithPvp.find(p => p.id === productId || p.supabase_id === productId);
-        if (newlyFound) {
-          setDetailProduct(newlyFound);
-          setView("product-detail");
-          return;
-        }
+      if (dbProduct) {
+        const fullProd = {
+          ...dbProduct,
+          pvp: dbProduct.price || 0,
+          is_active: dbProduct.is_active ?? true,
+          supabase_id: dbProduct.id
+        };
+        setProducts(prev => prev.some(p => p.id === fullProd.id) ? prev : [fullProd, ...prev]);
+        setDetailProduct(fullProd);
+        setView("product-detail");
+        return;
+      }
+
+      // 3. Busca por correspondência parcial de ID
+      const { data: matched } = await supabase
+        .from("products")
+        .select("*")
+        .ilike("id", `%${targetId}%`)
+        .limit(1);
+
+      if (matched && matched.length > 0) {
+        const fullProd = {
+          ...matched[0],
+          pvp: matched[0].price || 0,
+          is_active: matched[0].is_active ?? true,
+          supabase_id: matched[0].id
+        };
+        setProducts(prev => prev.some(p => p.id === fullProd.id) ? prev : [fullProd, ...prev]);
+        setDetailProduct(fullProd);
+        setView("product-detail");
+        return;
       }
     } catch (err) {
-      console.error("Error refreshing products list on explore:", err);
+      console.error("Erro ao buscar detalhes do produto no Supabase ao explorar:", err);
     }
-    
-    // Fallback para o produto mínimo caso falhe tudo
-    setDetailProduct(fallbackMinimalProduct);
-    setView("product-detail");
+
+    // 4. Fallback se não encontrar registro no banco
+    if (fallbackMinimalProduct) {
+      setDetailProduct(fallbackMinimalProduct);
+      setView("product-detail");
+    } else {
+      const element = document.getElementById("boutique");
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth" });
+      }
+    }
   };
   const getInitialView = () => {
     if (typeof window === "undefined") return "home";
@@ -2944,6 +3123,26 @@ export default function App() {
   const allCategories = useMemo(() => {
     return categories.map(c => c.name).filter(c => c !== "Todos").sort();
   }, [categories]);
+
+  const [isPriceMenuOpen, setIsPriceMenuOpen] = useState(false);
+
+  // Seleciona categoria e rola suavemente até o primeiro produto
+  const handleCategorySelect = (cat: string) => {
+    setSelectedCategory(cat);
+    setIsCategoryMenuOpen(false);
+    
+    setTimeout(() => {
+      const grid = document.getElementById("product-grid");
+      if (grid) {
+        const navOffset = 135; // Altura acumulada da barra de navegação + barra fixada
+        const elementPosition = grid.getBoundingClientRect().top + window.pageYOffset;
+        window.scrollTo({
+          top: Math.max(0, elementPosition - navOffset),
+          behavior: "smooth"
+        });
+      }
+    }, 60);
+  };
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isLogoutOpen, setIsLogoutOpen] = useState(false);
   const [acceptedTermsCheckout, setAcceptedTermsCheckout] = useState(false);
@@ -4037,7 +4236,7 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <main className={`overflow-x-hidden ${
+      <main className={`overflow-x-clip ${
         view === "home" || view === "admin"
           ? "w-full pt-0" 
           : view === "dashboard"
@@ -4336,113 +4535,251 @@ export default function App() {
 
               <InfiniteProductMarquee products={products} />
 
-              <section className="py-24 w-full overflow-hidden" id="boutique">
-                <div className="px-[5%] mb-12 flex flex-col md:flex-row md:items-end justify-between gap-8 border-b border-luxury-border pb-10">
-                  <div className="flex flex-col md:flex-row md:items-end gap-6 md:gap-12">
-                    <div className="flex flex-col">
-                      <motion.h2 
-                        initial={{ opacity: 0, x: -20 }}
-                        whileInView={{ opacity: 1, x: 0 }}
-                        viewport={{ once: true }}
-                        className="text-5xl md:text-6xl font-serif text-luxury-foreground tracking-tighter"
-                      >
-                        Boutique
-                      </motion.h2>
-                    </div>
+              <section className="pt-16 pb-24 w-full relative" id="boutique">
+                {/* Section Header Title */}
+                <div className="px-[5%] mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-mono font-bold mb-1">
+                      Coleção Exclusiva
+                    </span>
+                    <motion.h2 
+                      initial={{ opacity: 0, x: -20 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      viewport={{ once: true }}
+                      className="text-4xl md:text-6xl font-serif text-luxury-foreground tracking-tighter"
+                    >
+                      Boutique
+                    </motion.h2>
+                  </div>
+                </div>
 
-                    {/* Category Selector - Desktop: Buttons, Mobile: Custom Dropdown */}
-                    <div className="flex items-center gap-2 pb-1 relative">
-                      {/* Mobile Custom Dropdown */}
-                      <div className="relative md:hidden w-full min-w-[160px]">
-                        <button 
-                          onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
-                          className="w-full bg-luxury-card border border-luxury-border text-luxury-foreground p-3 text-[10px] uppercase tracking-[0.2em] font-medium outline-none flex justify-between items-center group transition-all hover:border-luxury-gold/50 rounded-[4px] shadow-sm"
-                        >
-                          <span className="font-bold">{selectedCategory}</span>
-                          <ChevronDown size={14} className={`text-luxury-gold transition-transform duration-500 ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        
-                        <AnimatePresence>
-                          {isCategoryMenuOpen && (
-                            <>
-                              <div 
-                                onClick={() => setIsCategoryMenuOpen(false)}
-                                className="fixed inset-0 z-[100]"
-                              />
-                              <motion.div 
-                                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                                className="absolute top-full left-0 w-full mt-2 bg-luxury-card border border-luxury-border z-[101] shadow-xl overflow-hidden rounded-[4px]"
-                              >
-                                <div className="max-h-60 overflow-y-auto luxury-scrollbar">
-                                  {["Todos", ...allCategories.filter(c => c !== "Todos")].map(cat => (
-                                    <button 
+                {/* STICKY FILTER BAR (Fixa-se no topo da tela por baixo da barra de navegação durante o scroll) */}
+                <div className="sticky top-[60px] md:top-[70px] z-30 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-all duration-300">
+                  <div className="max-w-2xl mx-auto flex items-center justify-center gap-2 sm:gap-3.5">
+                    
+                    {/* Seletor 1: Categoria (Dropdown) */}
+                    <div className="relative">
+                      <button
+                        onClick={() => {
+                          setIsCategoryMenuOpen(!isCategoryMenuOpen);
+                          setIsPriceMenuOpen(false);
+                        }}
+                        className={`flex items-center gap-2 px-3.5 py-2 text-[10px] uppercase tracking-[0.12em] font-bold border rounded-full transition-all shadow-sm ${
+                          selectedCategory !== "Todos"
+                            ? 'bg-luxury-gold text-black border-luxury-gold shadow-luxury-gold/20'
+                            : 'bg-luxury-card border-luxury-border text-luxury-foreground hover:border-luxury-gold/50'
+                        }`}
+                      >
+                        <Filter size={13} className={selectedCategory !== "Todos" ? "text-black shrink-0" : "text-luxury-gold shrink-0"} />
+                        <span className="truncate max-w-[100px] sm:max-w-[150px]">
+                          {selectedCategory === "Todos" ? "Categoria" : selectedCategory}
+                        </span>
+                        <ChevronDown size={12} className={`shrink-0 transition-transform duration-300 ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {/* Menu Popover Categoria */}
+                      <AnimatePresence>
+                        {isCategoryMenuOpen && (
+                          <>
+                            <div 
+                              onClick={() => setIsCategoryMenuOpen(false)}
+                              className="fixed inset-0 z-[100]"
+                            />
+                            <motion.div
+                              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                              transition={{ duration: 0.2 }}
+                              className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 bg-luxury-card border border-luxury-border z-[101] rounded-lg shadow-2xl overflow-hidden"
+                            >
+                              <div className="p-3 bg-black/10 dark:bg-white/5 border-b border-luxury-border flex items-center justify-between">
+                                <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-luxury-foreground/70 flex items-center gap-1.5">
+                                  <Filter size={12} className="text-luxury-gold" />
+                                  Categorias
+                                </span>
+                                <span className="text-[9px] font-mono text-luxury-gold font-bold">
+                                  {allCategories.length + 1} opções
+                                </span>
+                              </div>
+
+                              <div className="max-h-64 overflow-y-auto luxury-scrollbar p-1.5 space-y-0.5">
+                                {["Todos", ...allCategories].map(cat => {
+                                  const isSelected = selectedCategory === cat;
+                                  return (
+                                    <button
                                       key={cat}
                                       onClick={() => {
-                                        setSelectedCategory(cat);
-                                        setIsCategoryMenuOpen(false);
+                                        handleCategorySelect(cat);
                                       }}
-                                      className={`w-full text-left p-4 text-[9px] uppercase tracking-widest transition-all border-b border-luxury-border last:border-0 ${
-                                        selectedCategory === cat
-                                        ? 'bg-luxury-gold text-black font-black' 
-                                        : 'text-luxury-foreground/70 hover:bg-luxury-dark hover:text-luxury-foreground'
+                                      className={`w-full text-left px-3.5 py-2 rounded text-[10px] uppercase tracking-wider transition-all flex items-center justify-between ${
+                                        isSelected
+                                          ? 'bg-luxury-gold text-black font-black'
+                                          : 'text-luxury-foreground/80 hover:bg-luxury-bg hover:text-luxury-foreground'
                                       }`}
                                     >
-                                      {cat}
+                                      <span>{cat}</span>
+                                      {isSelected && <span className="w-2 h-2 rounded-full bg-black shrink-0" />}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Seletor 2: Preço (Dropdown) */}
+                    <div className="relative">
+                      <button
+                        onClick={() => {
+                          setIsPriceMenuOpen(!isPriceMenuOpen);
+                          setIsCategoryMenuOpen(false);
+                        }}
+                        className={`flex items-center gap-2 px-3.5 py-2 text-[10px] uppercase tracking-[0.12em] font-bold border rounded-full transition-all shadow-sm ${
+                          (minPrice > 0 || maxPrice < 10000)
+                            ? 'bg-luxury-gold text-black border-luxury-gold shadow-luxury-gold/20'
+                            : 'bg-luxury-card border-luxury-border text-luxury-foreground hover:border-luxury-gold/50'
+                        }`}
+                      >
+                        <SlidersHorizontal size={13} className={(minPrice > 0 || maxPrice < 10000) ? "text-black shrink-0" : "text-luxury-gold shrink-0"} />
+                        <span className="truncate max-w-[110px] sm:max-w-[160px]">
+                          {(minPrice > 0 || maxPrice < 10000) 
+                            ? `${minPrice > 0 ? Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1)) + ((globalCountry as any).currency || '€') : '0'} - ${maxPrice < 10000 ? Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1)) + ((globalCountry as any).currency || '€') : 'Máx'}`
+                            : 'Preço'}
+                        </span>
+                        <ChevronDown size={12} className={`shrink-0 transition-transform duration-300 ${isPriceMenuOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {/* Popover Filtro de Preço */}
+                      <AnimatePresence>
+                        {isPriceMenuOpen && (
+                          <>
+                            <div 
+                              onClick={() => setIsPriceMenuOpen(false)}
+                              className="fixed inset-0 z-[100]"
+                            />
+                            <motion.div
+                              initial={{ opacity: 0, y: 8, scale: 0.96 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                              transition={{ duration: 0.2 }}
+                              className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 bg-luxury-card border border-luxury-border z-[101] p-4 rounded-lg shadow-2xl space-y-3.5"
+                            >
+                              <div className="flex items-center justify-between border-b border-luxury-border pb-2.5">
+                                <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-luxury-foreground flex items-center gap-2">
+                                  <SlidersHorizontal size={12} className="text-luxury-gold" />
+                                  Faixa de Preço
+                                </span>
+                                {(minPrice > 0 || maxPrice < 10000) && (
+                                  <button
+                                    onClick={() => {
+                                      setMinPrice(0);
+                                      setMaxPrice(10000);
+                                    }}
+                                    className="text-[9px] uppercase tracking-widest text-amber-500 hover:underline flex items-center gap-1 font-mono"
+                                  >
+                                    <RotateCcw size={10} />
+                                    Limpar
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Campos Min e Max */}
+                              <div className="grid grid-cols-2 gap-2.5">
+                                <div className="space-y-1">
+                                  <label className="text-[8px] uppercase tracking-[0.15em] text-luxury-foreground/50 font-bold block">
+                                    Mínimo ({(globalCountry as any).currency || 'EUR'})
+                                  </label>
+                                  <input 
+                                    type="number"
+                                    value={minPrice === 0 ? '' : Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                      setMinPrice(val / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1));
+                                    }}
+                                    className="w-full bg-luxury-bg border border-luxury-border text-luxury-foreground text-xs p-2 rounded outline-none focus:border-luxury-gold transition-colors font-mono font-bold"
+                                    placeholder="0"
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <label className="text-[8px] uppercase tracking-[0.15em] text-luxury-foreground/50 font-bold block">
+                                    Máximo ({(globalCountry as any).currency || 'EUR'})
+                                  </label>
+                                  <input 
+                                    type="number"
+                                    value={maxPrice === 10000 ? '' : Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? 10000 : Number(e.target.value);
+                                      setMaxPrice(val / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1));
+                                    }}
+                                    className="w-full bg-luxury-bg border border-luxury-border text-luxury-foreground text-xs p-2 rounded outline-none focus:border-luxury-gold transition-colors font-mono font-bold"
+                                    placeholder="Máx"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Atalhos Rápidos */}
+                              <div className="space-y-1.5">
+                                <span className="text-[8px] uppercase tracking-[0.15em] text-luxury-foreground/40 font-bold block">
+                                  Atalhos Rápidos
+                                </span>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {[
+                                    { label: "Todos os preços", min: 0, max: 10000 },
+                                    { label: "Até 50 €", min: 0, max: 50 },
+                                    { label: "50 € - 200 €", min: 50, max: 200 },
+                                    { label: "Mais de 200 €", min: 200, max: 10000 },
+                                  ].map((preset) => (
+                                    <button
+                                      key={preset.label}
+                                      onClick={() => {
+                                        const rate = exchangeRates[(globalCountry as any).currency || 'EUR'] || 1;
+                                        setMinPrice(preset.min / rate);
+                                        setMaxPrice(preset.max / rate);
+                                        setIsPriceMenuOpen(false);
+                                        handleCategorySelect(selectedCategory);
+                                      }}
+                                      className="text-[9px] uppercase tracking-wider py-1.5 px-2 bg-luxury-bg border border-luxury-border/60 hover:border-luxury-gold text-luxury-foreground/80 hover:text-luxury-foreground rounded transition-colors text-center"
+                                    >
+                                      {preset.label}
                                     </button>
                                   ))}
                                 </div>
-                              </motion.div>
-                            </>
-                          )}
-                        </AnimatePresence>
-                      </div>
+                              </div>
 
-                      {/* Desktop Buttons */}
-                      <div className="hidden md:flex flex-wrap items-center gap-2">
-                        {["Todos", ...allCategories].map(cat => (
-                          <button 
-                            key={cat}
-                            onClick={() => setSelectedCategory(cat)}
-                            className={`px-4 py-1.5 text-[9px] uppercase tracking-[0.1em] transition-all border rounded-full font-medium ${
-                              selectedCategory === cat 
-                              ? 'bg-luxury-gold text-black border-luxury-gold font-bold shadow-sm' 
-                              : 'border-luxury-border text-luxury-foreground/60 hover:border-luxury-gold/50 hover:text-luxury-foreground bg-luxury-card'
-                            }`}
-                          >
-                            {cat}
-                          </button>
-                        ))}
-                      </div>
+                              <Button
+                                onClick={() => {
+                                  setIsPriceMenuOpen(false);
+                                  handleCategorySelect(selectedCategory);
+                                }}
+                                className="w-full bg-luxury-gold text-black font-bold h-8 text-[10px] uppercase tracking-[0.2em] rounded"
+                              >
+                                Aplicar
+                              </Button>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
                     </div>
-                  </div>
 
-                  <div className="flex flex-wrap items-center gap-4 pb-1">
-                    <div className="flex items-center gap-4 bg-luxury-card border border-luxury-border p-2 md:p-3 relative group rounded-[4px] shadow-sm">
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[7px] uppercase tracking-[0.2em] text-luxury-foreground/40 font-bold leading-none">Min {(globalCountry as any).currency || 'EUR'}</label>
-                        <input 
-                          type="number"
-                          value={Math.round(minPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                          onChange={(e) => setMinPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                          className="bg-transparent text-luxury-foreground text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest font-mono"
-                          placeholder="MIN"
-                        />
-                      </div>
-                      <div className="w-[1px] h-6 bg-luxury-border" />
-                      <div className="flex flex-col gap-1">
-                        <label className="text-[7px] uppercase tracking-[0.2em] text-luxury-foreground/40 font-bold leading-none">Max {(globalCountry as any).currency || 'EUR'}</label>
-                        <input 
-                          type="number"
-                          value={Math.round(maxPrice * (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                          onChange={(e) => setMaxPrice(Number(e.target.value) / (exchangeRates[(globalCountry as any).currency || 'EUR'] || 1))}
-                          className="bg-transparent text-luxury-foreground text-[10px] w-16 md:w-20 outline-none focus:text-luxury-gold transition-colors font-bold uppercase tracking-widest font-mono"
-                          placeholder="MAX"
-                        />
-                      </div>
-                    </div>
+                    {/* Reset rápido se tiver filtro ativo */}
+                    {(selectedCategory !== "Todos" || minPrice > 0 || maxPrice < 10000) && (
+                      <button
+                        onClick={() => {
+                          setSelectedCategory("Todos");
+                          setMinPrice(0);
+                          setMaxPrice(10000);
+                          handleCategorySelect("Todos");
+                        }}
+                        title="Resetar Filtros"
+                        className="p-2 rounded-full text-amber-500 hover:text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40 transition-all shrink-0"
+                      >
+                        <RotateCcw size={13} />
+                      </button>
+                    )}
+
                   </div>
                 </div>
 
@@ -5276,31 +5613,47 @@ export default function App() {
               </div>
 
               {/* Actions & Meta */}
-              <div className="px-6 py-3 bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/5 flex items-center justify-between text-[10px]">
+              <div className="px-6 py-2.5 bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/5 flex items-center justify-between text-[10px]">
                 <span className="font-mono text-black/60 dark:text-white/60 uppercase tracking-wider">
-                  {unreadCount > 0 ? `${unreadCount} novas` : 'Sem novas mensagens'}
+                  {unreadCount > 0 ? `${unreadCount} não lidas` : 'Todas lidas'}
                 </span>
-                {storeEvents.length > 0 && (
-                  <button
-                    onClick={handleMarkAllRead}
-                    className="text-amber-500 hover:text-amber-600 uppercase font-black tracking-widest transition-colors font-mono"
-                  >
-                    Marcar como lidas
-                  </button>
-                )}
+                <div className="flex items-center gap-3">
+                  {activeStoreEvents.length > 0 && (
+                    <>
+                      <button
+                        onClick={handleMarkAllRead}
+                        className="text-amber-500 hover:text-amber-600 uppercase font-black tracking-widest transition-colors font-mono"
+                      >
+                        Marcar lidas
+                      </button>
+                      <button
+                        onClick={handleClearAllEvents}
+                        className="text-black/40 dark:text-white/40 hover:text-red-500 uppercase font-mono transition-colors"
+                      >
+                        Limpar todas
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Informative banner about 3-day expiration */}
+              <div className="px-6 py-2 bg-amber-500/5 border-b border-amber-500/10 flex items-center gap-2 text-[10px] text-amber-500/80">
+                <Info size={12} className="shrink-0 text-amber-500" />
+                <span className="leading-tight">Notificações lidas/vistas expiram em 3 dias. Os produtos permanecem na loja.</span>
               </div>
 
               {/* Scrollable Events list */}
               <ScrollArea className="flex-1">
-                <div className="p-6 space-y-4">
-                  {storeEvents.length === 0 ? (
+                <div className="p-6 space-y-3">
+                  {activeStoreEvents.length === 0 ? (
                     <div className="py-16 text-center space-y-4 flex flex-col items-center">
                       <div className="w-12 h-12 rounded-full bg-amber-500/5 border border-amber-500/15 flex items-center justify-center text-amber-500/40">
                         <Bell size={24} />
                       </div>
                       <div className="max-w-[260px] space-y-1">
                         <p className="font-serif text-sm font-semibold tracking-wide text-black dark:text-white">
-                          Nenhum evento recente
+                          Nenhuma notificação ativa
                         </p>
                         <p className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed">
                           Quando novos produtos forem adicionados à loja, você receberá notificações e alertas em tempo real aqui.
@@ -5308,52 +5661,69 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    storeEvents.map((event) => {
-                      const isUnread = new Date(event.created_at).getTime() > lastReadEvents;
+                    activeStoreEvents.map((event) => {
+                      const isAfterLastRead = new Date(event.created_at).getTime() > lastReadEvents;
+                      const isViewed = !!viewedEventsMap[event.id];
+                      const isUnread = isAfterLastRead && !isViewed;
                       const productPayload = event.payload || {};
+                      const countdownText = getExpiryCountdownText(event.id);
                       
                       return (
                         <motion.div
                           key={event.id}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className={`p-4 border border-black/5 dark:border-white/5 rounded-lg flex gap-4 items-start relative transition-all duration-300 ${
+                          className={`p-4 border rounded-lg flex gap-3.5 items-start relative transition-all duration-300 ${
                             isUnread 
-                              ? "bg-amber-500/5 border-amber-500/10 shadow-[0_4px_12px_rgba(245,158,11,0.02)]" 
-                              : "bg-white/50 dark:bg-black/20"
+                              ? "bg-amber-500/5 border-amber-500/20 shadow-[0_4px_12px_rgba(245,158,11,0.04)]" 
+                              : "opacity-35 hover:opacity-100 grayscale hover:grayscale-0 bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/5"
                           }`}
                         >
-                          {/* Unread indicator dot */}
-                          {isUnread && (
-                            <span className="absolute top-4 right-4 w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                          )}
+                          {/* Botão de remover notificação individual */}
+                          <button
+                            onClick={(e) => handleDismissEvent(event.id, e)}
+                            className="absolute top-2.5 right-2.5 p-1 text-black/30 dark:text-white/30 hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
+                            title="Remover notificação"
+                          >
+                            <Trash2 size={13} />
+                          </button>
 
                           {/* Image thumbnail */}
                           {productPayload.image_url ? (
                             <img
                               src={productPayload.image_url}
                               alt=""
-                              className="w-16 h-16 rounded object-cover border border-black/10 dark:border-white/10 shrink-0"
+                              className="w-14 h-14 rounded object-cover border border-black/10 dark:border-white/10 shrink-0 mt-0.5"
                               referrerPolicy="no-referrer"
                             />
                           ) : (
-                            <div className="w-16 h-16 rounded bg-amber-500/5 border border-amber-500/10 flex items-center justify-center shrink-0">
-                              <Bell className="w-6 h-6 text-amber-500/40" />
+                            <div className="w-14 h-14 rounded bg-amber-500/5 border border-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                              <Bell className="w-5 h-5 text-amber-500/40" />
                             </div>
                           )}
 
                           {/* Info */}
-                          <div className="flex-1 space-y-1 text-left min-w-0">
-                            <p className="text-[9px] text-amber-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
-                              <Clock size={10} />
-                              {new Date(event.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
-                              {" • "}
-                              {new Date(event.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
-                            </p>
-                            <h4 className="font-serif text-sm font-semibold tracking-wide text-black dark:text-white truncate">
+                          <div className="flex-1 space-y-1 text-left min-w-0 pr-5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-[9px] text-amber-500 uppercase tracking-widest font-mono flex items-center gap-1">
+                                <Clock size={10} />
+                                {new Date(event.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                                {" • "}
+                                {new Date(event.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
+                              </p>
+                              
+                              {/* Contador regressivo de expiração se já foi visto */}
+                              {countdownText && (
+                                <span className="text-[8px] font-mono font-bold text-amber-600/90 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                                  ⏱️ {countdownText}
+                                </span>
+                              )}
+                            </div>
+
+                            <h4 className="font-serif text-xs font-semibold tracking-wide text-black dark:text-white truncate">
                               {productPayload.title || event.title}
                             </h4>
-                            <p className="text-xs text-black/60 dark:text-white/50 line-clamp-2 leading-relaxed">
+                            <p className="text-[11px] text-black/60 dark:text-white/50 line-clamp-2 leading-relaxed">
                               {event.message}
                             </p>
                             {productPayload.price && (
@@ -5366,25 +5736,18 @@ export default function App() {
                               <button
                                 onClick={() => {
                                   setIsNotificationOpen(false);
-                                  handleMarkAllRead();
                                   
-                                  if (productPayload.id) {
-                                    const minimalProduct: any = {
-                                      id: productPayload.id,
-                                      title: productPayload.title,
-                                      price: productPayload.price,
-                                      image_url: productPayload.image_url,
-                                      category: productPayload.category || 'Geral',
-                                      product_type: 'physical',
-                                      is_active: true
-                                    };
-                                    handleExploreProduct(productPayload.id, minimalProduct);
-                                  } else {
-                                    const element = document.getElementById("boutique");
-                                    if (element) {
-                                      element.scrollIntoView({ behavior: "smooth" });
-                                    }
-                                  }
+                                  const minimalProduct: any = productPayload.id ? {
+                                    id: productPayload.id,
+                                    title: productPayload.title,
+                                    price: productPayload.price,
+                                    image_url: productPayload.image_url,
+                                    category: productPayload.category || 'Geral',
+                                    product_type: 'physical',
+                                    is_active: true
+                                  } : null;
+
+                                  handleExploreProduct(productPayload.id || productPayload.product_id, minimalProduct, event.id);
                                 }}
                                 className="text-[9px] uppercase tracking-widest font-black text-amber-500 hover:text-white hover:bg-amber-500 border border-amber-500/20 hover:border-transparent px-3 py-1 rounded transition-all inline-block"
                               >
