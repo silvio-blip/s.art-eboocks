@@ -46,6 +46,9 @@ import {
   SlidersHorizontal,
   RotateCcw,
   Filter,
+  Star,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -1214,7 +1217,7 @@ interface ProductCardProps {
   formatPrice?: (v: any) => string;
 }
 
-function ProductCard({
+const ProductCard = React.memo(function ProductCard({
   product,
   onBuy,
   onRead,
@@ -1254,6 +1257,7 @@ function ProductCard({
           referrerPolicy="no-referrer"
           className="w-full h-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
           loading="lazy"
+          decoding="async"
         />
         
         {/* Subtle premium gradient vignette on hover */}
@@ -1299,7 +1303,7 @@ function ProductCard({
       </div>
     </motion.div>
   );
-}
+});
 
 const ADMIN_IDS = [
   "3d596215-583e-498f-9fd5-36b83d8bccf5",
@@ -2406,13 +2410,28 @@ export default function App() {
     roundFavicon();
   }, []);
   const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const cached = localStorage.getItem("sartorial_cached_products");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          console.log(`[CACHE] ${parsed.length} produtos carregados instantaneamente do cache local.`);
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error("[CACHE] Erro ao ler produtos do localStorage:", e);
+    }
+    return [];
+  });
   const [loading, setLoading] = useState(true);
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   const [storeEvents, setStoreEvents] = useState<any[]>([]);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notificationFilter, setNotificationFilter] = useState<"all" | "unread">("all");
   const [lastReadEvents, setLastReadEvents] = useState<number>(() => {
     try {
       return parseInt(localStorage.getItem("lastReadStoreEvents") || "0", 10);
@@ -3894,81 +3913,138 @@ export default function App() {
     }
   }, [searchQuery, view]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (retryCount = 0) => {
     setLoadingProducts(true);
-    console.log("[DEBUG] Chamando fetchProducts...");
-    try {
-      const { data: dbProducts, error: dbError } = await supabase
-        .from("products")
-        .select("*")
-        .order('created_at', { ascending: false });
+    console.log(`[DEBUG] Chamando fetchProducts (tentativa ${retryCount + 1})...`);
 
-      if (dbError) {
-        console.error("Erro ao carregar produtos:", dbError);
-        toast.error("Erro ao carregar o catálogo.");
-        return;
-      }
-
-      console.log(`[DEBUG] fetchProducts retornou ${dbProducts?.length || 0} produtos.`);
-
-      const productsWithPvp = (dbProducts || []).map(p => ({
+    const processProductList = (rawProducts: any[]) => {
+      const productsWithPvp = (rawProducts || []).map(p => ({
         ...p,
         pvp: p.price || 0,
         is_active: (p.is_active === undefined || p.is_active === null) ? true : p.is_active, 
         supabase_id: p.id
       }));
 
-      if (productsWithPvp.length === 0 && products.length > 0) {
-        console.warn("[WARNING] Ignorando atualização de produtos vazia em background para evitar que a montra desapareça.");
+      if (productsWithPvp.length > 0) {
+        setProducts(productsWithPvp);
+        try {
+          localStorage.setItem("sartorial_cached_products", JSON.stringify(productsWithPvp));
+        } catch (e) {
+          console.error("[CACHE] Erro ao salvar produtos no localStorage:", e);
+        }
+        console.log(`[DEBUG] fetchProducts atualizou ${productsWithPvp.length} produtos.`);
+        return true;
+      }
+      return false;
+    };
+
+    try {
+      // 1. Tentar busca via Supabase Client com timeout de 6s
+      const supabasePromise = supabase
+        .from("products")
+        .select("*")
+        .order('created_at', { ascending: false });
+
+      const timeoutPromise = new Promise<{ data: null; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error("Supabase request timeout")), 6000)
+      );
+
+      const { data: dbProducts, error: dbError } = await Promise.race([
+        supabasePromise,
+        timeoutPromise
+      ]) as any;
+
+      if (!dbError && dbProducts && dbProducts.length > 0) {
+        processProductList(dbProducts);
+        setLoadingProducts(false);
         return;
       }
-
-      setProducts(productsWithPvp);
     } catch (err) {
-      console.error("Erro no fetchProducts:", err);
-    } finally {
+      console.warn(`[WARN] Busca via Supabase falhou ou expirou (tentativa ${retryCount + 1}):`, err);
+    }
+
+    // 2. Fallback: Endpoint Express do Servidor (/api/products)
+    try {
+      console.log("[DEBUG] Tentando fallback para /api/products...");
+      const res = await fetch("/api/products");
+      if (res.ok) {
+        const apiProducts = await res.json();
+        if (Array.isArray(apiProducts) && apiProducts.length > 0) {
+          processProductList(apiProducts);
+          setLoadingProducts(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn(`[WARN] Fallback para /api/products falhou:`, err);
+    }
+
+    // 3. Se falhou e ainda tem tentativas, re-tentar automaticamente
+    if (retryCount < 3) {
+      const delay = (retryCount + 1) * 1200;
+      console.log(`[RETRY] Re-tentando fetchProducts em ${delay}ms...`);
+      setTimeout(() => {
+        fetchProducts(retryCount + 1);
+      }, delay);
+    } else {
+      console.warn("[WARN] Todas as tentativas de buscar produtos falharam. Mantendo estado atual do cache.");
       setLoadingProducts(false);
-      // We don't set loading to false here; we wait for isInitialized effect
     }
   };
 
   const fetchDashboardData = async (userId: string) => {
-    // 1. BUSCAR ORDENS ATUALIZADAS
-    const { data: orders, error: ordersError } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("user_id", userId)
-      .in("status", ["paid", "completed", "pago", "delivered", "succeeded", "refund_requested", "refund_pending", "refunded", "canceled", "cancelled"])
-      .order("created_at", { ascending: false });
-
-    if (ordersError) {
-      console.error("[DEBUG] Error fetching orders:", ordersError);
-      return;
-    }
-
-    if (!orders || orders.length === 0) {
+    if (!userId) {
       setPurchasedProducts([]);
       return;
     }
 
-    // Buscar produtos separadamente para garantir compatibilidade
-    const productIds = orders.map((o) => o.product_id);
-    const { data: products } = await supabase
-      .from("products")
-      .select("*")
-      .in("id", productIds);
+    try {
+      // 1. BUSCAR ORDENS ATUALIZADAS
+      const { data: orders, error: ordersError } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("user_id", userId)
+        .in("status", ["paid", "completed", "pago", "delivered", "succeeded", "refund_requested", "refund_pending", "refunded", "canceled", "cancelled"])
+        .order("created_at", { ascending: false });
 
-    const productsMap = (products || []).reduce((acc: any, p: any) => {
-      acc[p.id] = p;
-      return acc;
-    }, {});
+      if (ordersError) {
+        console.warn("[S.ART DEBUG] Aviso ao procurar encomendas do utilizador:", ordersError.message || ordersError);
+        setPurchasedProducts([]);
+        return;
+      }
 
-    const mappedOrders = (orders || []).map((o: any) => ({
-      ...o,
-      product: productsMap[o.product_id] || null,
-    }));
+      if (!orders || orders.length === 0) {
+        setPurchasedProducts([]);
+        return;
+      }
 
-    setPurchasedProducts(mappedOrders);
+      // Buscar produtos separadamente para garantir compatibilidade
+      const productIds = Array.from(new Set(orders.map((o) => o.product_id).filter(Boolean)));
+      if (productIds.length === 0) {
+        setPurchasedProducts(orders.map((o: any) => ({ ...o, product: null })));
+        return;
+      }
+
+      const { data: products } = await supabase
+        .from("products")
+        .select("*")
+        .in("id", productIds);
+
+      const productsMap = (products || []).reduce((acc: any, p: any) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+
+      const mappedOrders = (orders || []).map((o: any) => ({
+        ...o,
+        product: productsMap[o.product_id] || null,
+      }));
+
+      setPurchasedProducts(mappedOrders);
+    } catch (err: any) {
+      console.warn("[S.ART DEBUG] Exceção ao sincronizar encomendas:", err?.message || err);
+      setPurchasedProducts([]);
+    }
   };
 
   const [refundBookName, setRefundBookName] = useState("");
@@ -4140,15 +4216,30 @@ export default function App() {
   if (loading) {
     return (
       <div
-        className={`h-screen flex flex-col items-center justify-center gap-6 ${theme === "dark" ? "dark bg-black text-white" : "bg-white text-black"}`}
+        className={`h-screen w-screen flex flex-col items-center justify-center gap-6 ${theme === "dark" ? "dark bg-[#0A0A0A] text-white" : "bg-[#FCFAF7] text-luxury-foreground"}`}
       >
-        <motion.div
-          animate={{ opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
-          className="text-4xl font-serif tracking-tighter italic"
-        >
-          S.art
-        </motion.div>
+        <div className="relative flex items-center justify-center">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+            className="w-20 h-20 rounded-full border border-amber-500/20 border-t-amber-500"
+          />
+          <motion.div
+            animate={{ scale: [0.9, 1.05, 0.9], opacity: [0.6, 1, 0.6] }}
+            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute font-serif text-2xl font-bold tracking-tighter italic text-amber-500"
+          >
+            S.art
+          </motion.div>
+        </div>
+        <div className="flex flex-col items-center space-y-1 text-center">
+          <p className="text-[10px] uppercase tracking-[0.4em] font-mono font-bold text-amber-500/80 animate-pulse">
+            S.art Boutique • Alta Curadoria
+          </p>
+          <p className="text-[9px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">
+            A carregar experiência de luxo...
+          </p>
+        </div>
       </div>
     );
   }
@@ -4379,49 +4470,26 @@ export default function App() {
                     </motion.div>
                 </div>
 
-                {/* Scroll Indicator - Bottom edge with Panicked Escape Animation */}
+                {/* Scroll Indicator - Bottom edge with Smooth Serene Animation */}
                 <motion.div 
                   initial={{ opacity: 0 }}
-                  animate={{ opacity: isCursorTransformed ? 0 : 1 }}
-                  transition={{ delay: 4, duration: 1 }}
-                  className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-50"
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1.5, duration: 1 }}
+                  onClick={() => document.getElementById("featured-section")?.scrollIntoView({ behavior: "smooth" })}
+                  className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 cursor-pointer group z-50 pointer-events-auto"
                 >
+                  <span className="text-[9px] uppercase tracking-[0.3em] font-mono text-white/60 group-hover:text-amber-400 transition-colors">
+                    Explorar Destaques
+                  </span>
                   <motion.div 
-                    animate={isCursorTransformed ? {
-                      y: -300, 
-                      opacity: 0,
-                      scale: 0.2,
-                      transition: { duration: 0.5, ease: "anticipate" }
-                    } : { 
-                      x: [0, -4, 4, -3, 3, 0].map(v => v * (1 + scrollProgress * 10)),
-                      y: [0, 3, -3, 2, -2, 0].map(v => v * (1 + scrollProgress * 10)),
-                      rotate: [0, -3, 3, -2, 2, 0].map(v => v * (1 + scrollProgress * 10)),
-                    }}
-                    transition={{ 
-                      duration: Math.max(0.04, 0.12 - scrollProgress * 0.1), 
-                      repeat: isCursorTransformed ? 0 : Infinity,
-                      repeatDelay: 0
-                    }}
-                    className="w-[28px] h-[48px] border-2 border-white/40 rounded-[1.2rem] flex items-center justify-center relative overflow-hidden"
+                    animate={{ y: [0, 6, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="w-[22px] h-[36px] border border-white/30 group-hover:border-amber-400/80 rounded-full flex items-start justify-center p-1.5 transition-colors shadow-lg"
                   >
                     <motion.div 
-                      animate={isCursorTransformed ? {
-                        y: -150,
-                        scale: 2,
-                        opacity: 0,
-                      } : { 
-                        y: [-16, 16, -12, 14, -16],
-                        x: [0, 8, -8, 6, -6, 0].map(v => v * (1 + scrollProgress * 6)),
-                        scale: [1, 1.6, 0.7, 1.5, 1],
-                        opacity: [0.8, 1, 0.8, 1, 0.8]
-                      }}
-                      transition={{ 
-                        duration: Math.max(0.1, 0.5 - scrollProgress * 0.4), 
-                        repeat: isCursorTransformed ? 0 : Infinity, 
-                        ease: "anticipate",
-                        repeatType: "mirror"
-                      }}
-                      className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,1)]"
+                      animate={{ y: [0, 10, 0], opacity: [0.4, 1, 0.4] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                      className="w-1.5 h-1.5 bg-amber-400 rounded-full shadow-[0_0_8px_rgba(251,191,36,0.8)]"
                     />
                   </motion.div>
                 </motion.div>
@@ -4451,81 +4519,80 @@ export default function App() {
                       }}
                       className="px-[5%] mt-8"
                     >
-                      <div className={`grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 ${isFewFeatured ? 'max-w-[1000px]' : 'max-w-[1400px]'} mx-auto overflow-visible`}>
+                      <div className="grid grid-cols-1 gap-6 max-w-[900px] mx-auto overflow-visible">
                         {featuredProducts.map((featuredProduct, fIdx) => (
                           <motion.div 
                             key={featuredProduct.id} 
-                            initial={{ 
-                              opacity: 0, 
-                              y: 60,
-                            }}
+                            initial={{ opacity: 0, y: 30 }}
                             whileInView={{ 
                               opacity: 1, 
                               y: 0,
-                              transition: { duration: 1.0, ease: [0.16, 1, 0.3, 1] } 
+                              transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } 
                             }}
                             viewport={{ once: true, amount: 0.1 }}
-                            whileHover={{ y: -8, transition: { duration: 0.3 } }}
-                            className="flex flex-col space-y-6 group"
+                            whileHover={{ y: -4, transition: { duration: 0.3 } }}
+                            className="group cursor-pointer"
                           >
-                          {/* Main Product Card */}
-                          <div 
-                            onClick={() => {
-                              setSelectedProduct(featuredProduct);
-                              setDetailProduct(featuredProduct);
-                              setView("product-detail");
-                            }}
-                            className="relative overflow-hidden border border-luxury-border shadow-2xl group cursor-pointer rounded-xl bg-luxury-card aspect-[4/3] flex flex-col justify-end"
-                          >
-                            <img 
-                              src={getImageUrl(featuredProduct.image_url || "")} 
-                              alt={featuredProduct.title}
-                              className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-[1.5s] ease-out"
-                              loading="lazy"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent"></div>
-                            
-                            {/* Title, Price and Flat Highlighted Action INSIDE the card */}
-                            <div className="relative z-10 p-4 md:p-6 w-full flex flex-row items-center justify-between gap-4 bg-black/40 backdrop-blur-sm border-t border-white/5">
-                              <div className="flex flex-col min-w-0 flex-1">
-                                <h3 className="font-serif text-sm md:text-base text-white tracking-tight truncate uppercase font-bold">
-                                  {featuredProduct.title}
-                                </h3>
-                                <span className="text-luxury-gold text-xs md:text-sm font-mono font-bold mt-0.5">
-                                  {formatPrice(featuredProduct.pvp)}
-                                </span>
-                              </div>
+                            {/* Main Product Card */}
+                            <div 
+                              onClick={() => {
+                                setSelectedProduct(featuredProduct);
+                                setDetailProduct(featuredProduct);
+                                setView("product-detail");
+                              }}
+                              className="relative overflow-hidden border border-luxury-border hover:border-amber-500/50 shadow-xl hover:shadow-[0_16px_35px_rgba(0,0,0,0.25)] rounded-2xl bg-black/40 aspect-[16/9] sm:aspect-[16/8] flex flex-col justify-between transition-all duration-500"
+                            >
+                              {/* Product Image - Full Visibility */}
+                              <img 
+                                src={getImageUrl(featuredProduct.image_url || "")} 
+                                alt={featuredProduct.title}
+                                className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-out"
+                                loading="lazy"
+                              />
                               
-                              <button
-                                onClick={(e: any) => {
-                                  e.stopPropagation();
-                                  handleBuy(featuredProduct);
-                                }}
-                                disabled={checkoutLoading === featuredProduct.id}
-                                className="bg-luxury-gold hover:bg-white text-black font-black text-[9px] md:text-[10px] uppercase tracking-[0.15em] px-3.5 py-2.5 rounded-[4px] shadow-none border-0 transition-all flex items-center gap-1.5 shrink-0"
-                              >
-                                {checkoutLoading === featuredProduct.id ? (
-                                  <Loader2 size={12} className="animate-spin text-black" />
-                                ) : (
-                                  <>
-                                    <span>COMPRAR</span>
-                                    <ShoppingBag size={11} className="stroke-[2.5]" />
-                                  </>
+                              {/* Subtle Gradient Overlay - Bottom Only for Text Readability */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity"></div>
+                              
+                              {/* Top Category Tag - Clean & Discreet */}
+                              <div className="relative z-10 p-4 md:p-5 flex justify-end">
+                                {featuredProduct.category && (
+                                  <span className="bg-black/50 backdrop-blur-md border border-white/10 text-white/90 font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 rounded-full">
+                                    {featuredProduct.category}
+                                  </span>
                                 )}
-                              </button>
-                            </div>
-                          </div>
+                              </div>
 
-                          {/* Information BELOW the card */}
-                          <div className="flex flex-col space-y-3">
-                            {/* Description Case */}
-                            <div className="border-l border-luxury-border pl-6 h-10 flex items-center">
-                              <p className="text-luxury-foreground/40 text-xs md:text-sm font-light leading-relaxed line-clamp-2 italic">
-                                "{featuredProduct.description.replace(/<[^>]*>?/gm, "")}"
-                              </p>
+                              {/* Card Bottom Bar - Clean & Minimalist */}
+                              <div className="relative z-10 p-5 md:p-6 w-full flex items-end justify-between gap-4">
+                                <div className="flex flex-col min-w-0 flex-1">
+                                  <h3 className="font-serif text-base md:text-xl text-white tracking-tight truncate uppercase font-bold group-hover:text-amber-400 transition-colors">
+                                    {featuredProduct.title}
+                                  </h3>
+                                  <p className="text-amber-400 text-sm md:text-base font-mono font-bold mt-0.5">
+                                    {formatPrice(featuredProduct.pvp)}
+                                  </p>
+                                </div>
+                                
+                                <button
+                                  onClick={(e: any) => {
+                                    e.stopPropagation();
+                                    handleBuy(featuredProduct);
+                                  }}
+                                  disabled={checkoutLoading === featuredProduct.id}
+                                  className="bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] md:text-xs uppercase tracking-[0.15em] px-4 md:px-5 py-2.5 md:py-3 rounded-lg shadow-lg hover:shadow-amber-500/25 transition-all flex items-center gap-2 shrink-0"
+                                >
+                                  {checkoutLoading === featuredProduct.id ? (
+                                    <Loader2 size={14} className="animate-spin text-black" />
+                                  ) : (
+                                    <>
+                                      <span>COMPRAR</span>
+                                      <ShoppingBag size={13} className="stroke-[2.5]" />
+                                    </>
+                                  )}
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        </motion.div>
+                          </motion.div>
                         ))}
                       </div>
                     </motion.div>
@@ -4867,10 +4934,48 @@ export default function App() {
                     </div>
                   )}
 
-                  {loadingProducts && (
-                    <div className="py-40 flex flex-col items-center justify-center space-y-6">
-                      <Loader2 className="animate-spin text-luxury-gold" size={40} />
-                      <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-foreground/40 font-black animate-pulse">Consultando o Acervo S.art...</p>
+                  {loadingProducts && products.length === 0 && (
+                    <div className="py-12 flex flex-col items-center justify-center space-y-10 w-full max-w-[1400px] mx-auto px-4">
+                      <div className="flex flex-col items-center space-y-3 text-center">
+                        <div className="relative">
+                          <Loader2 className="animate-spin text-amber-500" size={32} />
+                          <Sparkles className="absolute -top-1 -right-1 text-amber-400 animate-pulse" size={14} />
+                        </div>
+                        <p className="text-[10px] uppercase tracking-[0.4em] text-amber-500 font-mono font-bold animate-pulse">
+                          A consultar o Acervo S.art...
+                        </p>
+                      </div>
+
+                      {/* 4-Card Luxury Skeleton Placeholder Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
+                        {[...Array(4)].map((_, i) => (
+                          <div 
+                            key={i} 
+                            className="border border-black/10 dark:border-white/10 rounded-xl p-4 space-y-4 bg-black/5 dark:bg-white/5 animate-pulse flex flex-col justify-between h-[340px]"
+                          >
+                            <div className="w-full h-[180px] bg-black/10 dark:bg-white/10 rounded-lg flex items-center justify-center">
+                              <Sparkles className="text-black/20 dark:text-white/20" size={24} />
+                            </div>
+                            <div className="space-y-2">
+                              <div className="h-4 bg-black/10 dark:bg-white/10 rounded w-3/4"></div>
+                              <div className="h-3 bg-black/10 dark:bg-white/10 rounded w-1/2"></div>
+                            </div>
+                            <div className="flex items-center justify-between pt-2 border-t border-black/5 dark:border-white/5">
+                              <div className="h-5 bg-amber-500/20 rounded w-1/3"></div>
+                              <div className="h-8 bg-black/10 dark:bg-white/10 rounded-lg w-1/3"></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Fallback button if user wants to force refresh */}
+                      <button
+                        onClick={() => fetchProducts(0)}
+                        className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-amber-500 hover:text-amber-400 border border-amber-500/30 hover:border-amber-500 px-5 py-2.5 rounded-full transition-all"
+                      >
+                        <RefreshCw size={12} />
+                        <span>Recarregar Catálogo Manualmente</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -5614,23 +5719,44 @@ export default function App() {
 
               {/* Actions & Meta */}
               <div className="px-6 py-2.5 bg-black/5 dark:bg-white/5 border-b border-black/10 dark:border-white/5 flex items-center justify-between text-[10px]">
-                <span className="font-mono text-black/60 dark:text-white/60 uppercase tracking-wider">
-                  {unreadCount > 0 ? `${unreadCount} não lidas` : 'Todas lidas'}
-                </span>
+                {/* Filter Tabs */}
+                <div className="flex items-center gap-1.5 bg-black/5 dark:bg-white/10 p-0.5 rounded-lg border border-black/5 dark:border-white/10">
+                  <button
+                    onClick={() => setNotificationFilter("all")}
+                    className={`px-2.5 py-1 rounded-md font-mono text-[9px] uppercase tracking-wider transition-all ${
+                      notificationFilter === "all"
+                        ? "bg-amber-500 text-black font-bold shadow-sm"
+                        : "text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white"
+                    }`}
+                  >
+                    Todas ({activeStoreEvents.length})
+                  </button>
+                  <button
+                    onClick={() => setNotificationFilter("unread")}
+                    className={`px-2.5 py-1 rounded-md font-mono text-[9px] uppercase tracking-wider transition-all ${
+                      notificationFilter === "unread"
+                        ? "bg-amber-500 text-black font-bold shadow-sm"
+                        : "text-black/60 dark:text-white/60 hover:text-black dark:hover:text-white"
+                    }`}
+                  >
+                    Não Lidas ({unreadCount})
+                  </button>
+                </div>
+
                 <div className="flex items-center gap-3">
                   {activeStoreEvents.length > 0 && (
                     <>
                       <button
                         onClick={handleMarkAllRead}
-                        className="text-amber-500 hover:text-amber-600 uppercase font-black tracking-widest transition-colors font-mono"
+                        className="text-amber-500 hover:text-amber-600 uppercase font-black tracking-widest transition-colors font-mono text-[9px]"
                       >
                         Marcar lidas
                       </button>
                       <button
                         onClick={handleClearAllEvents}
-                        className="text-black/40 dark:text-white/40 hover:text-red-500 uppercase font-mono transition-colors"
+                        className="text-black/40 dark:text-white/40 hover:text-red-500 uppercase font-mono text-[9px] transition-colors"
                       >
-                        Limpar todas
+                        Limpar
                       </button>
                     </>
                   )}
@@ -5638,129 +5764,149 @@ export default function App() {
               </div>
 
               {/* Informative banner about 3-day expiration */}
-              <div className="px-6 py-2 bg-amber-500/5 border-b border-amber-500/10 flex items-center gap-2 text-[10px] text-amber-500/80">
-                <Info size={12} className="shrink-0 text-amber-500" />
-                <span className="leading-tight">Notificações lidas/vistas expiram em 3 dias. Os produtos permanecem na loja.</span>
+              <div className="px-6 py-2 bg-amber-500/5 border-b border-amber-500/10 flex items-center justify-between text-[10px] text-amber-500/80 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Info size={12} className="shrink-0 text-amber-500" />
+                  <span className="leading-tight">Notificações lidas expiram em 3 dias.</span>
+                </div>
+                {activeStoreEvents.length > 0 && (
+                  <span className="text-[9px] font-mono font-bold uppercase text-amber-500/70 shrink-0">
+                    {activeStoreEvents.length} {activeStoreEvents.length === 1 ? 'evento' : 'eventos'}
+                  </span>
+                )}
               </div>
 
-              {/* Scrollable Events list */}
-              <ScrollArea className="flex-1">
-                <div className="p-6 space-y-3">
-                  {activeStoreEvents.length === 0 ? (
-                    <div className="py-16 text-center space-y-4 flex flex-col items-center">
-                      <div className="w-12 h-12 rounded-full bg-amber-500/5 border border-amber-500/15 flex items-center justify-center text-amber-500/40">
-                        <Bell size={24} />
-                      </div>
-                      <div className="max-w-[260px] space-y-1">
-                        <p className="font-serif text-sm font-semibold tracking-wide text-black dark:text-white">
-                          Nenhuma notificação ativa
-                        </p>
-                        <p className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed">
-                          Quando novos produtos forem adicionados à loja, você receberá notificações e alertas em tempo real aqui.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    activeStoreEvents.map((event) => {
+              {/* Scrollable Events list container */}
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-3 luxury-scrollbar overscroll-contain">
+                {(() => {
+                  const filteredEvents = activeStoreEvents.filter((event) => {
+                    if (notificationFilter === "unread") {
                       const isAfterLastRead = new Date(event.created_at).getTime() > lastReadEvents;
                       const isViewed = !!viewedEventsMap[event.id];
-                      const isUnread = isAfterLastRead && !isViewed;
-                      const productPayload = event.payload || {};
-                      const countdownText = getExpiryCountdownText(event.id);
-                      
-                      return (
-                        <motion.div
-                          key={event.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className={`p-4 border rounded-lg flex gap-3.5 items-start relative transition-all duration-300 ${
-                            isUnread 
-                              ? "bg-amber-500/5 border-amber-500/20 shadow-[0_4px_12px_rgba(245,158,11,0.04)]" 
-                              : "opacity-35 hover:opacity-100 grayscale hover:grayscale-0 bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/5"
-                          }`}
+                      return isAfterLastRead && !isViewed;
+                    }
+                    return true;
+                  });
+
+                  if (filteredEvents.length === 0) {
+                    return (
+                      <div className="py-16 text-center space-y-4 flex flex-col items-center">
+                        <div className="w-12 h-12 rounded-full bg-amber-500/5 border border-amber-500/15 flex items-center justify-center text-amber-500/40">
+                          <Bell size={24} />
+                        </div>
+                        <div className="max-w-[260px] space-y-1">
+                          <p className="font-serif text-sm font-semibold tracking-wide text-black dark:text-white">
+                            {notificationFilter === "unread" ? "Nenhuma notificação não lida" : "Nenhuma notificação ativa"}
+                          </p>
+                          <p className="text-[11px] text-black/40 dark:text-white/30 leading-relaxed">
+                            {notificationFilter === "unread" 
+                              ? "Todas as notificações já foram visualizadas. Alterne para 'Todas' para rever o histórico."
+                              : "Quando novos produtos forem adicionados à loja, você receberá notificações e alertas em tempo real aqui."}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return filteredEvents.map((event) => {
+                    const isAfterLastRead = new Date(event.created_at).getTime() > lastReadEvents;
+                    const isViewed = !!viewedEventsMap[event.id];
+                    const isUnread = isAfterLastRead && !isViewed;
+                    const productPayload = event.payload || {};
+                    const countdownText = getExpiryCountdownText(event.id);
+                    
+                    return (
+                      <motion.div
+                        key={event.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`p-4 border rounded-lg flex gap-3.5 items-start relative transition-all duration-300 ${
+                          isUnread 
+                            ? "bg-amber-500/5 border-amber-500/20 shadow-[0_4px_12px_rgba(245,158,11,0.04)]" 
+                            : "opacity-35 hover:opacity-100 grayscale hover:grayscale-0 bg-black/5 dark:bg-white/5 border-black/5 dark:border-white/5"
+                        }`}
+                      >
+                        {/* Botão de remover notificação individual */}
+                        <button
+                          onClick={(e) => handleDismissEvent(event.id, e)}
+                          className="absolute top-2.5 right-2.5 p-1 text-black/30 dark:text-white/30 hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
+                          title="Remover notificação"
                         >
-                          {/* Botão de remover notificação individual */}
-                          <button
-                            onClick={(e) => handleDismissEvent(event.id, e)}
-                            className="absolute top-2.5 right-2.5 p-1 text-black/30 dark:text-white/30 hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
-                            title="Remover notificação"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <Trash2 size={13} />
+                        </button>
 
-                          {/* Image thumbnail */}
-                          {productPayload.image_url ? (
-                            <img
-                              src={productPayload.image_url}
-                              alt=""
-                              className="w-14 h-14 rounded object-cover border border-black/10 dark:border-white/10 shrink-0 mt-0.5"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="w-14 h-14 rounded bg-amber-500/5 border border-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
-                              <Bell className="w-5 h-5 text-amber-500/40" />
-                            </div>
-                          )}
-
-                          {/* Info */}
-                          <div className="flex-1 space-y-1 text-left min-w-0 pr-5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-[9px] text-amber-500 uppercase tracking-widest font-mono flex items-center gap-1">
-                                <Clock size={10} />
-                                {new Date(event.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
-                                {" • "}
-                                {new Date(event.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
-                              </p>
-                              
-                              {/* Contador regressivo de expiração se já foi visto */}
-                              {countdownText && (
-                                <span className="text-[8px] font-mono font-bold text-amber-600/90 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
-                                  ⏱️ {countdownText}
-                                </span>
-                              )}
-                            </div>
-
-                            <h4 className="font-serif text-xs font-semibold tracking-wide text-black dark:text-white truncate">
-                              {productPayload.title || event.title}
-                            </h4>
-                            <p className="text-[11px] text-black/60 dark:text-white/50 line-clamp-2 leading-relaxed">
-                              {event.message}
-                            </p>
-                            {productPayload.price && (
-                              <p className="text-xs font-mono font-bold text-amber-500 mt-1">
-                                €{parseFloat(productPayload.price).toFixed(2)}
-                              </p>
-                            )}
-                            
-                            <div className="pt-2">
-                              <button
-                                onClick={() => {
-                                  setIsNotificationOpen(false);
-                                  
-                                  const minimalProduct: any = productPayload.id ? {
-                                    id: productPayload.id,
-                                    title: productPayload.title,
-                                    price: productPayload.price,
-                                    image_url: productPayload.image_url,
-                                    category: productPayload.category || 'Geral',
-                                    product_type: 'physical',
-                                    is_active: true
-                                  } : null;
-
-                                  handleExploreProduct(productPayload.id || productPayload.product_id, minimalProduct, event.id);
-                                }}
-                                className="text-[9px] uppercase tracking-widest font-black text-amber-500 hover:text-white hover:bg-amber-500 border border-amber-500/20 hover:border-transparent px-3 py-1 rounded transition-all inline-block"
-                              >
-                                Explorar Produto
-                              </button>
-                            </div>
+                        {/* Image thumbnail */}
+                        {productPayload.image_url ? (
+                          <img
+                            src={productPayload.image_url}
+                            alt=""
+                            className="w-14 h-14 rounded object-cover border border-black/10 dark:border-white/10 shrink-0 mt-0.5"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded bg-amber-500/5 border border-amber-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                            <Bell className="w-5 h-5 text-amber-500/40" />
                           </div>
-                        </motion.div>
-                      );
-                    })
-                  )}
-                </div>
-              </ScrollArea>
+                        )}
+
+                        {/* Info */}
+                        <div className="flex-1 space-y-1 text-left min-w-0 pr-5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-[9px] text-amber-500 uppercase tracking-widest font-mono flex items-center gap-1">
+                              <Clock size={10} />
+                              {new Date(event.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                              {" • "}
+                              {new Date(event.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
+                            </p>
+                            
+                            {/* Contador regressivo de expiração se já foi visto */}
+                            {countdownText && (
+                              <span className="text-[8px] font-mono font-bold text-amber-600/90 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                                ⏱️ {countdownText}
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 className="font-serif text-xs font-semibold tracking-wide text-black dark:text-white truncate">
+                            {productPayload.title || event.title}
+                          </h4>
+                          <p className="text-[11px] text-black/60 dark:text-white/50 line-clamp-2 leading-relaxed">
+                            {event.message}
+                          </p>
+                          {productPayload.price && (
+                            <p className="text-xs font-mono font-bold text-amber-500 mt-1">
+                              €{parseFloat(productPayload.price).toFixed(2)}
+                            </p>
+                          )}
+                          
+                          <div className="pt-2">
+                            <button
+                              onClick={() => {
+                                setIsNotificationOpen(false);
+                                
+                                const minimalProduct: any = productPayload.id ? {
+                                  id: productPayload.id,
+                                  title: productPayload.title,
+                                  price: productPayload.price,
+                                  image_url: productPayload.image_url,
+                                  category: productPayload.category || 'Geral',
+                                  product_type: 'physical',
+                                  is_active: true
+                                } : null;
+
+                                handleExploreProduct(productPayload.id || productPayload.product_id, minimalProduct, event.id);
+                              }}
+                              className="text-[9px] uppercase tracking-widest font-black text-amber-500 hover:text-white hover:bg-amber-500 border border-amber-500/20 hover:border-transparent px-3 py-1 rounded transition-all inline-block"
+                            >
+                              Explorar Produto
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  });
+                })()}
+              </div>
               
               {/* Footer */}
               <div className="p-4 border-t border-black/10 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.01] text-center">

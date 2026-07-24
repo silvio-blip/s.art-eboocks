@@ -4102,6 +4102,26 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
   }
 });
 
+// Public Endpoint to fetch products reliably from server side (bypasses client-side auth/locks)
+app.get('/api/products', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[PUBLIC API /api/products SUPABASE ERROR]', error);
+      return res.status(500).json({ error: error.message });
+    }
+    res.json(data || []);
+  } catch (err: any) {
+    console.error('[PUBLIC API /api/products FATAL ERROR]', err);
+    res.status(500).json({ error: err.message || 'Internal Server Error' });
+  }
+});
+
 // Global catch-all for any unmatched /api routes to prevent HTML fallback
 app.all('/api/*', (req, res) => {
   console.warn(`[API 404] ${req.method} ${req.url}`);

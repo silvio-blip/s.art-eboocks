@@ -1070,8 +1070,9 @@ export default function AdminDashboard({
         .order("created_at", { ascending: false });
 
       if (ordersError) {
-        console.error("[DEBUG] Erro ao buscar pedidos:", ordersError);
-        throw ordersError;
+        console.warn("[S.ART DEBUG] Erro/Aviso ao buscar pedidos:", ordersError.message || ordersError);
+        setOrders([]);
+        return;
       }
 
       if (ordersData) {
