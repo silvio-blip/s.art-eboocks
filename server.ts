@@ -4370,8 +4370,8 @@ function getProductImageUrl(url: string | undefined | null) {
 async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   if (!product) return html;
   
-  const title = (product.title || product.name || "S.art Boutique | Moda, Tendências e Lifestyle").replace(/"/g, '&quot;');
-  const description = (product.description || "Descubra a seleção inteligente da S.art. De vestuário e calçado a gadgets inovadores, reunimos as últimas tendências num só lugar. Qualidade, estilo e uma compra segura.").replace(/"/g, '&quot;').replace(/\n/g, ' ');
+  const title = (product.title || product.name || "S.art Full | Loja Oficial de Vestuário, Moda e Estilo").replace(/"/g, '&quot;');
+  const description = (product.description || "Descubra a coleção exclusiva de vestuário na S.art Full. Peças selecionadas de moda masculina e feminina, roupas premium, calçado e tendências.").replace(/"/g, '&quot;').replace(/\n/g, ' ');
   
   // Resolve image - handle different fields
   let image = product.image_url || product.image || product.thumbnail;
@@ -4398,7 +4398,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     { name: 'twitter:description', content: description },
     { name: 'twitter:image', content: safeImage },
     { property: 'og:type', content: 'article', isProperty: true },
-    { property: 'og:site_name', content: 'S.art Boutique', isProperty: true }
+    { property: 'og:site_name', content: 'S.art Full', isProperty: true }
   ];
 
   if (reqUrl) {
