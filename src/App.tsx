@@ -4216,30 +4216,18 @@ export default function App() {
   if (loading) {
     return (
       <div
-        className={`h-screen w-screen flex flex-col items-center justify-center gap-6 ${theme === "dark" ? "dark bg-[#0A0A0A] text-white" : "bg-[#FCFAF7] text-luxury-foreground"}`}
+        className={`h-screen w-screen flex flex-col items-center justify-center p-4 ${theme === "dark" ? "dark bg-[#0A0A0A] text-white" : "bg-[#FCFAF7] text-luxury-foreground"}`}
       >
-        <div className="relative flex items-center justify-center">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-            className="w-20 h-20 rounded-full border border-amber-500/20 border-t-amber-500"
-          />
-          <motion.div
-            animate={{ scale: [0.9, 1.05, 0.9], opacity: [0.6, 1, 0.6] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute font-serif text-2xl font-bold tracking-tighter italic text-amber-500"
-          >
-            S.art
-          </motion.div>
-        </div>
-        <div className="flex flex-col items-center space-y-1 text-center">
-          <p className="text-[10px] uppercase tracking-[0.4em] font-mono font-bold text-amber-500/80 animate-pulse">
-            S.art Boutique • Alta Curadoria
-          </p>
-          <p className="text-[9px] uppercase tracking-[0.2em] text-black/40 dark:text-white/40">
-            A carregar experiência de luxo...
-          </p>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.3 }}
+          className="text-center"
+        >
+          <h1 className="font-serif text-3xl sm:text-5xl font-extrabold tracking-[0.25em] text-amber-500 uppercase select-none">
+            SART FULL
+          </h1>
+        </motion.div>
       </div>
     );
   }
@@ -4347,27 +4335,62 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "admin" && user && (ADMIN_IDS.includes(user.id) || profile?.is_admin || profile?.is_employee) && (
+          {view === "admin" && (
             <motion.div
               key="admin"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.5 }}
-              className={`admin-dashboard-wrapper theme-${siteTheme.active} w-full min-h-screen dark text-white`}
+              className={`admin-dashboard-wrapper theme-${siteTheme.active} w-full min-h-screen dark text-white bg-[#0A0A0A]`}
             >
-              <AdminDashboard
-                user={user}
-                onBack={() => {
-                  setView("home");
-                  fetchProducts();
-                }}
-                formatPrice={formatPrice}
-                siteTheme={siteTheme}
-                onThemeChange={setSiteTheme}
-                unreadCount={unreadCount}
-                onNotificationClick={() => setIsNotificationOpen(true)}
-              />
+              {user && (ADMIN_IDS.includes(user.id) || profile?.is_admin || profile?.is_employee) ? (
+                <AdminDashboard
+                  user={user}
+                  onBack={() => {
+                    setView("home");
+                    fetchProducts();
+                  }}
+                  formatPrice={formatPrice}
+                  siteTheme={siteTheme}
+                  onThemeChange={setSiteTheme}
+                  unreadCount={unreadCount}
+                  onNotificationClick={() => setIsNotificationOpen(true)}
+                />
+              ) : (
+                <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 bg-[#0A0A0A] text-white">
+                  <div className="max-w-md w-full bg-black/80 border border-amber-500/20 p-8 rounded-2xl shadow-2xl backdrop-blur-xl text-center space-y-6">
+                    <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500">
+                      <Shield size={32} />
+                    </div>
+                    <div className="space-y-2">
+                      <h2 className="font-serif text-2xl font-bold tracking-wider uppercase text-amber-500">
+                        Painel S.art Full
+                      </h2>
+                      <p className="text-xs text-zinc-400 font-mono">
+                        {!user ? "Autenticação necessária para aceder ao painel de administração." : "Esta conta não tem permissões de administrador."}
+                      </p>
+                    </div>
+                    <div className="pt-2 flex flex-col gap-3">
+                      {!user ? (
+                        <Button
+                          onClick={() => setIsAuthOpen(true)}
+                          className="w-full bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold uppercase text-xs py-6 rounded-xl shadow-lg"
+                        >
+                          Entrar como Administrador
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        onClick={() => setView("home")}
+                        className="w-full border-white/20 hover:border-white text-white font-mono uppercase text-xs py-5 rounded-xl"
+                      >
+                        Voltar à Loja
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -4935,46 +4958,45 @@ export default function App() {
                   )}
 
                   {loadingProducts && products.length === 0 && (
-                    <div className="py-12 flex flex-col items-center justify-center space-y-10 w-full max-w-[1400px] mx-auto px-4">
-                      <div className="flex flex-col items-center space-y-3 text-center">
-                        <div className="relative">
-                          <Loader2 className="animate-spin text-amber-500" size={32} />
-                          <Sparkles className="absolute -top-1 -right-1 text-amber-400 animate-pulse" size={14} />
-                        </div>
-                        <p className="text-[10px] uppercase tracking-[0.4em] text-amber-500 font-mono font-bold animate-pulse">
-                          A consultar o Acervo S.art...
+                    <div className="py-12 flex flex-col items-center justify-center space-y-8 w-full max-w-[1400px] mx-auto px-4">
+                      <div className="flex flex-col items-center space-y-2 text-center">
+                        <span className="font-serif text-lg md:text-xl font-extrabold tracking-[0.3em] text-amber-500 uppercase">
+                          SART FULL
+                        </span>
+                        <div className="w-24 h-[2px] bg-gradient-to-r from-transparent via-amber-500 to-transparent animate-pulse" />
+                        <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 font-mono pt-1">
+                          A carregar coleção de vestuário...
                         </p>
                       </div>
 
-                      {/* 4-Card Luxury Skeleton Placeholder Grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 w-full">
-                        {[...Array(4)].map((_, i) => (
+                      {/* High-Fashion Minimalist Skeleton Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full">
+                        {[...Array(6)].map((_, i) => (
                           <div 
                             key={i} 
-                            className="border border-black/10 dark:border-white/10 rounded-xl p-4 space-y-4 bg-black/5 dark:bg-white/5 animate-pulse flex flex-col justify-between h-[340px]"
+                            className="relative overflow-hidden border border-white/10 rounded-2xl bg-black/40 aspect-[16/9] flex flex-col justify-between p-5 space-y-4 animate-pulse"
                           >
-                            <div className="w-full h-[180px] bg-black/10 dark:bg-white/10 rounded-lg flex items-center justify-center">
-                              <Sparkles className="text-black/20 dark:text-white/20" size={24} />
+                            <div className="flex justify-end">
+                              <div className="w-20 h-5 bg-white/10 rounded-full" />
                             </div>
-                            <div className="space-y-2">
-                              <div className="h-4 bg-black/10 dark:bg-white/10 rounded w-3/4"></div>
-                              <div className="h-3 bg-black/10 dark:bg-white/10 rounded w-1/2"></div>
-                            </div>
-                            <div className="flex items-center justify-between pt-2 border-t border-black/5 dark:border-white/5">
-                              <div className="h-5 bg-amber-500/20 rounded w-1/3"></div>
-                              <div className="h-8 bg-black/10 dark:bg-white/10 rounded-lg w-1/3"></div>
+                            <div className="flex items-end justify-between gap-4 pt-8">
+                              <div className="space-y-2 flex-1">
+                                <div className="h-5 bg-white/15 rounded-lg w-2/3" />
+                                <div className="h-4 bg-amber-500/20 rounded-md w-1/3" />
+                              </div>
+                              <div className="w-24 h-9 bg-white/10 rounded-lg" />
                             </div>
                           </div>
                         ))}
                       </div>
 
-                      {/* Fallback button if user wants to force refresh */}
+                      {/* Manual refresh button */}
                       <button
                         onClick={() => fetchProducts(0)}
-                        className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-amber-500 hover:text-amber-400 border border-amber-500/30 hover:border-amber-500 px-5 py-2.5 rounded-full transition-all"
+                        className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-widest text-amber-500/80 hover:text-amber-400 border border-amber-500/30 hover:border-amber-500 px-5 py-2.5 rounded-full transition-all mt-2"
                       >
                         <RefreshCw size={12} />
-                        <span>Recarregar Catálogo Manualmente</span>
+                        <span>Recarregar Catálogo</span>
                       </button>
                     </div>
                   )}
@@ -4995,9 +5017,12 @@ export default function App() {
                 formatPrice={formatPrice}
               />
             ) : (
-              <div className="py-40 flex flex-col items-center justify-center space-y-6">
-                <Loader2 className="animate-spin text-luxury-gold" size={40} />
-                <p className="text-[10px] uppercase tracking-[0.4em] text-white/20 font-black">Identificando Peça...</p>
+              <div className="py-40 flex flex-col items-center justify-center space-y-3">
+                <span className="font-serif text-2xl font-extrabold tracking-[0.3em] text-amber-500 uppercase animate-pulse">
+                  SART FULL
+                </span>
+                <div className="w-16 h-[2px] bg-amber-500/50 animate-pulse" />
+                <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 font-mono">A carregar detalhes da peça...</p>
               </div>
             )
           )}
@@ -5382,14 +5407,17 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div key="shipping-loader" className="py-40 flex flex-col items-center justify-center space-y-6">
-              <Loader2 className="animate-spin text-luxury-gold" size={40} />
-              <p className="text-[10px] uppercase tracking-[0.4em] text-luxury-foreground/30 font-black">Restaurando Checkout...</p>
+            <div key="shipping-loader" className="py-40 flex flex-col items-center justify-center space-y-4">
+              <span className="font-serif text-2xl font-extrabold tracking-[0.3em] text-amber-500 uppercase animate-pulse">
+                SART FULL
+              </span>
+              <div className="w-16 h-[2px] bg-amber-500/50 animate-pulse" />
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/40 font-mono">Restaurando Checkout...</p>
               <button 
                 onClick={() => setView('home')} 
-                className="text-luxury-gold text-[10px] uppercase border border-luxury-gold/50 px-6 py-3 mt-4 hover:bg-luxury-gold hover:text-black transition-all font-bold tracking-widest rounded-[4px]"
+                className="text-amber-500 text-[10px] font-mono uppercase border border-amber-500/40 px-6 py-2.5 mt-2 hover:bg-amber-500 hover:text-black transition-all font-bold tracking-widest rounded-lg"
               >
-                Voltar à Boutique
+                Voltar à Loja
               </button>
             </div>
           ))}
