@@ -10,6 +10,7 @@ import axios from 'axios';
 import Stripe from 'stripe';
 import CryptoJS from 'crypto-js';
 import { GoogleGenAI, Type } from '@google/genai';
+import sharp from 'sharp';
 
 dotenv.config();
 
@@ -1223,16 +1224,36 @@ apiRouter.get('/og-image', async (req, res) => {
       timeout: 10000
     });
 
-    const contentType = response.headers['content-type'] || 'image/jpeg';
+    let jpegBuffer: Buffer;
+    try {
+      jpegBuffer = await sharp(response.data)
+        .resize(1200, 1200, {
+          fit: 'contain',
+          background: { r: 255, g: 255, b: 255, alpha: 1 }
+        })
+        .jpeg({ quality: 85, progressive: true })
+        .toBuffer();
+    } catch (sharpErr) {
+      console.warn('[OG IMAGE SHARP CONVERT WARN]', sharpErr);
+      jpegBuffer = Buffer.from(response.data);
+    }
 
     res.status(200)
-      .header('Content-Type', contentType)
-      .header('Cache-Control', 'public, max-age=86400, s-maxage=86400')
-      .send(response.data);
+      .header('Content-Type', 'image/jpeg')
+      .header('Content-Length', String(jpegBuffer.length))
+      .header('Cache-Control', 'public, max-age=604800, s-maxage=604800')
+      .send(jpegBuffer);
 
   } catch (err: any) {
     console.error('[OG IMAGE PROXY ERROR]', err.message);
-    res.redirect("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
+    // Serve fallback default store image processed as JPEG
+    try {
+      const fallbackResp = await axios.get("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", { responseType: 'arraybuffer' });
+      const fallbackJpeg = await sharp(fallbackResp.data).resize(1200, 1200, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
+      res.status(200).header('Content-Type', 'image/jpeg').send(fallbackJpeg);
+    } catch (fallbackErr) {
+      res.redirect("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
+    }
   }
 });
 
@@ -4381,21 +4402,24 @@ function extractProductId(req: express.Request): string | null {
     return qProd.trim();
   }
 
-  // 2. From raw url search parameters (e.g. ?v=product-detail&product=XYZ)
+  // 2. From raw url search parameters (handling &amp; and URL decoding)
   const rawUrl = req.originalUrl || req.url || '';
-  try {
-    const qIndex = rawUrl.indexOf('?');
-    if (qIndex !== -1) {
-      const searchParams = new URLSearchParams(rawUrl.substring(qIndex));
-      const p = searchParams.get('product') || searchParams.get('id');
-      if (p && p.trim().length > 0) return p.trim();
-    }
-  } catch (e) {}
+  if (rawUrl) {
+    try {
+      const decodedUrl = decodeURIComponent(rawUrl).replace(/&amp;/g, '&');
+      const qIndex = decodedUrl.indexOf('?');
+      if (qIndex !== -1) {
+        const searchParams = new URLSearchParams(decodedUrl.substring(qIndex));
+        const p = searchParams.get('product') || searchParams.get('id');
+        if (p && p.trim().length > 0) return p.trim();
+      }
 
-  // 3. From path regex (/product/:id or /produto/:id)
-  const match = rawUrl.match(/\/(?:product|produto)\/([a-zA-Z0-9\-_]+)/i);
-  if (match && match[1]) {
-    return match[1].trim();
+      // 3. From path regex (/product/:id or /produto/:id or /item/:id)
+      const match = decodedUrl.match(/\/(?:product|produto|item)\/([a-zA-Z0-9\-_]+)/i);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    } catch (e) {}
   }
 
   return null;
@@ -4413,7 +4437,7 @@ async function getProductForMeta(productId: string) {
 
     let query = supabase
       .from('products')
-      .select('id, title, name, description, image_url, extra_images, price');
+      .select('id, title, description, image_url, extra_images, price');
 
     if (isUUID) {
       query = query.eq('id', cleanId);
@@ -4428,7 +4452,7 @@ async function getProductForMeta(productId: string) {
       // Fallback query by id
       const { data: fallbackProd } = await supabase
         .from('products')
-        .select('id, title, name, description, image_url, extra_images, price')
+        .select('id, title, description, image_url, extra_images, price')
         .eq('id', cleanId)
         .maybeSingle();
       return fallbackProd || null;
@@ -4478,16 +4502,33 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
 
   const fullCanonicalUrl = reqUrl || `${origin}/?v=product-detail&product=${product.id}`;
 
-  const priceStr = product.price ? `€${parseFloat(String(product.price)).toFixed(2)}` : '';
+  const priceVal = product.price ? parseFloat(String(product.price)).toFixed(2) : '';
+  const priceStr = priceVal ? `€${priceVal}` : '';
   const metaTitle = priceStr ? `${title} - ${priceStr} | S.art Full` : `${title} | S.art Full`;
 
   let hydrated = html;
 
-  // 1. Completely strip old meta title, open graph, twitter, description, keywords tags to avoid duplicate conflict
+  // 1. Completely strip old meta title, open graph, twitter, description, keywords, and default ld+json to avoid duplicates
   hydrated = hydrated.replace(/<title>.*?<\/title>/gi, '');
   hydrated = hydrated.replace(/<meta\s+(?:property|name)=["'](?:og:|twitter:|description|keywords|author|robots).*?\/?>/gi, '');
+  hydrated = hydrated.replace(/<script\s+type=["']application\/ld\+json["']>[\s\S]*?<\/script>/gi, '');
 
-  // 2. Build crisp meta block
+  const productLdJson = JSON.stringify({
+    '@context': 'https://schema.org/',
+    '@type': 'Product',
+    'name': title,
+    'image': [ogImageUrl],
+    'description': description,
+    'offers': {
+      '@type': 'Offer',
+      'priceCurrency': 'EUR',
+      'price': priceVal || '0.00',
+      'availability': 'https://schema.org/InStock',
+      'url': fullCanonicalUrl
+    }
+  });
+
+  // 2. Build crisp meta block for WhatsApp, Facebook, iMessage, Twitter
   const metaBlock = `
     <title>${metaTitle}</title>
     <meta name="description" content="${description}" />
@@ -4507,7 +4548,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="1200" />
     <meta property="og:image:alt" content="${title}" />
-    ${product.price ? `<meta property="product:price:amount" content="${parseFloat(String(product.price)).toFixed(2)}" />` : ''}
+    ${priceVal ? `<meta property="product:price:amount" content="${priceVal}" />` : ''}
     <meta property="product:price:currency" content="EUR" />
 
     <!-- Twitter Cards -->
@@ -4515,6 +4556,9 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta name="twitter:title" content="${metaTitle}" />
     <meta name="twitter:description" content="${description}" />
     <meta name="twitter:image" content="${ogImageUrl}" />
+
+    <!-- Product Structured Data -->
+    <script type="application/ld+json">${productLdJson}</script>
   `;
 
   // 3. Inject new tags directly after <head>
