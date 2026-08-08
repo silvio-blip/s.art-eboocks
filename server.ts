@@ -4535,10 +4535,11 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
 
   let hydrated = html;
 
-  // 1. Completely strip old meta title, open graph, twitter, description, keywords, and default ld+json to avoid duplicates
-  hydrated = hydrated.replace(/<title>.*?<\/title>/gi, '');
-  hydrated = hydrated.replace(/<meta\s+(?:property|name)=["'](?:og:|twitter:|description|keywords|author|robots).*?\/?>/gi, '');
-  hydrated = hydrated.replace(/<script\s+type=["']application\/ld\+json["']>[\s\S]*?<\/script>/gi, '');
+  // 1. Completely strip old meta title, canonical link, open graph, twitter, description, keywords, and default ld+json to avoid duplicate conflict
+  hydrated = hydrated.replace(/<title[\s>][\s\S]*?<\/title>/gi, '');
+  hydrated = hydrated.replace(/<link\s+[^>]*rel=["']canonical["'][^>]*\/?>/gi, '');
+  hydrated = hydrated.replace(/<meta\s+[^>]*(?:property|name)=["'](?:og:|twitter:|description|keywords|author|robots)[^'"]*["'][^>]*\/?>/gi, '');
+  hydrated = hydrated.replace(/<script\s+[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi, '');
 
   const productLdJson = JSON.stringify({
     '@context': 'https://schema.org/',
