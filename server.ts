@@ -4273,9 +4273,8 @@ if (process.env.NODE_ENV !== 'production') {
           const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
           const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
           
-          const host = req.get('host') || 'sart-full.pt';
-          const protocol = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https' ? 'https' : 'http';
-          const fullUrl = `${protocol}://${host}${req.originalUrl}`;
+          const origin = getPublicOrigin(req);
+          const fullUrl = `${origin}${req.originalUrl}`;
           
           const hydratedHtml = await getHydratedHtml(transformedHtml, product, fullUrl);
           
@@ -4356,9 +4355,8 @@ if (process.env.NODE_ENV !== 'production') {
             if (isBot) console.log(`[META PROD] Social Bot detected: ${userAgent}. Injecting for: ${productId}`);
             else console.log(`[META PROD] Injecting meta for user: ${productId}`);
 
-            const host = req.get('host') || 'sart-full.pt';
-            const protocol = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https' ? 'https' : 'http';
-            const fullUrl = `${protocol}://${host}${req.originalUrl}`;
+            const origin = getPublicOrigin(req);
+            const fullUrl = `${origin}${req.originalUrl}`;
             
             html = await getHydratedHtml(html, product, fullUrl);
           } else {
@@ -4474,6 +4472,21 @@ function getProductImageUrl(url: string | undefined | null) {
   return `${baseUrl}/storage/v1/object/public/assets/${url}`;
 }
 
+function getPublicOrigin(req: express.Request): string {
+  const forwardedHost = req.get('x-forwarded-host');
+  const hostHeader = req.get('host');
+  const host = forwardedHost || hostHeader || '';
+  
+  if (!host || host.includes('localhost') || host.includes('127.0.0.1') || host.includes(':3000')) {
+    return 'https://sart-full.pt';
+  }
+  
+  const rawProto = req.headers['x-forwarded-proto'] || req.protocol;
+  const isHttps = rawProto === 'https' || String(rawProto).includes('https');
+  const protocol = isHttps ? 'https' : 'http';
+  return `${protocol}://${host}`;
+}
+
 async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   if (!product) return html;
   
@@ -4486,7 +4499,13 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   try {
     if (reqUrl && reqUrl.startsWith("http")) {
       const parsed = new URL(reqUrl);
-      origin = parsed.origin;
+      if (
+        !parsed.hostname.includes("localhost") &&
+        !parsed.hostname.includes("127.0.0.1") &&
+        parsed.port !== "3000"
+      ) {
+        origin = parsed.origin;
+      }
     }
   } catch (e) {}
 
@@ -4500,7 +4519,15 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
     : (rawImg ? getProductImageUrl(rawImg) : "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
 
-  const fullCanonicalUrl = reqUrl || `${origin}/?v=product-detail&product=${product.id}`;
+  let fullCanonicalUrl = reqUrl || `${origin}/?v=product-detail&product=${product.id}`;
+  if (fullCanonicalUrl.includes('localhost') || fullCanonicalUrl.includes('127.0.0.1') || fullCanonicalUrl.includes(':3000')) {
+    try {
+      const parsedCanonical = new URL(fullCanonicalUrl);
+      fullCanonicalUrl = `https://sart-full.pt${parsedCanonical.pathname}${parsedCanonical.search}`;
+    } catch (e) {
+      fullCanonicalUrl = `https://sart-full.pt/?v=product-detail&product=${product.id}`;
+    }
+  }
 
   const priceVal = product.price ? parseFloat(String(product.price)).toFixed(2) : '';
   const priceStr = priceVal ? `€${priceVal}` : '';
