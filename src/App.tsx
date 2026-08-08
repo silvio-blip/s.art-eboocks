@@ -2037,8 +2037,8 @@ const ProductDetailsPage = ({
             const url = `${window.location.origin}/?v=product-detail&product=${product.id}`;
             
             const shareData: any = {
-              title: `S.art Boutique | Moda, Tendências e Lifestyle`,
-              text: `Descubra a seleção inteligente da S.art: ${product.title}`,
+              title: product.title ? `${product.title} | S.art Full` : 'S.art Full | Loja Oficial de Vestuário',
+              text: `${product.title || 'Confira esta peça exclusiva'} na S.art Full`,
               url: url
             };
 

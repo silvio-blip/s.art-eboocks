@@ -1190,6 +1190,52 @@ async function broadcastProductDeleted(productId: string) {
   }
 }
 
+apiRouter.get('/og-image', async (req, res) => {
+  try {
+    const productId = (req.query.product || req.query.id) as string;
+    const rawUrl = req.query.url as string;
+
+    let targetImageUrl = rawUrl;
+
+    if (!targetImageUrl && productId) {
+      const product = (await getProductForMeta(productId)) as any;
+      if (product) {
+        targetImageUrl = product.image_url || product.image || product.thumbnail;
+        if (!targetImageUrl && product.extra_images) {
+          const extra = String(product.extra_images).split(',').map((s: string) => s.trim()).filter(Boolean);
+          if (extra.length > 0) targetImageUrl = extra[0];
+        }
+      }
+    }
+
+    if (!targetImageUrl) {
+      targetImageUrl = "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
+    }
+
+    targetImageUrl = getProductImageUrl(targetImageUrl);
+
+    const response = await axios.get(targetImageUrl, {
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      },
+      timeout: 10000
+    });
+
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+
+    res.status(200)
+      .header('Content-Type', contentType)
+      .header('Cache-Control', 'public, max-age=86400, s-maxage=86400')
+      .send(response.data);
+
+  } catch (err: any) {
+    console.error('[OG IMAGE PROXY ERROR]', err.message);
+    res.redirect("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
+  }
+});
+
 apiRouter.get('/products/events', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -4189,13 +4235,8 @@ if (process.env.NODE_ENV !== 'production') {
   
   // CUSTOM MIDDLEWARE TO INJECT PRODUCT META TAGS IN DEV
   app.use(async (req, res, next) => {
-    let productId = (req.query.product || req.query.id) as string;
-    
-    // Check path for /product/:id or /produto/:id patterns
-    if (!productId) {
-      const match = req.path.match(/\/(?:product|produto)\/([a-zA-Z0-9\-_]+)/);
-      if (match) productId = match[1];
-    }
+    const productId = extractProductId(req);
+    console.log(`[DEV META MIDDLEWARE] Path: ${req.path} | Extracted Product ID: ${productId}`);
 
     // Only process for GET requests that are likely for HTML
     const isGet = req.method === 'GET';
@@ -4211,15 +4252,17 @@ if (process.env.NODE_ENV !== 'production') {
           const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
           const transformedHtml = await vite.transformIndexHtml(req.originalUrl, indexHtml);
           
-          // Resolve host and protocol dynamically so crawler validators (e.g. Facebook, WhatsApp)
-          // see a matched og:url matching the exact crawled hostname
           const host = req.get('host') || 'sart-full.pt';
           const protocol = req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https' ? 'https' : 'http';
           const fullUrl = `${protocol}://${host}${req.originalUrl}`;
           
           const hydratedHtml = await getHydratedHtml(transformedHtml, product, fullUrl);
           
-          return res.status(200).set({ 'Content-Type': 'text/html' }).end(hydratedHtml);
+          return res.status(200).set({ 
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'X-Meta-Injected': 'true'
+          }).end(hydratedHtml);
         }
       } catch (err) {
         console.error('[DEV META INJECT ERROR]', err);
@@ -4271,13 +4314,7 @@ if (process.env.NODE_ENV !== 'production') {
     });
 
     app.get('*', async (req, res) => {
-      let productId = (req.query.product || req.query.id) as string;
-      
-      // Check path for /product/:id or /produto/:id patterns
-      if (!productId) {
-        const match = req.path.match(/\/(?:product|produto)\/([a-zA-Z0-9\-_]+)/);
-        if (match) productId = match[1];
-      }
+      const productId = extractProductId(req);
 
       const indexPath = path.join(distPath, 'index.html');
       
@@ -4290,7 +4327,6 @@ if (process.env.NODE_ENV !== 'production') {
 
       if (productId) {
         const userAgent = req.headers['user-agent'] || '';
-        // Broad bot detection including common social debuggers
         const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|slurp|ia_archiver|meta-externalfetcher/i.test(userAgent);
         
         try {
@@ -4324,31 +4360,78 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // HELPERS FOR DYNAMIC META TAGS
+function cleanText(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractProductId(req: express.Request): string | null {
+  // 1. From query params parsed by Express
+  const qProd = (req.query?.product || req.query?.id) as string;
+  if (qProd && typeof qProd === 'string' && qProd.trim().length > 0) {
+    return qProd.trim();
+  }
+
+  // 2. From raw url search parameters (e.g. ?v=product-detail&product=XYZ)
+  const rawUrl = req.originalUrl || req.url || '';
+  try {
+    const qIndex = rawUrl.indexOf('?');
+    if (qIndex !== -1) {
+      const searchParams = new URLSearchParams(rawUrl.substring(qIndex));
+      const p = searchParams.get('product') || searchParams.get('id');
+      if (p && p.trim().length > 0) return p.trim();
+    }
+  } catch (e) {}
+
+  // 3. From path regex (/product/:id or /produto/:id)
+  const match = rawUrl.match(/\/(?:product|produto)\/([a-zA-Z0-9\-_]+)/i);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+
+  return null;
+}
+
 async function getProductForMeta(productId: string) {
-  if (!productId || productId.length < 5) return null;
+  if (!productId || productId.trim().length < 3) return null;
+  const cleanId = productId.trim();
   
   try {
     const supabase = getSupabase();
     
-    // Check if it looks like a UUID
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
-    
+    // Check if UUID or search by id/aliexpress_id/sku
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+
     let query = supabase
       .from('products')
-      .select('id, title, name, description, image_url, extra_images');
-      
+      .select('id, title, name, description, image_url, extra_images, price');
+
     if (isUUID) {
-      query = query.eq('id', productId);
+      query = query.eq('id', cleanId);
     } else {
-      // Fallback for custom slugs/ids if they exist, or just try id anyway
-      query = query.eq('id', productId);
+      query = query.or(`id.eq.${cleanId},aliexpress_id.eq.${cleanId},sku.eq.${cleanId}`);
     }
 
     const { data: product, error } = await query.maybeSingle();
     
     if (error) {
-      console.warn(`[META] DB error fetching product ${productId}:`, error.message);
-      return null;
+      console.warn(`[META] DB error fetching product ${cleanId}:`, error.message);
+      // Fallback query by id
+      const { data: fallbackProd } = await supabase
+        .from('products')
+        .select('id, title, name, description, image_url, extra_images, price')
+        .eq('id', cleanId)
+        .maybeSingle();
+      return fallbackProd || null;
     }
     
     return product;
@@ -4370,61 +4453,72 @@ function getProductImageUrl(url: string | undefined | null) {
 async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   if (!product) return html;
   
-  const title = (product.title || product.name || "S.art Full | Loja Oficial de Vestuário, Moda e Estilo").replace(/"/g, '&quot;');
-  const description = (product.description || "Descubra a coleção exclusiva de vestuário na S.art Full. Peças selecionadas de moda masculina e feminina, roupas premium, calçado e tendências.").replace(/"/g, '&quot;').replace(/\n/g, ' ');
-  
-  // Resolve image - handle different fields
-  let image = product.image_url || product.image || product.thumbnail;
-  if (!image && product.extra_images) {
+  const title = cleanText(product.title || product.name || "S.art Full | Loja Oficial de Vestuário");
+  const description = cleanText(
+    product.description || "Descubra a coleção exclusiva de vestuário na S.art Full. Peças selecionadas de moda masculina e feminina, roupas premium, calçado e tendências."
+  ).substring(0, 220);
+
+  let origin = "https://sart-full.pt";
+  try {
+    if (reqUrl && reqUrl.startsWith("http")) {
+      const parsed = new URL(reqUrl);
+      origin = parsed.origin;
+    }
+  } catch (e) {}
+
+  let rawImg = product.image_url || product.image || product.thumbnail;
+  if (!rawImg && product.extra_images) {
     const extra = String(product.extra_images).split(',').map((s: string) => s.trim()).filter(Boolean);
-    if (extra.length > 0) image = extra[0];
+    if (extra.length > 0) rawImg = extra[0];
   }
-  
-  const absoluteImageUrl = getProductImageUrl(image);
-  const safeImage = absoluteImageUrl.replace(/"/g, '&quot;');
+
+  const ogImageUrl = product.id 
+    ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
+    : (rawImg ? getProductImageUrl(rawImg) : "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
+
+  const fullCanonicalUrl = reqUrl || `${origin}/?v=product-detail&product=${product.id}`;
+
+  const priceStr = product.price ? `€${parseFloat(String(product.price)).toFixed(2)}` : '';
+  const metaTitle = priceStr ? `${title} - ${priceStr} | S.art Full` : `${title} | S.art Full`;
 
   let hydrated = html;
-  
-  // Inject tags
-  hydrated = hydrated.replace(/<title>.*?<\/title>/g, `<title>${title}</title>`);
-  
-  // Mapping for all essential meta tags
-  const metaMappings = [
-    { property: 'og:title', content: title, isProperty: true },
-    { property: 'og:description', content: description, isProperty: true },
-    { property: 'og:image', content: safeImage, isProperty: true },
-    { name: 'description', content: description },
-    { name: 'twitter:title', content: title },
-    { name: 'twitter:description', content: description },
-    { name: 'twitter:image', content: safeImage },
-    { property: 'og:type', content: 'article', isProperty: true },
-    { property: 'og:site_name', content: 'S.art Full', isProperty: true }
-  ];
 
-  if (reqUrl) {
-    metaMappings.push({ property: 'og:url', content: reqUrl, isProperty: true });
-  }
+  // 1. Completely strip old meta title, open graph, twitter, description, keywords tags to avoid duplicate conflict
+  hydrated = hydrated.replace(/<title>.*?<\/title>/gi, '');
+  hydrated = hydrated.replace(/<meta\s+(?:property|name)=["'](?:og:|twitter:|description|keywords|author|robots).*?\/?>/gi, '');
 
-  metaMappings.forEach(meta => {
-    const attr = meta.isProperty ? 'property' : 'name';
-    
-    // Resilient non-greedy case-insensitive regex supporting both single and double quotes
-    // Note: We do NOT use the global flag 'g' here because calling regex.test() with 'g'
-    // updates the regex's lastIndex, causing the subsequent .replace() to miss or fail.
-    const regex = new RegExp(
-      `<meta\\s+[^>]*?${attr}=['"]${meta.property}['"][^>]*?content=['"].*?['"][^>]*?\\/?>|<meta\\s+[^>]*?content=['"].*?['"][^>]*?${attr}=['"]${meta.property}['"][^>]*?\\/?>`,
-      'i'
-    );
-    
-    const newTag = `<meta ${attr}="${meta.property}" content="${meta.content}" />`;
-    
-    if (regex.test(hydrated)) {
-      hydrated = hydrated.replace(regex, newTag);
-    } else {
-      // Append to head if not found, just before </head>
-      hydrated = hydrated.replace('</head>', `${newTag}\n</head>`);
-    }
-  });
+  // 2. Build crisp meta block
+  const metaBlock = `
+    <title>${metaTitle}</title>
+    <meta name="description" content="${description}" />
+    <meta name="author" content="S.art Full" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="${fullCanonicalUrl}" />
+
+    <!-- Open Graph / WhatsApp / Facebook -->
+    <meta property="og:site_name" content="S.art Full" />
+    <meta property="og:type" content="product" />
+    <meta property="og:title" content="${metaTitle}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:url" content="${fullCanonicalUrl}" />
+    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image:secure_url" content="${ogImageUrl}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="1200" />
+    <meta property="og:image:alt" content="${title}" />
+    ${product.price ? `<meta property="product:price:amount" content="${parseFloat(String(product.price)).toFixed(2)}" />` : ''}
+    <meta property="product:price:currency" content="EUR" />
+
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${metaTitle}" />
+    <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${ogImageUrl}" />
+  `;
+
+  // 3. Inject new tags directly after <head>
+  hydrated = hydrated.replace(/<head[^>]*>/i, (match) => `${match}\n${metaBlock}`);
 
   return hydrated;
 }
