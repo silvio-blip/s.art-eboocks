@@ -1,0 +1,25 @@
+# S.art Full - Loja Oficial de Vestuário, Moda e Estilo
+
+> S.art Full é uma boutique e loja online especializada em vestuário masculino e feminino, calçado e acessórios de alta qualidade. Oferecemos uma seleção criteriosa de moda urbana, casual e streetwear com entregas em Portugal e na Europa.
+
+## Informações Principais
+- **Nome Oficial**: S.art Full
+- **Website**: https://sart-full.pt
+- **Especialidade**: Vestuário, Moda Masculina, Moda Feminina, Calçado e Tendências
+- **País Principal**: Portugal (Envios nacionais e internacionais)
+- **Métodos de Pagamento**: MB WAY, Cartão de Crédito/Débito (Stripe), Klarna, Multibanco
+- **Garantia & Devoluções**: Garantia de devolução do dinheiro, rastreamento de encomendas em tempo real e apoio ao cliente.
+
+## Catálogo de Produtos
+- **Vestuário Masculino**: Casacos, t-shirts, calças, sweatshirts e conjuntos.
+- **Vestuário Feminino**: Vestidos, tops, calças, casacos e coleções exclusivas.
+- **Calçado**: Sapatilhas, calçado urbano e sapatos casuais.
+- **Acessórios**: Complementos de moda, malas e itens de estilo.
+
+## Secções do Website
+- [Página Inicial & Catálogo](https://sart-full.pt/)
+- [Termos de Serviço & Privacidade](https://sart-full.pt/?v=terms)
+- [Envios e Rastreio](https://sart-full.pt/?v=shipping)
+
+## Contacto & Suporte
+- **Suporte ao Cliente**: Disponível através da plataforma e formulário de contacto integrado no website.

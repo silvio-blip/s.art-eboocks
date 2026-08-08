@@ -1165,6 +1165,31 @@ async function broadcastProductCreated(product: any) {
   }
 }
 
+async function broadcastProductDeleted(productId: string) {
+  try {
+    const supabase = getSupabase();
+    // Delete store_events for this product from database so it doesn't persist
+    await supabase.from('store_events').delete().eq('product_id', productId);
+
+    const eventToSend = {
+      id: crypto.randomUUID(),
+      event_type: 'product_deleted',
+      product_id: productId,
+      payload: { id: productId },
+      created_at: new Date().toISOString()
+    };
+
+    const sseFormattedData = `data: ${JSON.stringify(eventToSend)}\n\n`;
+    storeEventsClients.forEach((client) => {
+      try {
+        client.write(sseFormattedData);
+      } catch (err) {}
+    });
+  } catch (err) {
+    console.error('[SSE BROADCAST DELETED ERROR]', err);
+  }
+}
+
 apiRouter.get('/products/events', (req, res) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -1195,11 +1220,11 @@ apiRouter.get('/products/events', (req, res) => {
 apiRouter.get('/products/recent-events', async (req, res) => {
   try {
     const supabase = getSupabase();
-    const { data, error } = await supabase
+    const { data: allEvents, error } = await supabase
       .from('store_events')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(30);
+      .limit(50);
 
     if (error) {
       if (error.message?.includes('does not exist')) {
@@ -1207,7 +1232,25 @@ apiRouter.get('/products/recent-events', async (req, res) => {
       }
       throw error;
     }
-    res.json(data || []);
+
+    if (!allEvents || allEvents.length === 0) {
+      return res.json([]);
+    }
+
+    // Obter lista de IDs de produtos existentes para não retornar eventos de produtos eliminados
+    const { data: activeProds } = await supabase
+      .from('products')
+      .select('id, is_active');
+    
+    const validProductIds = new Set((activeProds || []).filter(p => p.is_active !== false).map(p => String(p.id)));
+
+    const validEvents = allEvents.filter(e => {
+      const pId = String(e.product_id || e.payload?.id || "");
+      if (!pId) return true; // evento genérico do sistema
+      return validProductIds.has(pId);
+    });
+
+    res.json(validEvents);
   } catch (error: any) {
     console.error('[API RECENT EVENTS ERROR]', error);
     res.status(500).json({ error: error.message });
@@ -3316,6 +3359,10 @@ adminRouter.delete('/products/:id', async (req, res) => {
       .eq('id', id);
 
     if (error) throw error;
+
+    // Clean up store events and notify clients
+    await broadcastProductDeleted(id);
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -4187,11 +4234,37 @@ if (process.env.NODE_ENV !== 'production') {
   if (fs.existsSync(distPath)) {
     app.use(express.static(distPath, { index: false })); // Disable default index serving to handle it manually
     
-    // Explicitly allow robots.txt to prevent any redirection or 403
+    // Explicitly allow robots.txt, sitemap.xml and llms.txt to prevent any redirection
     app.get('/robots.txt', (req, res) => {
-      const robotsPath = path.join(distPath, 'robots.txt');
+      const robotsPath = fs.existsSync(path.join(distPath, 'robots.txt'))
+        ? path.join(distPath, 'robots.txt')
+        : path.join(process.cwd(), 'public', 'robots.txt');
       if (fs.existsSync(robotsPath)) {
         res.status(200).sendFile(robotsPath);
+      } else {
+        res.status(404).send('Not found');
+      }
+    });
+
+    app.get('/sitemap.xml', (req, res) => {
+      const sitemapPath = fs.existsSync(path.join(distPath, 'sitemap.xml'))
+        ? path.join(distPath, 'sitemap.xml')
+        : path.join(process.cwd(), 'public', 'sitemap.xml');
+      if (fs.existsSync(sitemapPath)) {
+        res.header('Content-Type', 'application/xml; charset=utf-8');
+        res.status(200).sendFile(sitemapPath);
+      } else {
+        res.status(404).send('Not found');
+      }
+    });
+
+    app.get('/llms.txt', (req, res) => {
+      const llmsPath = fs.existsSync(path.join(distPath, 'llms.txt'))
+        ? path.join(distPath, 'llms.txt')
+        : path.join(process.cwd(), 'public', 'llms.txt');
+      if (fs.existsSync(llmsPath)) {
+        res.header('Content-Type', 'text/plain; charset=utf-8');
+        res.status(200).sendFile(llmsPath);
       } else {
         res.status(404).send('Not found');
       }

@@ -2519,12 +2519,20 @@ export default function App() {
     }
   };
 
-  // Filtra notificações ativas (não removidas e que não expiraram há mais de 3 dias após vistas)
+  // Filtra notificações ativas (não removidas e que pertencem a produtos existentes)
   const activeStoreEvents = useMemo(() => {
     const now = Date.now();
+    const activeProductIds = new Set(products.map(p => String(p.id)));
+
     return storeEvents.filter(event => {
       if (!event || !event.id) return false;
       if (dismissedEvents.includes(event.id)) return false;
+
+      // Se a notificação for associada a um produto, garante que o produto ainda existe na BD
+      const pId = String(event.product_id || event.payload?.id || "");
+      if (pId && products.length > 0 && !activeProductIds.has(pId)) {
+        return false; // Produto foi eliminado da BD, notificação é removida
+      }
 
       const viewedAt = viewedEventsMap[event.id];
       if (viewedAt) {
@@ -2534,7 +2542,7 @@ export default function App() {
       }
       return true;
     });
-  }, [storeEvents, dismissedEvents, viewedEventsMap]);
+  }, [storeEvents, dismissedEvents, viewedEventsMap, products]);
 
   // Fetch initial event logs on page load
   useEffect(() => {
@@ -2557,7 +2565,21 @@ export default function App() {
         const data = JSON.parse(event.data);
         console.log("[SSE] Real-time store event received:", data);
 
-        if (data.event_type === "product_created") {
+        if (data.event_type === "product_deleted") {
+          const deletedId = String(data.product_id || data.payload?.id || "");
+          if (deletedId) {
+            setProducts(prev => prev.filter(p => String(p.id) !== deletedId));
+            setStoreEvents(prev => prev.filter(e => String(e.product_id || e.payload?.id || "") !== deletedId));
+            setDetailProduct(current => {
+              if (current && String(current.id) === deletedId) {
+                setView("home");
+                toast.info("O produto que estava a visualizar foi removido do catálogo.");
+                return null;
+              }
+              return current;
+            });
+          }
+        } else if (data.event_type === "product_created") {
           setStoreEvents(prev => [data, ...prev].slice(0, 50));
 
           // Trigger sonner toast with custom luxury styling matching the store theme
@@ -2726,15 +2748,11 @@ export default function App() {
       console.error("Erro ao buscar detalhes do produto no Supabase ao explorar:", err);
     }
 
-    // 4. Fallback se não encontrar registro no banco
-    if (fallbackMinimalProduct) {
-      setDetailProduct(fallbackMinimalProduct);
-      setView("product-detail");
-    } else {
-      const element = document.getElementById("boutique");
-      if (element) {
-        element.scrollIntoView({ behavior: "smooth" });
-      }
+    // 4. Se não encontrou o produto na BD (produto foi eliminado), notifica o utilizador e limpa a notificação
+    toast.error("Este produto foi removido da loja e já não se encontra disponível.");
+    setStoreEvents(prev => prev.filter(e => String(e.product_id || e.payload?.id || "") !== targetId && e.id !== eventId));
+    if (view === "product-detail") {
+      setView("home");
     }
   };
   const getInitialView = () => {
