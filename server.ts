@@ -83,6 +83,10 @@ const initDB = async () => {
           -- Ensure columns exist if table already existed
           ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;
           ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_employee BOOLEAN DEFAULT FALSE;
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS saved_address JSONB DEFAULT '{}'::jsonb;
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS notification_email TEXT;
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS description TEXT;
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_id TEXT;
 
           -- Remove OLD recursive policies
           DO $$ 
@@ -206,6 +210,7 @@ const initDB = async () => {
       try {
         await supabase.rpc('exec_sql', { sql: `
           ALTER TABLE IF EXISTS products ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE IF EXISTS products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC DEFAULT 0;
           DROP POLICY IF EXISTS "Anyone can view products" ON products;
           CREATE POLICY "Anyone can view products" ON products FOR SELECT USING (true);
           
@@ -1192,6 +1197,8 @@ async function broadcastProductDeleted(productId: string) {
 }
 
 apiRouter.get('/og-image', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   try {
     const productId = (req.query.product || req.query.id) as string;
     const rawUrl = req.query.url as string;
@@ -1218,20 +1225,21 @@ apiRouter.get('/og-image', async (req, res) => {
     const response = await axios.get(targetImageUrl, {
       responseType: 'arraybuffer',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Referer': 'https://www.aliexpress.com/'
       },
-      timeout: 10000
+      timeout: 12000
     });
 
     let jpegBuffer: Buffer;
     try {
       jpegBuffer = await sharp(response.data)
-        .resize(1200, 1200, {
+        .resize(800, 800, {
           fit: 'contain',
           background: { r: 255, g: 255, b: 255, alpha: 1 }
         })
-        .jpeg({ quality: 85, progressive: true })
+        .jpeg({ quality: 78, progressive: true })
         .toBuffer();
     } catch (sharpErr) {
       console.warn('[OG IMAGE SHARP CONVERT WARN]', sharpErr);
@@ -1249,7 +1257,7 @@ apiRouter.get('/og-image', async (req, res) => {
     // Serve fallback default store image processed as JPEG
     try {
       const fallbackResp = await axios.get("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", { responseType: 'arraybuffer' });
-      const fallbackJpeg = await sharp(fallbackResp.data).resize(1200, 1200, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
+      const fallbackJpeg = await sharp(fallbackResp.data).resize(800, 800, { fit: 'cover' }).jpeg({ quality: 75 }).toBuffer();
       res.status(200).header('Content-Type', 'image/jpeg').send(fallbackJpeg);
     } catch (fallbackErr) {
       res.redirect("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
@@ -2521,7 +2529,7 @@ adminRouter.post('/products', async (req, res) => {
   try {
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, aliexpress_id, is_featured, sku, provider, price_markup, free_shipping
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, aliexpress_id, is_featured, sku, provider, price_markup, free_shipping, discount_percent
     } = req.body;
     
     // Prioritize pvp if it exists, otherwise use price. Ensure it's a valid number.
@@ -2536,6 +2544,7 @@ adminRouter.post('/products', async (req, res) => {
     finalPrice = Math.round(finalPrice * 100) / 100;
 
     const priceMarkup = Math.round(parseFloat(String(price_markup || 0)) * 100) / 100;
+    const discountVal = Math.min(100, Math.max(0, parseFloat(String(discount_percent || 0))));
 
     const supabase = getSupabase();
     
@@ -2544,6 +2553,7 @@ adminRouter.post('/products', async (req, res) => {
       title, description, price: finalPrice, image_url, file_url, category,
       product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider,
       price_markup: priceMarkup,
+      discount_percent: discountVal,
       free_shipping: !!free_shipping,
       created_by: req.body.userId || null
     };
@@ -2628,7 +2638,7 @@ adminRouter.put('/products/:id', async (req, res) => {
     const { id } = req.params;
     const { 
       title, description, price, pvp, image_url, file_url, category,
-      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, aliexpress_id, is_featured, sku, provider, price_markup, metadata, free_shipping
+      product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, aliexpress_id, is_featured, sku, provider, price_markup, metadata, free_shipping, discount_percent
     } = req.body;
     
     const supabase = getSupabase();
@@ -2647,6 +2657,9 @@ adminRouter.put('/products/:id', async (req, res) => {
 
     finalPrice = Math.round(finalPrice * 100) / 100;
     const priceMarkup = Math.round(parseFloat(String(price_markup || 0)) * 100) / 100;
+    const discountVal = discount_percent !== undefined && discount_percent !== null 
+      ? Math.min(100, Math.max(0, parseFloat(String(discount_percent)))) 
+      : (existing?.discount_percent || 0);
 
     // Recalculate price for AliExpress and Temu products if markup changed and base_price is available
     if ((provider === 'aliexpress' || provider === 'temu') && existing?.metadata?.base_price !== undefined) {
@@ -2660,6 +2673,7 @@ adminRouter.put('/products/:id', async (req, res) => {
       title, description, price: finalPrice, image_url, file_url, category,
       product_type, sizes, colors, sizes_enabled, colors_enabled, admin_link, extra_images, is_active, is_featured, sku, provider,
       price_markup: priceMarkup,
+      discount_percent: discountVal,
       metadata: metadata || existing?.metadata,
       free_shipping: free_shipping !== undefined ? !!free_shipping : existing?.free_shipping
     };
@@ -3987,6 +4001,32 @@ apiRouter.put('/orders/:id/address', async (req, res) => {
   }
 });
 
+// Update Profile Saved Address Route
+apiRouter.post('/profile/address', async (req, res) => {
+  const { userId, savedAddress } = req.body;
+  if (!userId || !savedAddress) {
+    return res.status(400).json({ error: 'Parâmetros userId e savedAddress são obrigatórios.' });
+  }
+
+  const supabase = getSupabase();
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        saved_address: savedAddress,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
+    if (error) throw error;
+
+    return res.json({ success: true, message: 'Endereço predefinido guardado com sucesso.' });
+  } catch (err: any) {
+    console.error('[SAVE ADDRESS ERROR]', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Admin Refund Processing (Initiates Stripe refund, otherwise updates local state)
 adminRouter.post('/orders/:id/refund', async (req, res) => {
   const { id } = req.params;
@@ -4106,9 +4146,13 @@ apiRouter.post('/create-payment-session', express.json(), async (req, res) => {
     }
 
     // Secure base price from verified database item
-    const basePrice = (dbProduct.pvp !== undefined && dbProduct.pvp !== null && dbProduct.pvp !== 0) 
+    let basePrice = (dbProduct.pvp !== undefined && dbProduct.pvp !== null && dbProduct.pvp !== 0) 
       ? dbProduct.pvp 
       : dbProduct.price;
+
+    if (dbProduct.discount_percent && Number(dbProduct.discount_percent) > 0) {
+      basePrice = basePrice * (1 - Number(dbProduct.discount_percent) / 100);
+    }
 
     let unitAmount = Math.round(basePrice * 100);
     let shippingFee = 115; // 1.15 EUR in cents
@@ -4395,7 +4439,7 @@ function cleanText(str: string): string {
 
 function extractProductId(req: express.Request): string | null {
   // 1. From query params parsed by Express
-  const qProd = (req.query?.product || req.query?.id) as string;
+  const qProd = (req.query?.product || req.query?.product_id || req.query?.id || req.query?.p) as string;
   if (qProd && typeof qProd === 'string' && qProd.trim().length > 0) {
     return qProd.trim();
   }
@@ -4408,12 +4452,12 @@ function extractProductId(req: express.Request): string | null {
       const qIndex = decodedUrl.indexOf('?');
       if (qIndex !== -1) {
         const searchParams = new URLSearchParams(decodedUrl.substring(qIndex));
-        const p = searchParams.get('product') || searchParams.get('id');
+        const p = searchParams.get('product') || searchParams.get('product_id') || searchParams.get('id') || searchParams.get('p');
         if (p && p.trim().length > 0) return p.trim();
       }
 
-      // 3. From path regex (/product/:id or /produto/:id or /item/:id)
-      const match = decodedUrl.match(/\/(?:product|produto|item)\/([a-zA-Z0-9\-_]+)/i);
+      // 3. From path regex (/product/:id or /produto/:id or /p/:id or /item/:id)
+      const match = decodedUrl.match(/\/(?:product|produto|p|item)\/([a-zA-Z0-9\-_]+)/i);
       if (match && match[1]) {
         return match[1].trim();
       }
@@ -4424,7 +4468,7 @@ function extractProductId(req: express.Request): string | null {
 }
 
 async function getProductForMeta(productId: string) {
-  if (!productId || productId.trim().length < 3) return null;
+  if (!productId || productId.trim().length < 2) return null;
   const cleanId = productId.trim();
   
   try {
@@ -4435,7 +4479,7 @@ async function getProductForMeta(productId: string) {
 
     let query = supabase
       .from('products')
-      .select('id, title, description, image_url, extra_images, price');
+      .select('id, title, description, image_url, extra_images, price, category');
 
     if (isUUID) {
       query = query.eq('id', cleanId);
@@ -4443,17 +4487,26 @@ async function getProductForMeta(productId: string) {
       query = query.or(`id.eq.${cleanId},aliexpress_id.eq.${cleanId},sku.eq.${cleanId}`);
     }
 
-    const { data: product, error } = await query.maybeSingle();
+    let { data: product, error } = await query.maybeSingle();
     
-    if (error) {
-      console.warn(`[META] DB error fetching product ${cleanId}:`, error.message);
-      // Fallback query by id
-      const { data: fallbackProd } = await supabase
+    if (error || !product) {
+      // Fallback 1: Try exact ID eq
+      const { data: fb1 } = await supabase
         .from('products')
-        .select('id, title, description, image_url, extra_images, price')
+        .select('id, title, description, image_url, extra_images, price, category')
         .eq('id', cleanId)
         .maybeSingle();
-      return fallbackProd || null;
+      if (fb1) return fb1;
+
+      // Fallback 2: Try ILIKE prefix on ID
+      const { data: fb2 } = await supabase
+        .from('products')
+        .select('id, title, description, image_url, extra_images, price, category')
+        .ilike('id', `${cleanId}%`)
+        .limit(1);
+      if (fb2 && fb2.length > 0) return fb2[0];
+
+      return null;
     }
     
     return product;
@@ -4492,7 +4545,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   
   const title = cleanText(product.title || product.name || "S.art Full | Loja Oficial de Vestuário");
   const description = cleanText(
-    product.description || "Descubra a coleção exclusiva de vestuário na S.art Full. Peças selecionadas de moda masculina e feminina, roupas premium, calçado e tendências."
+    product.description || "Descubra a coleção exclusiva de vestuário na S.art Full. Peças selecionadas de moda masculina e feminina, roupas premium, calçado e tendências de alta qualidade."
   ).substring(0, 220);
 
   let origin = "https://sart-full.pt";
@@ -4515,9 +4568,10 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     if (extra.length > 0) rawImg = extra[0];
   }
 
+  const directImageUrl = rawImg ? getProductImageUrl(rawImg) : "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
   const ogImageUrl = product.id 
     ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
-    : (rawImg ? getProductImageUrl(rawImg) : "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
+    : directImageUrl;
 
   let fullCanonicalUrl = reqUrl || `${origin}/?v=product-detail&product=${product.id}`;
   if (fullCanonicalUrl.includes('localhost') || fullCanonicalUrl.includes('127.0.0.1') || fullCanonicalUrl.includes(':3000')) {
@@ -4545,7 +4599,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     '@context': 'https://schema.org/',
     '@type': 'Product',
     'name': title,
-    'image': [ogImageUrl],
+    'image': [ogImageUrl, directImageUrl],
     'description': description,
     'offers': {
       '@type': 'Offer',
@@ -4556,7 +4610,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     }
   });
 
-  // 2. Build crisp meta block for WhatsApp, Facebook, iMessage, Twitter
+  // 2. Build crisp meta block for WhatsApp, Facebook, iMessage, Twitter, Telegram, Pinterest, etc.
   const metaBlock = `
     <title>${metaTitle}</title>
     <meta name="description" content="${description}" />
@@ -4564,7 +4618,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="${fullCanonicalUrl}" />
 
-    <!-- Open Graph / WhatsApp / Facebook -->
+    <!-- Open Graph / WhatsApp / Facebook / Telegram / iMessage -->
     <meta property="og:site_name" content="S.art Full" />
     <meta property="og:type" content="product" />
     <meta property="og:title" content="${metaTitle}" />
@@ -4573,9 +4627,10 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta property="og:image" content="${ogImageUrl}" />
     <meta property="og:image:secure_url" content="${ogImageUrl}" />
     <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="1200" />
+    <meta property="og:image:width" content="800" />
+    <meta property="og:image:height" content="800" />
     <meta property="og:image:alt" content="${title}" />
+    ${directImageUrl && directImageUrl !== ogImageUrl ? `<meta property="og:image" content="${directImageUrl}" />` : ''}
     ${priceVal ? `<meta property="product:price:amount" content="${priceVal}" />` : ''}
     <meta property="product:price:currency" content="EUR" />
 

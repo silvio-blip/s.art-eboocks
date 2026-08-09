@@ -45,6 +45,12 @@ import {
   Terminal,
   Copy,
   Bell,
+  Video,
+  Image as ImageIcon,
+  Film,
+  Monitor,
+  Smartphone,
+  Tag,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -98,6 +104,7 @@ interface Product {
   last_aliexpress_sync?: string;
   metadata?: any;
   free_shipping?: boolean;
+  discount_percent?: number;
 }
 
 interface Order {
@@ -465,7 +472,9 @@ export default function AdminDashboard({
 
   const [siteHero, setSiteHero] = useState({
     image: "",
+    image_mobile: "",
     video_url: "",
+    video_mobile_url: "",
     title: "",
     subtitle: "",
     buttonText: ""
@@ -1149,7 +1158,7 @@ export default function AdminDashboard({
 
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
-    type: "image" | "pdf" | "video",
+    type: "image" | "pdf" | "video" | "hero_image" | "hero_image_mobile" | "hero_video" | "hero_video_mobile",
   ) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1157,7 +1166,10 @@ export default function AdminDashboard({
     setUploading(true);
     try {
       const fileExt = file.name.split(".").pop();
-      const slug = editingProduct?.title
+      const isHeroUpload = type.startsWith("hero_") || (!editingProduct && (type === "image" || type === "video"));
+      const slug = isHeroUpload
+        ? `site-hero-${type}`
+        : editingProduct?.title
         ? editingProduct.title
             .toLowerCase()
             .trim()
@@ -1173,10 +1185,10 @@ export default function AdminDashboard({
       const bucketName = "assets";
       let folderPath = "";
       
-      if (type === "video") {
-        folderPath = `ebook/${fileName}`; // User specifically requested ebook path inside asset
+      if (type === "video" || type === "hero_video" || type === "hero_video_mobile") {
+        folderPath = `ebook/${fileName}`;
       } else {
-        folderPath = type === "image" ? `covers/${fileName}` : `ebook/${fileName}`;
+        folderPath = `covers/${fileName}`;
       }
 
       const { error } = await supabase.storage
@@ -1185,10 +1197,26 @@ export default function AdminDashboard({
 
       if (error) throw error;
 
-      if (type === "video") {
-        const { data } = supabase.storage.from(bucketName).getPublicUrl(folderPath);
+      const { data } = supabase.storage.from(bucketName).getPublicUrl(folderPath);
+
+      if (type === "hero_video") {
+        setSiteHero(prev => ({ ...prev, video_url: data.publicUrl }));
+        toast.success("Vídeo Desktop do banner carregado!");
+      } else if (type === "hero_video_mobile") {
+        setSiteHero(prev => ({ ...prev, video_mobile_url: data.publicUrl }));
+        toast.success("Vídeo Mobile do banner carregado!");
+      } else if (type === "hero_image") {
+        setSiteHero(prev => ({ ...prev, image: data.publicUrl }));
+        toast.success("Imagem Desktop do herói carregada!");
+      } else if (type === "hero_image_mobile") {
+        setSiteHero(prev => ({ ...prev, image_mobile: data.publicUrl }));
+        toast.success("Imagem Mobile do herói carregada!");
+      } else if (type === "video" && isHeroUpload) {
         setSiteHero(prev => ({ ...prev, video_url: data.publicUrl }));
         toast.success("Vídeo do banner carregado!");
+      } else if (type === "image" && isHeroUpload) {
+        setSiteHero(prev => ({ ...prev, image: data.publicUrl }));
+        toast.success("Imagem do herói carregada!");
       } else {
         setEditingProduct((prev) => ({
           ...prev!,
@@ -2721,7 +2749,16 @@ export default function AdminDashboard({
                     </div>
                     <div className="flex flex-col">
                       <div className="flex justify-between items-center">
-                        <div className="text-luxury-gold text-xs font-bold">{renderPrice(Number(p.pvp || 0))}</div>
+                        <div className="flex items-baseline gap-1.5">
+                          <div className="text-luxury-gold text-xs font-bold font-mono">
+                            {renderPrice(p.discount_percent && p.discount_percent > 0 ? Number(p.pvp || 0) * (1 - p.discount_percent / 100) : Number(p.pvp || 0))}
+                          </div>
+                          {p.discount_percent && p.discount_percent > 0 ? (
+                            <span className="text-[8px] text-red-400 font-bold font-mono bg-red-500/10 px-1 rounded">
+                              -{p.discount_percent}%
+                            </span>
+                          ) : null}
+                        </div>
                         <div className="flex items-center gap-1">
                           {p.metadata?.base_price && (
                             <span className="text-[7px] text-white/70 uppercase font-medium">
@@ -2971,6 +3008,44 @@ export default function AdminDashboard({
                           />
                           <p className="text-[8px] text-white/70 uppercase tracking-widest leading-relaxed">
                             Este valor será somado ao preço original de importação durante a sincronização automática.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 col-span-1 md:col-span-2 bg-amber-500/5 p-4 border border-amber-500/20 rounded-md">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[9px] md:text-[10px] uppercase tracking-widest text-amber-400 font-bold flex items-center gap-1.5">
+                              <Tag size={12} className="text-amber-400" />
+                              Desconto de Promoção (%)
+                            </label>
+                            {editingProduct.discount_percent !== undefined && Number(editingProduct.discount_percent) > 0 && (
+                              <span className="text-[9px] text-amber-300 font-mono font-bold bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">
+                                Preço Final c/ Desconto: {renderPrice(Number(editingProduct.pvp || 0) * (1 - Number(editingProduct.discount_percent) / 100))}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={
+                              editingProduct.discount_percent === undefined || editingProduct.discount_percent === null
+                                ? ""
+                                : editingProduct.discount_percent
+                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const numVal = val === "" ? 0 : Math.min(100, Math.max(0, parseFloat(val)));
+                              setEditingProduct({
+                                ...editingProduct,
+                                discount_percent: numVal,
+                              });
+                            }}
+                            className="w-full bg-transparent border-b border-amber-500/40 py-2 text-lg outline-none focus:border-amber-400 transition-colors font-mono text-amber-300"
+                            placeholder="Ex: 5 (% de desconto)"
+                          />
+                          <p className="text-[8px] text-amber-200/70 uppercase tracking-widest leading-relaxed">
+                            Insira a porcentagem de desconto (ex: 5 para 5%). O produto exibirá a etiqueta animada "OFF" na loja e no carrinho.
                           </p>
                         </div>
                       </div>
@@ -5683,36 +5758,189 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Vídeo do Banner (Background)</label>
-                    <label className="cursor-pointer text-[10px] text-luxury-gold uppercase tracking-widest font-black hover:opacity-100 opacity-60">
-                      {uploading ? "A carregar..." : "Carregar Vídeo"}
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="video/*"
-                        onChange={(e) => handleFileUpload(e, "video")}
-                        disabled={uploading}
-                      />
-                    </label>
+                {/* Media Hero Config Section */}
+                <div className="pt-4 border-t border-white/10 space-y-6">
+                  <div className="bg-white/5 border border-white/10 p-4 space-y-1">
+                    <h4 className="text-xs font-serif uppercase tracking-widest text-luxury-gold font-bold flex items-center gap-2">
+                      <Film size={14} />
+                      Configuração do Banner Principal (Hero Responsivo)
+                    </h4>
+                    <p className="text-[10px] text-white/60 leading-relaxed">
+                      Defina imagens e vídeos específicos para <strong className="text-white/90">Telas Grandes (Desktop)</strong> e para <strong className="text-white/90">Telas Menores (Mobile/Telemóvel)</strong> para garantir um enquadramento perfeito em todos os dispositivos.
+                    </p>
                   </div>
-                  <input
-                    value={siteHero.video_url}
-                    onChange={(e) => setSiteHero({ ...siteHero, video_url: e.target.value })}
-                    placeholder="https://exemplo.com/banner.mp4"
-                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80 placeholder:text-white/10"
-                  />
-                </div>
 
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/90 font-bold">Imagem Hero (Background URL)</label>
-                  <input
-                    value={siteHero.image}
-                    onChange={(e) => setSiteHero({ ...siteHero, image: e.target.value })}
-                    placeholder="https://exemplo.com/imagem.jpg"
-                    className="w-full bg-white/5 border border-white/10 px-4 py-4 text-sm outline-none focus:border-luxury-gold transition-all text-white/80 placeholder:text-white/10"
-                  />
+                  {/* Desktop Section */}
+                  <div className="space-y-4 bg-white/[0.02] border border-amber-500/20 p-4 rounded-xl">
+                    <div className="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider pb-2 border-b border-white/10">
+                      <Monitor size={16} />
+                      <span>Telas Grandes (Computadores / Notebooks)</span>
+                    </div>
+
+                    {/* Desktop Image */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                        <label className="text-[10px] uppercase tracking-[0.2em] text-white/80 font-bold flex items-center gap-1.5">
+                          <ImageIcon size={12} className="text-amber-400" />
+                          Imagem Desktop (Banner Principal)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          {siteHero.image && (
+                            <button
+                              type="button"
+                              onClick={() => setSiteHero({ ...siteHero, image: "" })}
+                              className="text-[9px] uppercase tracking-widest text-red-400 hover:text-red-300 font-bold px-2 py-1 bg-red-500/10 border border-red-500/20 transition-all"
+                            >
+                              Remover
+                            </button>
+                          )}
+                          <label className="cursor-pointer text-[10px] bg-luxury-gold text-black uppercase tracking-widest font-black px-3 py-1 hover:bg-white transition-all flex items-center gap-1.5 shadow-md">
+                            <Upload size={12} />
+                            {uploading ? "A carregar..." : "Carregar Ficheiro"}
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*"
+                              onChange={(e) => handleFileUpload(e, "hero_image")}
+                              disabled={uploading}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <input
+                        value={siteHero.image}
+                        onChange={(e) => setSiteHero({ ...siteHero, image: e.target.value })}
+                        placeholder="https://exemplo.com/imagem-desktop.jpg"
+                        className="w-full bg-white/5 border border-white/10 px-3 py-2 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 placeholder:text-white/20 font-mono"
+                      />
+                    </div>
+
+                    {/* Desktop Video */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                        <label className="text-[10px] uppercase tracking-[0.2em] text-white/80 font-bold flex items-center gap-1.5">
+                          <Video size={12} className="text-amber-400" />
+                          Vídeo Desktop (Fundo / Animação - Opcional)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          {siteHero.video_url && (
+                            <button
+                              type="button"
+                              onClick={() => setSiteHero({ ...siteHero, video_url: "" })}
+                              className="text-[9px] uppercase tracking-widest text-red-400 hover:text-red-300 font-bold px-2 py-1 bg-red-500/10 border border-red-500/20 transition-all"
+                            >
+                              Remover Vídeo
+                            </button>
+                          )}
+                          <label className="cursor-pointer text-[10px] bg-luxury-gold text-black uppercase tracking-widest font-black px-3 py-1 hover:bg-white transition-all flex items-center gap-1.5 shadow-md">
+                            <Upload size={12} />
+                            {uploading ? "A carregar..." : "Carregar Vídeo"}
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="video/*"
+                              onChange={(e) => handleFileUpload(e, "hero_video")}
+                              disabled={uploading}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <input
+                        value={siteHero.video_url}
+                        onChange={(e) => setSiteHero({ ...siteHero, video_url: e.target.value })}
+                        placeholder="https://exemplo.com/video-desktop.mp4"
+                        className="w-full bg-white/5 border border-white/10 px-3 py-2 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 placeholder:text-white/20 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Mobile Section */}
+                  <div className="space-y-4 bg-white/[0.02] border border-sky-500/20 p-4 rounded-xl">
+                    <div className="flex items-center gap-2 text-sky-400 font-bold text-xs uppercase tracking-wider pb-2 border-b border-white/10">
+                      <Smartphone size={16} />
+                      <span>Telas Menores (Telemóveis / Smartphones)</span>
+                    </div>
+
+                    {/* Mobile Image */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                        <label className="text-[10px] uppercase tracking-[0.2em] text-white/80 font-bold flex items-center gap-1.5">
+                          <ImageIcon size={12} className="text-sky-400" />
+                          Imagem Mobile (Enquadramento Vertical/Mobile)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          {siteHero.image_mobile && (
+                            <button
+                              type="button"
+                              onClick={() => setSiteHero({ ...siteHero, image_mobile: "" })}
+                              className="text-[9px] uppercase tracking-widest text-red-400 hover:text-red-300 font-bold px-2 py-1 bg-red-500/10 border border-red-500/20 transition-all"
+                            >
+                              Remover
+                            </button>
+                          )}
+                          <label className="cursor-pointer text-[10px] bg-sky-400 text-black uppercase tracking-widest font-black px-3 py-1 hover:bg-white transition-all flex items-center gap-1.5 shadow-md">
+                            <Upload size={12} />
+                            {uploading ? "A carregar..." : "Carregar Ficheiro"}
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*"
+                              onChange={(e) => handleFileUpload(e, "hero_image_mobile")}
+                              disabled={uploading}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <input
+                        value={siteHero.image_mobile || ""}
+                        onChange={(e) => setSiteHero({ ...siteHero, image_mobile: e.target.value })}
+                        placeholder="https://exemplo.com/imagem-mobile.jpg (Opcional - usa a imagem desktop se vazia)"
+                        className="w-full bg-white/5 border border-white/10 px-3 py-2 text-xs outline-none focus:border-sky-400 transition-all text-white/90 placeholder:text-white/20 font-mono"
+                      />
+                    </div>
+
+                    {/* Mobile Video */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center flex-wrap gap-2">
+                        <label className="text-[10px] uppercase tracking-[0.2em] text-white/80 font-bold flex items-center gap-1.5">
+                          <Video size={12} className="text-sky-400" />
+                          Vídeo Mobile (Opcional)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          {siteHero.video_mobile_url && (
+                            <button
+                              type="button"
+                              onClick={() => setSiteHero({ ...siteHero, video_mobile_url: "" })}
+                              className="text-[9px] uppercase tracking-widest text-red-400 hover:text-red-300 font-bold px-2 py-1 bg-red-500/10 border border-red-500/20 transition-all"
+                            >
+                              Remover Vídeo
+                            </button>
+                          )}
+                          <label className="cursor-pointer text-[10px] bg-sky-400 text-black uppercase tracking-widest font-black px-3 py-1 hover:bg-white transition-all flex items-center gap-1.5 shadow-md">
+                            <Upload size={12} />
+                            {uploading ? "A carregar..." : "Carregar Vídeo"}
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="video/*"
+                              onChange={(e) => handleFileUpload(e, "hero_video_mobile")}
+                              disabled={uploading}
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <input
+                        value={siteHero.video_mobile_url || ""}
+                        onChange={(e) => setSiteHero({ ...siteHero, video_mobile_url: e.target.value })}
+                        placeholder="https://exemplo.com/video-mobile.mp4 (Opcional)"
+                        className="w-full bg-white/5 border border-white/10 px-3 py-2 text-xs outline-none focus:border-sky-400 transition-all text-white/90 placeholder:text-white/20 font-mono"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -5745,36 +5973,84 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                   />
                 </div>
                 
-                {siteHero.video_url && (
-                  <div className="space-y-3 pt-2">
-                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/70">Pré-visualização do Vídeo</label>
-                    <div className="aspect-[21/9] w-full border border-white/5 relative overflow-hidden bg-black">
-                       <video 
-                         key={siteHero.video_url}
-                         src={siteHero.video_url} 
-                         className="w-full h-full object-cover opacity-60" 
-                         autoPlay 
-                         muted 
-                         loop 
-                         playsInline 
-                       />
-                    </div>
-                  </div>
-                )}
+                {/* Visual Previews */}
+                <div className="space-y-4 pt-2 border-t border-white/10">
+                  <label className="text-[10px] uppercase tracking-[0.2em] text-white/70 font-bold block">
+                    Pré-visualização dos Mídias
+                  </label>
 
-                {siteHero.image && (
-                  <div className="space-y-3 pt-2">
-                    <label className="text-[10px] uppercase tracking-[0.2em] text-white/70">Pré-visualização da Hero</label>
-                    <div className="aspect-[21/9] w-full bg-cover bg-center border border-white/5 relative overflow-hidden" style={{ backgroundImage: `url(${siteHero.image})` }}>
-                      <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-4">
-                        <h4 className="text-[10px] md:text-sm font-serif text-white text-center max-w-[80%] drop-shadow-lg">{siteHero.title}</h4>
-                        <button className="mt-2 px-3 py-1 bg-luxury-gold text-[7px] md:text-[8px] uppercase tracking-widest text-black font-black whitespace-nowrap">
-                          {siteHero.buttonText}
-                        </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Desktop Preview Card */}
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] uppercase tracking-wider text-amber-400 font-mono flex items-center gap-1">
+                        <Monitor size={12} /> Preview Desktop
+                      </span>
+                      <div className="aspect-[16/9] w-full border border-white/10 relative overflow-hidden rounded-lg bg-black flex items-center justify-center">
+                        {siteHero.video_url ? (
+                          <video
+                            key={siteHero.video_url}
+                            src={getImageUrl(siteHero.video_url)}
+                            poster={getImageUrl(siteHero.image)}
+                            className="w-full h-full object-cover opacity-70"
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                          />
+                        ) : siteHero.image ? (
+                          <img
+                            src={getImageUrl(siteHero.image)}
+                            alt="Desktop Preview"
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-white/30 font-mono">Sem imagem desktop</span>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-2 text-center">
+                          <h5 className="text-[9px] font-serif text-white uppercase drop-shadow">{siteHero.title}</h5>
+                          <span className="mt-1 px-2 py-0.5 bg-luxury-gold text-[7px] text-black font-black uppercase tracking-widest">
+                            {siteHero.buttonText}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mobile Preview Card */}
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] uppercase tracking-wider text-sky-400 font-mono flex items-center gap-1">
+                        <Smartphone size={12} /> Preview Mobile
+                      </span>
+                      <div className="aspect-[9/16] max-h-[180px] mx-auto border border-white/10 relative overflow-hidden rounded-lg bg-black flex items-center justify-center">
+                        {siteHero.video_mobile_url ? (
+                          <video
+                            key={siteHero.video_mobile_url}
+                            src={getImageUrl(siteHero.video_mobile_url)}
+                            poster={getImageUrl(siteHero.image_mobile || siteHero.image)}
+                            className="w-full h-full object-cover opacity-70"
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                          />
+                        ) : (siteHero.image_mobile || siteHero.image) ? (
+                          <img
+                            src={getImageUrl(siteHero.image_mobile || siteHero.image)}
+                            alt="Mobile Preview"
+                            className="w-full h-full object-cover opacity-80"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-white/30 font-mono">Sem imagem mobile</span>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center p-2 text-center">
+                          <h5 className="text-[8px] font-serif text-white uppercase drop-shadow line-clamp-1">{siteHero.title}</h5>
+                          <span className="mt-1 px-1.5 py-0.5 bg-luxury-gold text-[6px] text-black font-black uppercase tracking-widest">
+                            {siteHero.buttonText}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
               </div>
             </div>
 

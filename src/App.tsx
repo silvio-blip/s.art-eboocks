@@ -507,6 +507,91 @@ interface Product {
   supabase_id?: string;
   is_featured?: boolean;
   free_shipping?: boolean;
+  discount_percent?: number;
+}
+
+export function getEffectivePrice(product: Partial<Product> | null | undefined): number {
+  if (!product) return 0;
+  const pvp = Number(product.pvp || 0);
+  const discount = Number(product.discount_percent || 0);
+  if (discount > 0) {
+    const discounted = pvp * (1 - discount / 100);
+    return Math.max(0, Math.round(discounted * 100) / 100);
+  }
+  return pvp;
+}
+
+const STARBURST_PATH = (() => {
+  const points = 20;
+  const outerRadius = 48;
+  const innerRadius = 39;
+  const cx = 50;
+  const cy = 50;
+  let path = "";
+  for (let i = 0; i < points * 2; i++) {
+    const angle = (i * Math.PI) / points - Math.PI / 2;
+    const r = i % 2 === 0 ? outerRadius : innerRadius;
+    const x = Math.round((cx + r * Math.cos(angle)) * 100) / 100;
+    const y = Math.round((cy + r * Math.sin(angle)) * 100) / 100;
+    path += (i === 0 ? `M ${x},${y}` : ` L ${x},${y}`);
+  }
+  return path + " Z";
+})();
+
+export function StarburstDiscountBadge({ 
+  discount, 
+  className = "absolute -top-3.5 -right-3.5 z-20 pointer-events-none" 
+}: { 
+  discount?: number; 
+  className?: string;
+}) {
+  if (!discount || discount <= 0) return null;
+
+  return (
+    <motion.div
+      animate={{ 
+        rotate: [0, -5, 5, -4, 4, -2, 2, 0], 
+        scale: [1, 1.08, 0.96, 1.05, 1],
+        x: [0, -1, 1, -0.5, 0.5, 0],
+        y: [0, 0.8, -0.8, 0.5, -0.5, 0]
+      }}
+      transition={{ 
+        duration: 1.4, 
+        repeat: Infinity, 
+        repeatDelay: 0.15,
+        ease: "easeInOut" 
+      }}
+      className={`${className} filter drop-shadow-[0_8px_18px_rgba(220,38,38,0.55)] w-12 h-12 md:w-14 md:h-14 flex items-center justify-center select-none`}
+    >
+      <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full overflow-visible">
+        <defs>
+          <linearGradient id="starburstGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#EF4444" />
+            <stop offset="40%" stopColor="#DC2626" />
+            <stop offset="80%" stopColor="#B91C1C" />
+            <stop offset="100%" stopColor="#991B1B" />
+          </linearGradient>
+        </defs>
+        <path
+          fill="url(#starburstGrad)"
+          stroke="#FFFFFF"
+          strokeWidth="3"
+          strokeLinejoin="round"
+          d={STARBURST_PATH}
+        />
+        <circle cx="50" cy="50" r="32" fill="none" stroke="#FDE68A" strokeWidth="1.2" strokeDasharray="3 2" opacity="0.85" />
+      </svg>
+
+      <div className="relative z-10 flex flex-col items-center justify-center text-white text-center leading-none">
+        <span className="text-[11px] md:text-[13px] font-black font-mono tracking-tighter drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+          -{discount}%
+        </span>
+        <span className="text-[6px] md:text-[7px] font-black uppercase tracking-widest text-amber-200 mt-0.5 drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)]">
+          OFF
+        </span>
+      </div>
+    </motion.div>
+  );
 }
 
 interface Order {
@@ -1022,12 +1107,6 @@ const Navbar = ({
           >
             Novidades
           </button>
-          <button 
-            onClick={() => onDashboardClick("dashboard")}
-            className={linkClass}
-          >
-            Perfil
-          </button>
         </nav>
 
         {/* Right: Actions Toolbar */}
@@ -1240,7 +1319,7 @@ const ProductCard = React.memo(function ProductCard({
         } 
       }}
       viewport={{ once: true, amount: 0.05 }}
-      className={`group cursor-pointer flex flex-col bg-white border border-black/5 rounded-[8px] overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.01)] hover:shadow-[0_12px_30px_rgba(0,0,0,0.04)] hover:border-gold/20 transition-all duration-500 ${className}`}
+      className={`group cursor-pointer flex flex-col bg-white dark:bg-[#161616] border border-black/10 dark:border-white/10 hover:border-gold/60 rounded-[10px] relative overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.02)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.08)] transition-all duration-500 h-full ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
           onRead(product);
@@ -1249,54 +1328,62 @@ const ProductCard = React.memo(function ProductCard({
         }
       }}
     >
+      {/* 16-point Serrated Starburst Discount Badge overlapping top-right border */}
+      {product.discount_percent && product.discount_percent > 0 ? (
+        <StarburstDiscountBadge discount={product.discount_percent} />
+      ) : null}
+
       {/* Aspect Ratio 3:4 Image Frame */}
-      <div className="relative w-full aspect-[3/4] overflow-hidden bg-neutral-50 flex items-center justify-center border-b border-black/5">
+      <div className="relative w-full aspect-[3/4] overflow-hidden bg-[#FAF8F5] dark:bg-[#1a1a1a] rounded-t-[9px] border-b border-black/5 dark:border-white/10 flex items-center justify-center">
         <motion.img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
+          className="w-full h-full object-cover transition-transform duration-[1000ms] ease-out group-hover:scale-108"
           loading="lazy"
           decoding="async"
         />
         
-        {/* Subtle premium gradient vignette on hover */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/5 to-transparent opacity-100 group-hover:from-black/20 group-hover:bg-black/5 transition-all duration-500" />
-        
-        {/* Dynamic product type badge */}
-        {product.product_type && (
-          <span className="absolute top-3 left-3 text-[7px] uppercase tracking-[0.25em] bg-[#FCFAF7]/90 backdrop-blur-md text-luxury-foreground font-bold px-2 py-1 rounded-[2px] border border-black/5">
-            {product.product_type === 'physical' ? 'Físico' : 'Digital'}
-          </span>
-        )}
+        {/* Subtle luxury vignette overlay on hover */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
         
         {/* Premium Action Overlay - slides up on hover (desktop only) */}
-        <div className="hidden md:flex absolute inset-x-0 bottom-0 p-4 translate-y-full group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-500 bg-gradient-to-t from-black/80 via-black/40 to-transparent items-center justify-center">
-          <span className="text-[9px] uppercase tracking-[0.3em] text-white font-bold flex items-center gap-1.5 bg-gold px-4 py-2 shadow-lg">
-            <ShoppingBag size={12} />
+        <div className="hidden md:flex absolute inset-x-0 bottom-0 p-3.5 translate-y-full group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-400 bg-black/85 backdrop-blur-md items-center justify-center border-t border-gold/40">
+          <span className="text-[9px] uppercase tracking-[0.3em] text-white font-bold flex items-center gap-2 bg-gradient-to-r from-gold to-amber-500 text-black px-4 py-2 rounded-[2px] shadow-lg hover:brightness-110 transition-all">
+            <ShoppingBag size={12} className="stroke-[2.5]" />
             {isOwned && product.product_type !== 'physical' ? 'Ler Produto' : 'Adicionar ao Carrinho'}
           </span>
         </div>
       </div>
 
-      {/* Product Information - Always visible underneath the image, standard luxury style! */}
-      <div className="flex flex-col p-4 text-left flex-grow bg-white">
-        {product.category && (
-          <span className="text-[8px] uppercase tracking-[0.25em] text-gold font-bold mb-1 block">
-            {product.category}
-          </span>
-        )}
+      {/* Product Information */}
+      <div className="flex flex-col p-4 md:p-5 text-left flex-grow bg-white dark:bg-[#161616] rounded-b-[9px] justify-between space-y-3">
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            {product.category ? (
+              <span className="text-[8px] md:text-[9px] uppercase tracking-[0.25em] text-gold font-mono font-bold truncate">
+                {product.category}
+              </span>
+            ) : <span />}
+
+            {product.discount_percent && product.discount_percent > 0 ? (
+              <span className="line-through text-neutral-400 dark:text-neutral-500 text-[10px] md:text-xs font-mono font-normal shrink-0">
+                {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
+              </span>
+            ) : null}
+          </div>
+          
+          <h4 className="text-xs md:text-sm font-serif text-luxury-foreground font-semibold tracking-wide leading-snug line-clamp-2 group-hover:text-gold transition-colors duration-300">
+            {product.title}
+          </h4>
+        </div>
         
-        <h4 className="text-[11px] md:text-xs font-serif text-luxury-foreground font-medium tracking-wide mb-1.5 line-clamp-1 group-hover:text-gold transition-colors duration-300">
-          {product.title}
-        </h4>
-        
-        <div className="flex justify-between items-baseline mt-auto pt-2 border-t border-black/[0.03]">
-          <span className="text-sm md:text-base font-serif text-luxury-foreground font-light tracking-tight">
-            {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
+        <div className="flex justify-between items-center pt-3 border-t border-black/[0.06] dark:border-white/10 gap-2 flex-wrap">
+          <span className="text-base md:text-lg font-serif text-luxury-foreground font-semibold tracking-tight">
+            {formatPrice ? formatPrice(getEffectivePrice(product)) : `€${getEffectivePrice(product)}`}
           </span>
           
-          <span className="md:hidden text-[9px] text-gold uppercase tracking-widest font-bold">
+          <span className="md:hidden text-[9px] uppercase tracking-[0.2em] font-extrabold text-gold bg-gold/10 px-2.5 py-1 rounded border border-gold/20">
             Comprar
           </span>
         </div>
@@ -2194,9 +2281,28 @@ const ProductDetailsPage = ({
               <h1 className={`font-serif leading-tight dark:text-white text-balance ${(product.title || '').length > 50 ? 'text-2xl md:text-3xl lg:text-3xl' : 'text-3xl md:text-4xl lg:text-4xl'}`}>
                 {product.title}
               </h1>
-              <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter">
-                {formatPrice(product.pvp)}
-              </p>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <p className="text-2xl md:text-3xl font-black text-black dark:text-luxury-gold tracking-tighter font-mono">
+                  {formatPrice(getEffectivePrice(product))}
+                </p>
+                {product.discount_percent && product.discount_percent > 0 ? (
+                  <>
+                    <span className="line-through text-neutral-400 dark:text-neutral-500 text-lg font-mono font-medium">
+                      {formatPrice(product.pvp)}
+                    </span>
+                    <motion.span
+                      animate={{ 
+                        rotate: [0, -3, 3, -2, 2, 0], 
+                        scale: [1, 1.05, 0.98, 1.03, 1] 
+                      }}
+                      transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                      className="px-3 py-1 bg-gradient-to-r from-red-600 to-amber-600 text-white font-black text-xs font-mono rounded-full uppercase tracking-wider shadow-md"
+                    >
+                      -{product.discount_percent}% OFF
+                    </motion.span>
+                  </>
+                ) : null}
+              </div>
             </div>
           </div>
 
@@ -3078,7 +3184,9 @@ export default function App() {
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [siteHero, setSiteHero] = useState({
     image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070",
+    image_mobile: "",
     video_url: "",
+    video_mobile_url: "",
     title: "Luxo & Exclusividade",
     subtitle: "A Essência da Exclusividade",
     buttonText: "Explorar Coleção"
@@ -4420,38 +4528,69 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="w-full"
             >
-                <section className="relative min-h-[85vh] flex items-center justify-center overflow-hidden bg-luxury-bg">
+                <section className="relative h-[100dvh] min-h-screen w-full flex items-center justify-center overflow-hidden bg-luxury-bg">
                   <MovingParticles activeTheme={siteTheme.active} />
                 {/* Background Video/Image Container */}
                 <div className="absolute inset-0 z-0 bg-[#050505]">
-                  {siteHero.video_url ? (
-                    <video
-                      key={siteHero.video_url}
-                      ref={videoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      preload="auto"
-                      poster={siteHero.image}
-                      onEnded={(e) => {
-                        (e.target as HTMLVideoElement).pause();
-                      }}
-                      className="w-full h-full object-cover opacity-100 transition-opacity duration-1000"
-                    >
-                      {siteHero.video_url && <source src={siteHero.video_url} type="video/mp4" />}
-                      {/* Fallback image if video fails to load */}
+                  {siteHero.video_url || siteHero.video_mobile_url ? (
+                    <>
+                      {/* Desktop Video */}
+                      <video
+                        key={`desktop-v-${siteHero.video_url}`}
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        playsInline
+                        preload="auto"
+                        poster={getImageUrl(siteHero.image)}
+                        onEnded={(e) => {
+                          (e.target as HTMLVideoElement).pause();
+                        }}
+                        className={`${siteHero.video_mobile_url ? 'hidden md:block' : 'block'} w-full h-full object-cover opacity-100 transition-opacity duration-1000`}
+                      >
+                        {siteHero.video_url && <source src={getImageUrl(siteHero.video_url)} type="video/mp4" />}
+                        <img 
+                          src={getImageUrl(siteHero.image)} 
+                          alt="Luxury Background" 
+                          className="w-full h-full object-cover"
+                        />
+                      </video>
+
+                      {/* Mobile Video */}
+                      {siteHero.video_mobile_url && (
+                        <video
+                          key={`mobile-v-${siteHero.video_mobile_url}`}
+                          autoPlay
+                          muted
+                          playsInline
+                          preload="auto"
+                          poster={getImageUrl(siteHero.image_mobile || siteHero.image)}
+                          onEnded={(e) => {
+                            (e.target as HTMLVideoElement).pause();
+                          }}
+                          className="block md:hidden w-full h-full object-cover opacity-100 transition-opacity duration-1000"
+                        >
+                          <source src={getImageUrl(siteHero.video_mobile_url)} type="video/mp4" />
+                          <img 
+                            src={getImageUrl(siteHero.image_mobile || siteHero.image)} 
+                            alt="Luxury Mobile Background" 
+                            className="w-full h-full object-cover"
+                          />
+                        </video>
+                      )}
+                    </>
+                  ) : (
+                    /* Responsive Picture for Images */
+                    <picture className="w-full h-full block">
+                      {siteHero.image_mobile && (
+                        <source media="(max-width: 767px)" srcSet={getImageUrl(siteHero.image_mobile)} />
+                      )}
                       <img 
                         src={getImageUrl(siteHero.image)} 
                         alt="Luxury Background" 
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-[10%] transition-opacity duration-1000"
                       />
-                    </video>
-                  ) : (
-                    <img 
-                      src={getImageUrl(siteHero.image)} 
-                      alt="Luxury Background" 
-                      className="w-full h-full object-cover opacity-85 dark:opacity-60 grayscale-[10%] transition-opacity duration-1000"
-                    />
+                    </picture>
                   )}
                   <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-transparent to-[#050505]"></div>
                   {/* Soft radial glow to pop the text */}
@@ -4503,7 +4642,7 @@ export default function App() {
                       )}
                       
                       <GlassButton
-                        onClick={() => document.getElementById("featured-section")?.scrollIntoView({ behavior: "smooth" })}
+                        onClick={() => document.getElementById("boutique")?.scrollIntoView({ behavior: "smooth" })}
                         className="mt-6 md:mt-8"
                       >
                         {siteHero.buttonText}
@@ -4516,11 +4655,11 @@ export default function App() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 1.5, duration: 1 }}
-                  onClick={() => document.getElementById("featured-section")?.scrollIntoView({ behavior: "smooth" })}
+                  onClick={() => document.getElementById("boutique")?.scrollIntoView({ behavior: "smooth" })}
                   className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 cursor-pointer group z-50 pointer-events-auto"
                 >
                   <span className="text-[9px] uppercase tracking-[0.3em] font-mono text-white/60 group-hover:text-amber-400 transition-colors">
-                    Explorar Destaques
+                    Explorar Coleção
                   </span>
                   <motion.div 
                     animate={{ y: [0, 6, 0] }}
@@ -4539,10 +4678,10 @@ export default function App() {
               {(() => {
                 const featuredProducts = products.filter(p => p.is_featured && p.is_active !== false);
                 if (featuredProducts.length === 0) return null;
-                const isFewFeatured = featuredProducts.length <= 2;
                 
                 return (
-                  <section id="featured-section" className="bg-luxury-bg py-24 border-b border-luxury-border overflow-hidden transition-colors duration-500">
+                  <section id="featured-section" className="bg-luxury-bg py-24 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
+
                     <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
 
                     <motion.div 
@@ -4554,80 +4693,121 @@ export default function App() {
                         visible: {
                           opacity: 1,
                           transition: {
-                            staggerChildren: 0.25
+                            staggerChildren: 0.2
                           }
                         }
                       }}
-                      className="px-[5%] mt-8"
+                      className="px-[5%] mt-12 max-w-7xl mx-auto"
                     >
-                      <div className="grid grid-cols-1 gap-6 max-w-[900px] mx-auto overflow-visible">
-                        {featuredProducts.map((featuredProduct, fIdx) => (
+                      <div className={`grid grid-cols-1 ${featuredProducts.length === 1 ? 'max-w-4xl mx-auto' : 'md:grid-cols-2 gap-8 lg:gap-10'} overflow-visible`}>
+                        {featuredProducts.map((featuredProduct) => (
                           <motion.div 
                             key={featuredProduct.id} 
-                            initial={{ opacity: 0, y: 30 }}
+                            initial={{ opacity: 0, y: 15 }}
                             whileInView={{ 
                               opacity: 1, 
                               y: 0,
-                              transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } 
+                              transition: { duration: 0.5, ease: "easeOut" } 
                             }}
                             viewport={{ once: true, amount: 0.1 }}
-                            whileHover={{ y: -4, transition: { duration: 0.3 } }}
-                            className="group cursor-pointer"
+                            className="group relative flex flex-col rounded-none overflow-visible bg-[#FAF8F5] dark:bg-[#181818] border border-black/10 dark:border-white/10 hover:border-gold/60 transition-colors duration-300 cursor-pointer"
+                            onClick={() => {
+                              setSelectedProduct(featuredProduct);
+                              setDetailProduct(featuredProduct);
+                              setView("product-detail");
+                            }}
                           >
-                            {/* Main Product Card */}
-                            <div 
-                              onClick={() => {
-                                setSelectedProduct(featuredProduct);
-                                setDetailProduct(featuredProduct);
-                                setView("product-detail");
-                              }}
-                              className="relative overflow-hidden border border-luxury-border hover:border-amber-500/50 shadow-xl hover:shadow-[0_16px_35px_rgba(0,0,0,0.25)] rounded-2xl bg-black/40 aspect-[16/9] sm:aspect-[16/8] flex flex-col justify-between transition-all duration-500"
-                            >
-                              {/* Product Image - Full Visibility */}
+                            {/* Starburst discount badge on featured card */}
+                            {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                              <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute -top-3.5 -right-3.5 z-20 pointer-events-none" />
+                            ) : null}
+
+                            {/* Image Header - Completely flat and square */}
+                            <div className="relative w-full aspect-[16/10] sm:aspect-[16/9] overflow-hidden bg-[#F5F0E8] dark:bg-[#121212] rounded-none border-b border-black/10 dark:border-white/10">
                               <img 
                                 src={getImageUrl(featuredProduct.image_url || "")} 
                                 alt={featuredProduct.title}
-                                className="absolute inset-0 w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-out"
+                                className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500 ease-out"
                                 loading="lazy"
                               />
                               
-                              {/* Subtle Gradient Overlay - Bottom Only for Text Readability */}
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity"></div>
-                              
-                              {/* Top Category Tag - Clean & Discreet */}
-                              <div className="relative z-10 p-4 md:p-5 flex justify-end">
+                              {/* Category Badge and Original Price if present */}
+                              <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
                                 {featuredProduct.category && (
-                                  <span className="bg-black/50 backdrop-blur-md border border-white/10 text-white/90 font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 rounded-full">
+                                  <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 text-luxury-foreground dark:text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 rounded-none shadow-sm">
                                     {featuredProduct.category}
                                   </span>
                                 )}
+                                {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                                  <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 line-through text-neutral-400 dark:text-neutral-400 font-mono text-[10px] font-normal px-2.5 py-1 rounded-none shadow-sm">
+                                    {formatPrice(featuredProduct.pvp)}
+                                  </span>
+                                ) : null}
                               </div>
 
-                              {/* Card Bottom Bar - Clean & Minimalist */}
-                              <div className="relative z-10 p-5 md:p-6 w-full flex items-end justify-between gap-4">
-                                <div className="flex flex-col min-w-0 flex-1">
-                                  <h3 className="font-serif text-base md:text-xl text-white tracking-tight truncate uppercase font-bold group-hover:text-amber-400 transition-colors">
-                                    {featuredProduct.title}
-                                  </h3>
-                                  <p className="text-amber-400 text-sm md:text-base font-mono font-bold mt-0.5">
-                                    {formatPrice(featuredProduct.pvp)}
-                                  </p>
+                              {featuredProduct.free_shipping && (
+                                <div className="absolute bottom-4 left-4 z-10">
+                                  <span className="bg-emerald-900/10 dark:bg-emerald-950/80 border border-emerald-600/30 text-emerald-700 dark:text-emerald-400 font-mono text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-none flex items-center gap-1">
+                                    <Truck size={12} />
+                                    Frete Grátis
+                                  </span>
                                 </div>
-                                
+                              )}
+                            </div>
+
+                            {/* Card Body - Warm nude/cream background in light mode */}
+                            <div className="p-6 md:p-8 flex flex-col justify-between flex-1 space-y-5 relative z-10 bg-[#FAF8F5] dark:bg-[#181818] rounded-none">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1 text-gold">
+                                    {[...Array(5)].map((_, i) => (
+                                      <Star key={i} size={13} className="fill-gold text-gold" />
+                                    ))}
+                                    <span className="text-luxury-foreground/60 dark:text-white/60 text-[10px] font-mono ml-1 font-semibold">
+                                      5.0 (Exclusivo)
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <h3 className="font-serif text-xl sm:text-2xl text-luxury-foreground dark:text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1">
+                                  {featuredProduct.title}
+                                </h3>
+
+                                {featuredProduct.description && (
+                                  <p className="text-luxury-foreground/75 dark:text-white/70 text-xs sm:text-sm font-sans line-clamp-2 leading-relaxed">
+                                    {featuredProduct.description}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Price & Action Row */}
+                              <div className="pt-4 border-t border-black/10 dark:border-white/10 flex items-center justify-between gap-4">
+                                <div className="flex flex-col">
+                                  <span className="text-[9px] uppercase tracking-[0.2em] text-[#8C7A6B] dark:text-white/50 font-mono font-bold">
+                                    Valor de Investimento
+                                  </span>
+                                  <div className="flex items-baseline gap-2 flex-wrap">
+                                    <span className="text-xl sm:text-2xl font-serif font-bold text-luxury-foreground dark:text-gold">
+                                      {formatPrice(getEffectivePrice(featuredProduct))}
+                                    </span>
+                                  </div>
+                                </div>
+
                                 <button
+                                  type="button"
                                   onClick={(e: any) => {
                                     e.stopPropagation();
                                     handleBuy(featuredProduct);
                                   }}
                                   disabled={checkoutLoading === featuredProduct.id}
-                                  className="bg-amber-500 hover:bg-amber-400 text-black font-black text-[10px] md:text-xs uppercase tracking-[0.15em] px-4 md:px-5 py-2.5 md:py-3 rounded-lg shadow-lg hover:shadow-amber-500/25 transition-all flex items-center gap-2 shrink-0"
+                                  className="bg-gold hover:bg-amber-500 text-black font-bold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-5 sm:px-6 py-2.5 sm:py-3 rounded-none transition-colors flex items-center gap-2 shrink-0"
                                 >
                                   {checkoutLoading === featuredProduct.id ? (
                                     <Loader2 size={14} className="animate-spin text-black" />
                                   ) : (
                                     <>
-                                      <span>COMPRAR</span>
-                                      <ShoppingBag size={13} className="stroke-[2.5]" />
+                                      <span>Comprar</span>
+                                      <ShoppingBag size={14} className="stroke-[2.5]" />
                                     </>
                                   )}
                                 </button>
@@ -4662,7 +4842,7 @@ export default function App() {
                 </div>
 
                 {/* STICKY FILTER BAR (Fixa-se no topo da tela por baixo da barra de navegação durante o scroll) */}
-                <div className="sticky top-[60px] md:top-[70px] z-30 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-all duration-300">
+                <div className="sticky top-[60px] md:top-[70px] z-50 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-all duration-300">
                   <div className="max-w-2xl mx-auto flex items-center justify-center gap-2 sm:gap-3.5">
                     
                     {/* Seletor 1: Categoria (Dropdown) */}
@@ -5283,8 +5463,13 @@ export default function App() {
                                 `Cor: ${selectedOptions.color}`}
                             </div>
                           )}
-                        <div className="text-xs font-bold text-luxury-foreground/60 transition-colors">
-                          {formatPrice(Number(selectedProduct.pvp))}
+                        <div className="text-xs font-bold text-luxury-foreground/60 transition-colors flex items-center gap-1.5">
+                          <span>{formatPrice(getEffectivePrice(selectedProduct))}</span>
+                          {selectedProduct.discount_percent && selectedProduct.discount_percent > 0 ? (
+                            <span className="line-through text-neutral-400 text-[10px] font-light font-mono">
+                              {formatPrice(Number(selectedProduct.pvp))}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -5294,12 +5479,12 @@ export default function App() {
                     <div className="space-y-3">
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
                         <span>Subtotal ({quantity}x)</span>
-                        <span>{formatPrice(Number(selectedProduct.pvp) * quantity)}</span>
+                        <span>{formatPrice(getEffectivePrice(selectedProduct) * quantity)}</span>
                       </div>
                       {couponDiscount > 0 && (
                           <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-gold transition-colors">
                             <span>Desconto ({couponDiscount}%)</span>
-                            <span>-{formatPrice((Number(selectedProduct.pvp) * quantity) * (couponDiscount / 100))}</span>
+                            <span>-{formatPrice((getEffectivePrice(selectedProduct) * quantity) * (couponDiscount / 100))}</span>
                           </div>
                       )}
                       <div className="flex justify-between text-[10px] uppercase tracking-widest text-luxury-foreground/60 transition-colors">
@@ -5316,7 +5501,7 @@ export default function App() {
                       </div>
                       <div className="flex justify-between text-base font-serif text-luxury-foreground transition-colors pt-2 border-t border-luxury-border">
                         <span>Total</span>
-                        <span>{formatPrice((Number(selectedProduct.pvp) * quantity) * (1 - couponDiscount / 100) + (selectedProduct.free_shipping ? 0 : 1.15))}</span>
+                        <span>{formatPrice((getEffectivePrice(selectedProduct) * quantity) * (1 - couponDiscount / 100) + (selectedProduct.free_shipping ? 0 : 1.15))}</span>
                       </div>
                     </div>
 
