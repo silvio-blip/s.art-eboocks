@@ -1993,6 +1993,63 @@ adminRouter.post('/test-email', async (req, res) => {
   }
 });
 
+adminRouter.post('/send-batch-email', async (req, res) => {
+  try {
+    const { recipients, subject, message, html, products } = req.body;
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ error: 'Nenhum destinatário válido selecionado.' });
+    }
+    if (!subject || !subject.trim()) {
+      return res.status(400).json({ error: 'Assunto do e-mail é obrigatório.' });
+    }
+
+    console.log(`[ADMIN BATCH EMAIL] Disparando e-mail para ${recipients.length} destinatários.`);
+    const supabase = getSupabase();
+
+    let successCount = 0;
+    const errors: { email: string; error: string }[] = [];
+
+    for (const recipient of recipients) {
+      const email = typeof recipient === 'string' ? recipient.trim() : recipient.email?.trim();
+      const name = typeof recipient === 'object' ? (recipient.name || recipient.full_name) : '';
+
+      if (!email || !email.includes('@')) continue;
+
+      try {
+        const { data, error } = await supabase.functions.invoke('send-custom-email', {
+          body: {
+            to: email,
+            subject: subject,
+            body: message || '',
+            html: html || undefined,
+            name: name || undefined
+          }
+        });
+
+        if (error) {
+          console.error(`[ADMIN BATCH EMAIL ERROR] Falha para ${email}:`, error);
+          errors.push({ email, error: error.message || 'Erro no envio de e-mail via Supabase' });
+        } else {
+          successCount++;
+        }
+      } catch (err: any) {
+        console.error(`[ADMIN BATCH EMAIL EXCEPTION] Exceção para ${email}:`, err);
+        errors.push({ email, error: err.message || 'Erro interno ao disparar e-mail' });
+      }
+    }
+
+    res.json({
+      success: true,
+      count: successCount,
+      total: recipients.length,
+      errors
+    });
+  } catch (error: any) {
+    console.error('[ADMIN BATCH EMAIL CONTROLLER ERROR]', error);
+    res.status(500).json({ error: error.message || 'Erro ao processar envio de e-mails.' });
+  }
+});
+
 // Resend Notification Manually
 adminRouter.post('/orders/:id/resend-notification', async (req, res) => {
   try {

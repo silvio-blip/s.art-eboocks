@@ -44,6 +44,7 @@ import {
   Key,
   Terminal,
   Copy,
+  Eye,
   Bell,
   Video,
   Image as ImageIcon,
@@ -83,6 +84,7 @@ interface Product {
   title: string;
   description: string;
   pvp: number;
+  price?: number;
   category: string;
   image_url: string;
   file_url: string;
@@ -439,6 +441,217 @@ export default function AdminDashboard({
   const [isUserDetailsModalOpen, setIsUserDetailsModalOpen] = useState(false);
   const [cyberLoading, setCyberLoading] = useState(false);
   const [cyberStatus, setCyberStatus] = useState("⚡ PROCESSAR PEDIDO");
+
+  // Email Dispatch Modal States
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+  const [selectedUserIdsForEmail, setSelectedUserIdsForEmail] = useState<string[]>([]);
+  const [emailSubject, setEmailSubject] = useState("S.art Boutique | Comunicado Exclusivo");
+  const [emailMessage, setEmailMessage] = useState("Estimado cliente,\n\nGostaríamos de partilhar consigo as mais recentes novidades e destaques exclusivos na S.art Boutique.\n\nExplore abaixo as nossas sugestões selecionadas especialmente para si:");
+  const [selectedProductIdsForEmail, setSelectedProductIdsForEmail] = useState<string[]>([]);
+  const [emailProductSearch, setEmailProductSearch] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailTabMode, setEmailTabMode] = useState<"compose" | "preview" | "code">("compose");
+
+  const toggleSelectUserForEmail = (userId: string) => {
+    setSelectedUserIdsForEmail(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const toggleSelectAllUsersForEmail = (filteredList: Profile[]) => {
+    if (selectedUserIdsForEmail.length === filteredList.length && filteredList.length > 0) {
+      setSelectedUserIdsForEmail([]);
+    } else {
+      setSelectedUserIdsForEmail(filteredList.map(u => u.id));
+    }
+  };
+
+  const openEmailModalWithUsers = (userIds: string[]) => {
+    if (userIds.length > 0) {
+      setSelectedUserIdsForEmail(userIds);
+    } else {
+      setSelectedUserIdsForEmail(users.map(u => u.id));
+    }
+    setIsEmailModalOpen(true);
+  };
+
+  const generateEmailTemplate = (
+    subjectStr: string,
+    messageStr: string,
+    selectedProds: Product[]
+  ) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "https://sart-full.pt";
+    const formattedMessage = (messageStr || "")
+      .split("\n")
+      .map(p => p.trim() ? `<p style="margin: 0 0 16px 0; color: #27272a; font-size: 15px; line-height: 1.6;">${p}</p>` : '')
+      .join("");
+
+    let productsGridHtml = "";
+    if (selectedProds && selectedProds.length > 0) {
+      const cardsHtml = selectedProds.map(prod => {
+        const rawImg = prod.image_url;
+        const imgUrl = rawImg ? (rawImg.startsWith("http") ? rawImg : `${origin}${rawImg}`) : "https://i.imgur.com/bkuoZcP.png";
+        const shortTitle = prod.title && prod.title.length > 36 ? prod.title.substring(0, 36) + "..." : (prod.title || "Produto Exclusivo");
+        const displayPrice = prod.price ?? prod.pvp;
+        const formattedPrice = displayPrice ? `€${Number(displayPrice).toFixed(2)}` : "";
+        const prodUrl = `${origin}/p/${prod.id}`;
+
+        return `
+          <td width="50%" align="center" valign="top" style="padding: 8px; box-sizing: border-box;">
+            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; text-align: center; overflow: hidden; table-layout: fixed;">
+              <tr>
+                <td align="center" style="padding: 12px; background-color: #fafafa;">
+                  <div style="width: 100%; height: 150px; background-color: #ffffff; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                    <img src="${imgUrl}" alt="${shortTitle}" style="max-width: 100%; max-height: 140px; object-fit: contain; margin: 0 auto; display: block;" />
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td align="center" style="padding: 10px 12px 4px 12px;">
+                  <div style="font-size: 12px; font-weight: 700; color: #09090b; min-height: 32px; max-height: 36px; overflow: hidden; text-overflow: ellipsis; line-height: 1.35;">
+                    ${shortTitle}
+                  </div>
+                </td>
+              </tr>
+              ${formattedPrice ? `
+              <tr>
+                <td align="center" style="padding: 4px 12px 6px 12px;">
+                  <div style="font-size: 14px; font-weight: 800; color: #D4AF37;">${formattedPrice}</div>
+                </td>
+              </tr>
+              ` : ''}
+              <tr>
+                <td align="center" style="padding: 4px 12px 14px 12px;">
+                  <a href="${prodUrl}" target="_blank" style="display: inline-block; background-color: #000000; color: #ffffff; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; padding: 8px 14px; text-decoration: none; border-radius: 4px;">
+                    Ver Produto
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        `;
+      });
+
+      let rowsHtml = "";
+      for (let i = 0; i < cardsHtml.length; i += 2) {
+        const chunk = cardsHtml.slice(i, i + 2);
+        while (chunk.length < 2) {
+          chunk.push(`<td width="50%" style="padding: 8px;"></td>`);
+        }
+        rowsHtml += `<tr>${chunk.join('')}</tr>`;
+      }
+
+      productsGridHtml = `
+        <div style="margin-top: 32px; margin-bottom: 24px;">
+          <div style="font-size: 11px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #D4AF37; margin-bottom: 16px; border-bottom: 1px solid #f4f4f5; padding-bottom: 8px;">
+            ✨ Destaques da Boutique
+          </div>
+          <table width="100%" border="0" cellspacing="0" cellpadding="0" style="table-layout: fixed;">
+            ${rowsHtml}
+          </table>
+        </div>
+      `;
+    }
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subjectStr}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #ffffff; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #18181b;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 32px 20px; background-color: #ffffff;">
+    
+    <!-- Header -->
+    <div style="text-align: center; padding-bottom: 28px; border-bottom: 2px solid #D4AF37; margin-bottom: 28px;">
+      <img src="https://i.imgur.com/bkuoZcP.png" alt="S.art Boutique" style="height: 52px; width: auto; margin-bottom: 10px; display: inline-block;" />
+      <div style="color: #09090b; font-size: 20px; font-weight: 300; letter-spacing: 6px; text-transform: uppercase; margin-top: 4px;">S.ART BOUTIQUE</div>
+      <div style="color: #D4AF37; font-size: 9px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px;">Moda & Estilo Exclusivo</div>
+    </div>
+
+    <!-- Body Content -->
+    <div style="padding: 0 4px;">
+      ${formattedMessage}
+      ${productsGridHtml}
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding-top: 28px; margin-top: 36px; border-top: 1px solid #f4f4f5;">
+      <p style="font-size: 11px; color: #71717a; letter-spacing: 1.5px; font-weight: 700; text-transform: uppercase; margin: 0;">
+        © 2026 SART BOUTIQUE | PORTO - PORTUGAL
+      </p>
+      <p style="font-size: 10px; color: #a1a1aa; margin-top: 8px; margin-bottom: 0;">
+        Mensagem enviada pelo canal oficial de comunicação ao cliente da S.art Boutique.
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+  };
+
+  const handleSendBatchEmail = async () => {
+    if (selectedUserIdsForEmail.length === 0) {
+      toast.error("Por favor, selecione pelo menos um utilizador para enviar e-mail.");
+      return;
+    }
+    if (!emailSubject.trim()) {
+      toast.error("Insira o assunto do e-mail.");
+      return;
+    }
+
+    setSendingEmail(true);
+
+    try {
+      const targetRecipients = users
+        .filter(u => selectedUserIdsForEmail.includes(u.id))
+        .map(u => ({
+          email: u.email,
+          name: u.full_name || u.email
+        }))
+        .filter(u => u.email && u.email.includes("@"));
+
+      if (targetRecipients.length === 0) {
+        toast.error("Nenhum e-mail válido encontrado nos utilizadores selecionados.");
+        setSendingEmail(false);
+        return;
+      }
+
+      const selectedProds = products.filter(p => selectedProductIdsForEmail.includes(p.id));
+      const htmlContent = generateEmailTemplate(emailSubject, emailMessage, selectedProds);
+
+      const res = await fetch("/api/admin/send-batch-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-id": user.id,
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          recipients: targetRecipients,
+          subject: emailSubject,
+          message: emailMessage,
+          html: htmlContent,
+          products: selectedProds
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Erro ao disparar e-mails");
+      }
+
+      toast.success(`E-mails disparados com sucesso! (${data.count || targetRecipients.length} enviados)`);
+      setIsEmailModalOpen(false);
+    } catch (err: any) {
+      console.error("Erro no envio de e-mails:", err);
+      toast.error(err.message || "Erro de ligação ao servidor de e-mail.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
   
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -4246,18 +4459,27 @@ export default function AdminDashboard({
                   Gestão de <span className="text-luxury-gold italic">Utilizadores</span>
                 </h2>
                 <p id="desc-management" className="text-[10px] md:text-[11px] uppercase tracking-[0.3em] text-white/85 mt-4 font-light max-w-xl leading-relaxed">
-                  Controle absoluto sobre os membros da boutique. Monitorize o carregamento de produtos e performance de cada colaborador.
+                  Controle absoluto sobre os membros da boutique. Selecione utilizadores para disparar mensagens personalizadas e vitrines de produtos via e-mail.
                 </p>
               </div>
-              <div className="w-full md:max-w-xs relative group">
-                <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 group-focus-within:text-luxury-gold transition-colors" />
-                <input
-                  type="text"
-                  placeholder="Pesquisar utilizador..."
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 py-3 pl-12 pr-4 text-[10px] uppercase tracking-widest text-white outline-none focus:border-luxury-gold transition-all"
-                />
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <Button 
+                  onClick={() => openEmailModalWithUsers(selectedUserIdsForEmail.length > 0 ? selectedUserIdsForEmail : users.map(u => u.id))} 
+                  className="bg-luxury-gold text-black hover:bg-amber-400 font-extrabold uppercase tracking-widest text-[10px] px-5 py-3 flex items-center gap-2 rounded-none transition-all shadow-lg shadow-luxury-gold/10"
+                >
+                  <Mail size={15} /> 
+                  Enviar Emails {selectedUserIdsForEmail.length > 0 ? `(${selectedUserIdsForEmail.length} Selecionados)` : ""}
+                </Button>
+                <div className="w-full md:w-64 relative group">
+                  <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 group-focus-within:text-luxury-gold transition-colors" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar utilizador..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 py-3 pl-12 pr-4 text-[10px] uppercase tracking-widest text-white outline-none focus:border-luxury-gold transition-all"
+                  />
+                </div>
               </div>
             </div>
 
@@ -4266,107 +4488,145 @@ export default function AdminDashboard({
                 <table className="w-full text-left min-w-[1000px]">
                   <thead>
                     <tr className="border-b border-white/10 text-[10px] uppercase tracking-[0.25em] text-white/85 bg-white/[0.02]">
-                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Utilizador</th>
-                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">E-mail Corporativo</th>
-                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Membro Desde</th>
-                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Produtos</th>
-                    <th className="px-8 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Estatuto</th>
-                    <th className="px-8 py-8 font-normal text-right">Ações de Controlo</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {users
-                    .filter(u => {
-                      const s = userSearch.toLowerCase();
-                      return (
-                        u.full_name?.toLowerCase().includes(s) ||
-                        u.email?.toLowerCase().includes(s) ||
-                        u.id.toLowerCase().includes(s) ||
-                        u.custom_id?.toLowerCase().includes(s)
-                      );
-                    })
-                    .map((profile) => (
-                    <tr key={profile.id} className="group hover:bg-white/5 transition-colors">
-                      <td className="px-8 py-5">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 overflow-hidden flex-shrink-0">
-                            {profile.avatar_url ? (
-                              <img 
-                                src={getImageUrl(profile.avatar_url || profile.email)} 
-                                referrerPolicy="no-referrer"
-                                alt="" 
-                                className="w-full h-full object-cover" 
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-luxury-gold text-xs font-bold uppercase">
-                                {profile.full_name?.substring(0, 2) || "U"}
-                              </div>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm text-white font-medium">{profile.full_name || "Sem Nome"}</p>
-                              {profile.is_admin && (
-                                <Crown size={12} className="text-luxury-gold fill-luxury-gold/20 animate-pulse" title="Administrador Master" />
+                      <th className="px-4 py-8 w-12 text-center">
+                        <input 
+                          type="checkbox" 
+                          checked={
+                            users.length > 0 &&
+                            selectedUserIdsForEmail.length === users.filter(u => {
+                              const s = userSearch.toLowerCase();
+                              return u.full_name?.toLowerCase().includes(s) || u.email?.toLowerCase().includes(s) || u.id.toLowerCase().includes(s);
+                            }).length
+                          }
+                          onChange={() => toggleSelectAllUsersForEmail(users.filter(u => {
+                            const s = userSearch.toLowerCase();
+                            return u.full_name?.toLowerCase().includes(s) || u.email?.toLowerCase().includes(s) || u.id.toLowerCase().includes(s);
+                          }))}
+                          className="accent-luxury-gold cursor-pointer w-4 h-4" 
+                          title="Selecionar / Deselecionar Todos"
+                        />
+                      </th>
+                      <th className="px-6 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Utilizador</th>
+                      <th className="px-6 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">E-mail Corporativo</th>
+                      <th className="px-6 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Membro Desde</th>
+                      <th className="px-6 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Produtos</th>
+                      <th className="px-6 py-8 font-normal hover:text-luxury-gold transition-colors cursor-default">Estatuto</th>
+                      <th className="px-6 py-8 font-normal text-right">Ações de Controlo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {users
+                      .filter(u => {
+                        const s = userSearch.toLowerCase();
+                        return (
+                          u.full_name?.toLowerCase().includes(s) ||
+                          u.email?.toLowerCase().includes(s) ||
+                          u.id.toLowerCase().includes(s) ||
+                          u.custom_id?.toLowerCase().includes(s)
+                        );
+                      })
+                      .map((profile) => (
+                      <tr key={profile.id} className={`group hover:bg-white/5 transition-colors ${selectedUserIdsForEmail.includes(profile.id) ? "bg-luxury-gold/5" : ""}`}>
+                        <td className="px-4 py-5 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedUserIdsForEmail.includes(profile.id)} 
+                            onChange={() => toggleSelectUserForEmail(profile.id)} 
+                            className="accent-luxury-gold cursor-pointer w-4 h-4" 
+                          />
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 overflow-hidden flex-shrink-0">
+                              {profile.avatar_url ? (
+                                <img 
+                                  src={getImageUrl(profile.avatar_url || profile.email)} 
+                                  referrerPolicy="no-referrer"
+                                  alt="" 
+                                  className="w-full h-full object-cover" 
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-luxury-gold text-xs font-bold uppercase">
+                                  {profile.full_name?.substring(0, 2) || "U"}
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `Sart-${profile.id.substring(0, 4).toUpperCase()}`}</p>
-                              <span className="text-white/10">|</span>
-                              <p className="text-[8px] text-white/70 font-mono tracking-tighter truncate max-w-[100px]">{profile.id}</p>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm text-white font-medium">{profile.full_name || "Sem Nome"}</p>
+                                {profile.is_admin && (
+                                  <Crown size={12} className="text-luxury-gold fill-luxury-gold/20 animate-pulse" title="Administrador Master" />
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-[9px] text-luxury-gold font-mono font-bold tracking-widest uppercase">{profile.custom_id || `Sart-${profile.id.substring(0, 4).toUpperCase()}`}</p>
+                                <span className="text-white/10">|</span>
+                                <p className="text-[8px] text-white/70 font-mono tracking-tighter truncate max-w-[100px]">{profile.id}</p>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-8 py-5 text-sm text-white/60">{profile.email || "N/D"}</td>
-                      <td className="px-8 py-5 text-sm text-white/60">
-                        {profile.created_at ? format(new Date(profile.created_at), "dd/MM/yyyy") : "-"}
-                      </td>
-                      <td className="px-8 py-5">
-                         <span className="text-[10px] font-black text-luxury-gold px-3 py-1 bg-luxury-gold/10 border border-luxury-gold/20 font-mono">
-                           {profile.products_count || 0}
-                         </span>
-                      </td>
-                      <td className="px-8 py-5">
-                        <div className="flex flex-col gap-1">
-                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold ${
-                            profile.is_admin 
-                              ? "bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30" 
-                              : "bg-white/5 text-white/90 border border-white/10"
-                          }`}>
-                            {profile.is_admin ? <ShieldCheck size={10} /> : <Users size={10} />}
-                            {profile.is_admin ? "Administrador" : "Cliente"}
-                          </span>
-                          {profile.is_employee && !profile.is_admin && (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                              <ShieldCheck size={10} /> Funcionário
+                        </td>
+                        <td className="px-6 py-5 text-sm text-white/60">{profile.email || "N/D"}</td>
+                        <td className="px-6 py-5 text-sm text-white/60">
+                          {profile.created_at ? format(new Date(profile.created_at), "dd/MM/yyyy") : "-"}
+                        </td>
+                        <td className="px-6 py-5">
+                           <span className="text-[10px] font-black text-luxury-gold px-3 py-1 bg-luxury-gold/10 border border-luxury-gold/20 font-mono">
+                             {profile.products_count || 0}
+                           </span>
+                        </td>
+                        <td className="px-6 py-5">
+                          <div className="flex flex-col gap-1">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold ${
+                              profile.is_admin 
+                                ? "bg-luxury-gold/20 text-luxury-gold border border-luxury-gold/30" 
+                                : "bg-white/5 text-white/90 border border-white/10"
+                            }`}>
+                              {profile.is_admin ? <ShieldCheck size={10} /> : <Users size={10} />}
+                              {profile.is_admin ? "Administrador" : "Cliente"}
                             </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-8 py-5 text-right">
-                        {profile.id !== user.id && (
-                          <div className="flex justify-end gap-2">
+                            {profile.is_employee && !profile.is_admin && (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 text-[8px] uppercase tracking-widest font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                                <ShieldCheck size={10} /> Funcionário
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-right">
+                          <div className="flex justify-end items-center gap-2">
                             <Button 
-                              onClick={() => updateUserRole(profile, "admin", !profile.is_admin)}
+                              onClick={() => openEmailModalWithUsers([profile.id])}
                               variant="outline" 
                               size="sm"
-                              className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all ${
-                                profile.is_admin ? "hover:border-red-500 hover:text-red-500" : ""
-                              }`}
+                              className="rounded-none text-[8px] uppercase tracking-widest h-8 border-luxury-gold/40 text-luxury-gold hover:bg-luxury-gold hover:text-black transition-all flex items-center gap-1 font-bold"
                             >
-                              {profile.is_admin ? "Revogar Admin" : "Tornar Admin"}
+                              <Mail size={12} />
+                              Enviar Email
                             </Button>
-                            <Button 
-                              onClick={() => updateUserRole(profile, "employee", !profile.is_employee)}
-                              variant="outline" 
-                              size="sm"
-                              className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-blue-500 hover:text-blue-500 transition-all ${
-                                profile.is_employee ? "hover:border-red-500 hover:text-red-500" : ""
-                              }`}
-                            >
-                              {profile.is_employee ? "Revogar Func" : "Tornar Func"}
-                            </Button>
+                            {profile.id !== user.id && (
+                              <>
+                                <Button 
+                                  onClick={() => updateUserRole(profile, "admin", !profile.is_admin)}
+                                  variant="outline" 
+                                  size="sm"
+                                  className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-luxury-gold hover:text-luxury-gold transition-all ${
+                                    profile.is_admin ? "hover:border-red-500 hover:text-red-500" : ""
+                                  }`}
+                                >
+                                  {profile.is_admin ? "Revogar Admin" : "Tornar Admin"}
+                                </Button>
+                                <Button 
+                                  onClick={() => updateUserRole(profile, "employee", !profile.is_employee)}
+                                  variant="outline" 
+                                  size="sm"
+                                  className={`rounded-none text-[8px] uppercase tracking-widest h-8 border-white/10 hover:border-blue-500 hover:text-blue-500 transition-all ${
+                                    profile.is_employee ? "hover:border-red-500 hover:text-red-500" : ""
+                                  }`}
+                                >
+                                  {profile.is_employee ? "Revogar Func" : "Tornar Func"}
+                                </Button>
+                              </>
+                            )}
                             <Button 
                               onClick={() => {
                                 setSelectedUserForProducts(profile);
@@ -4379,8 +4639,7 @@ export default function AdminDashboard({
                               Ver Contribuições
                             </Button>
                           </div>
-                        )}
-                      </td>
+                        </td>
                     </tr>
                   ))}
                 </tbody>
@@ -6069,6 +6328,420 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
               >
                 Guardar Alterações
               </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Email Dispatcher Modal */}
+      {isEmailModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/95 backdrop-blur-md" onClick={() => setIsEmailModalOpen(false)} />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="relative w-full max-w-5xl bg-[#09090b] border border-luxury-gold/30 rounded-2xl overflow-hidden shadow-[0_0_120px_rgba(212,175,55,0.15)] flex flex-col max-h-[92vh] z-10"
+          >
+            {/* Modal Header */}
+            <div className="p-6 md:p-8 border-b border-white/10 bg-white/[0.02] flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-luxury-gold/10 border border-luxury-gold/30 flex items-center justify-center text-luxury-gold">
+                    <Mail size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl md:text-2xl font-serif text-white tracking-wide">
+                      Disparo de E-mails aos <span className="text-luxury-gold italic">Clientes</span>
+                    </h3>
+                    <p className="text-[10px] uppercase tracking-widest text-white/60 mt-0.5">
+                      {selectedUserIdsForEmail.length} destinatários selecionados de {users.length} utilizadores registados
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEmailModalOpen(false)}
+                className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/5 transition-all rounded-full"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-white/10 bg-black/40 px-6">
+              <button
+                onClick={() => setEmailTabMode("compose")}
+                className={`px-6 py-4 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${
+                  emailTabMode === "compose"
+                    ? "border-luxury-gold text-luxury-gold bg-luxury-gold/5"
+                    : "border-transparent text-white/60 hover:text-white"
+                }`}
+              >
+                <Edit size={14} /> 1. Personalizar Mensagem & Produtos
+              </button>
+              <button
+                onClick={() => setEmailTabMode("preview")}
+                className={`px-6 py-4 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${
+                  emailTabMode === "preview"
+                    ? "border-luxury-gold text-luxury-gold bg-luxury-gold/5"
+                    : "border-transparent text-white/60 hover:text-white"
+                }`}
+              >
+                <Eye size={14} /> 2. Pré-visualização do E-mail HTML
+              </button>
+              <button
+                onClick={() => setEmailTabMode("code")}
+                className={`px-6 py-4 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 border-b-2 transition-all ${
+                  emailTabMode === "code"
+                    ? "border-luxury-gold text-luxury-gold bg-luxury-gold/5"
+                    : "border-transparent text-white/60 hover:text-white"
+                }`}
+              >
+                <Terminal size={14} /> 3. Código Edge Function Supabase
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto luxury-scrollbar p-6 md:p-8 space-y-8">
+              {emailTabMode === "compose" && (
+                <div className="space-y-8">
+                  {/* Recipients Summary */}
+                  <div className="bg-white/[0.02] border border-white/10 p-5 rounded-xl space-y-3">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] uppercase tracking-widest font-bold text-luxury-gold flex items-center gap-2">
+                        <Users size={14} /> Destinatários Selecionados ({selectedUserIdsForEmail.length})
+                      </label>
+                      <button
+                        onClick={() => setSelectedUserIdsForEmail(users.map(u => u.id))}
+                        className="text-[9px] uppercase tracking-widest text-white/70 hover:text-luxury-gold underline"
+                      >
+                        Selecionar Todos ({users.length})
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto luxury-scrollbar p-1">
+                      {users
+                        .filter(u => selectedUserIdsForEmail.includes(u.id))
+                        .map(u => (
+                          <span
+                            key={u.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/5 border border-white/10 text-white text-[10px] font-mono rounded-full"
+                          >
+                            {u.full_name || u.email}
+                            <button
+                              onClick={() => toggleSelectUserForEmail(u.id)}
+                              className="text-white/50 hover:text-red-400"
+                            >
+                              <X size={12} />
+                            </button>
+                          </span>
+                        ))}
+                      {selectedUserIdsForEmail.length === 0 && (
+                        <p className="text-xs text-red-400 font-mono">
+                          Nenhum cliente selecionado. Selecione na tabela de utilizadores.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Subject */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-white/80 block">
+                      Assunto do E-mail *
+                    </label>
+                    <input
+                      type="text"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      placeholder="Ex: Coleção de Verão Exclusiva - Descontos Especiais"
+                      className="w-full bg-white/5 border border-white/10 py-3.5 px-4 text-xs font-medium text-white outline-none focus:border-luxury-gold transition-all rounded-lg"
+                    />
+                  </div>
+
+                  {/* Message Body */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase tracking-widest font-bold text-white/80 block">
+                      Mensagem Personalizada *
+                    </label>
+                    <textarea
+                      rows={5}
+                      value={emailMessage}
+                      onChange={(e) => setEmailMessage(e.target.value)}
+                      placeholder="Escreva a sua mensagem para os clientes..."
+                      className="w-full bg-white/5 border border-white/10 p-4 text-xs font-mono leading-relaxed text-white outline-none focus:border-luxury-gold transition-all rounded-lg resize-y"
+                    />
+                  </div>
+
+                  {/* Products Showcase Builder */}
+                  <div className="space-y-4 pt-4 border-t border-white/10">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <h4 className="text-sm font-bold text-luxury-gold uppercase tracking-wider flex items-center gap-2">
+                          <ShoppingBag size={16} /> Adicionar Produtos em Destaque ao E-mail
+                        </h4>
+                        <p className="text-[10px] text-white/60 uppercase tracking-widest mt-1">
+                          Os produtos selecionados serão dispostos em uma grade elegante de 2 produtos por fileira.
+                        </p>
+                      </div>
+                      <div className="w-full md:w-64 relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50" />
+                        <input
+                          type="text"
+                          placeholder="Pesquisar catálogo..."
+                          value={emailProductSearch}
+                          onChange={(e) => setEmailProductSearch(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 py-2 pl-9 pr-3 text-[10px] uppercase text-white outline-none focus:border-luxury-gold rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Selected Products Badges */}
+                    {selectedProductIdsForEmail.length > 0 && (
+                      <div className="bg-luxury-gold/10 border border-luxury-gold/30 p-3 rounded-lg flex flex-wrap items-center gap-2">
+                        <span className="text-[9px] uppercase tracking-widest font-bold text-luxury-gold">
+                          {selectedProductIdsForEmail.length} Produto(s) Destaque:
+                        </span>
+                        {products
+                          .filter(p => selectedProductIdsForEmail.includes(p.id))
+                          .map(p => (
+                            <span key={p.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-black text-luxury-gold text-[10px] font-bold border border-luxury-gold/40 rounded-md">
+                              {p.title?.substring(0, 20)}...
+                              <button onClick={() => setSelectedProductIdsForEmail(prev => prev.filter(id => id !== p.id))} className="text-white hover:text-red-400">
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        <button onClick={() => setSelectedProductIdsForEmail([])} className="text-[9px] uppercase tracking-widest text-white/60 hover:text-white underline ml-auto">
+                          Limpar todos
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Catalog Picker Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-64 overflow-y-auto luxury-scrollbar p-1">
+                      {products
+                        .filter(p => p.title?.toLowerCase().includes(emailProductSearch.toLowerCase()))
+                        .slice(0, 16)
+                        .map(p => {
+                          const isSelected = selectedProductIdsForEmail.includes(p.id);
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => setSelectedProductIdsForEmail(prev => isSelected ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                              className={`p-3 border rounded-xl cursor-pointer transition-all flex flex-col items-center text-center group ${
+                                isSelected 
+                                  ? "bg-luxury-gold/20 border-luxury-gold shadow-lg shadow-luxury-gold/10" 
+                                  : "bg-white/5 border-white/10 hover:border-white/30"
+                              }`}
+                            >
+                              <div className="w-16 h-16 bg-white rounded-lg p-1 overflow-hidden mb-2 flex items-center justify-center">
+                                <img src={p.image_url || "https://i.imgur.com/bkuoZcP.png"} alt="" className="max-h-full max-w-full object-contain" />
+                              </div>
+                              <p className="text-[10px] font-bold text-white line-clamp-1 w-full">{p.title}</p>
+                              <p className="text-[9px] font-mono font-bold text-luxury-gold mt-1">€{Number(p.price ?? p.pvp ?? 0).toFixed(2)}</p>
+                              <span className={`mt-2 text-[8px] font-extrabold uppercase px-2 py-0.5 rounded ${
+                                isSelected ? "bg-luxury-gold text-black" : "bg-white/10 text-white/70"
+                              }`}>
+                                {isSelected ? "✓ Adicionado" : "+ Incluir"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {emailTabMode === "preview" && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-white/5 border border-white/10 p-4 rounded-xl">
+                    <div>
+                      <p className="text-xs font-bold text-white uppercase tracking-wider">Pré-visualização do E-mail</p>
+                      <p className="text-[10px] text-white/60">É assim que a mensagem aparecerá na caixa de entrada do cliente.</p>
+                    </div>
+                    <span className="text-[10px] font-mono text-luxury-gold px-3 py-1 bg-luxury-gold/10 border border-luxury-gold/30 rounded-md">
+                      HTML Responsivo (Grid 2 Colunas)
+                    </span>
+                  </div>
+
+                  <div className="bg-white rounded-xl overflow-hidden shadow-2xl border border-gray-300">
+                    <iframe
+                      title="Email Preview"
+                      srcDoc={generateEmailTemplate(
+                        emailSubject,
+                        emailMessage,
+                        products.filter(p => selectedProductIdsForEmail.includes(p.id))
+                      )}
+                      className="w-full h-[550px] border-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {emailTabMode === "code" && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-white/5 border border-white/10 p-4 rounded-xl">
+                    <div>
+                      <p className="text-xs font-bold text-luxury-gold uppercase tracking-wider">Supabase Edge Function (`send-custom-email/index.ts`)</p>
+                      <p className="text-[10px] text-white/60">Código oficial para deploy direto nas Edge Functions do Supabase usando credenciais SMTP.</p>
+                    </div>
+                    <Button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createTransport } from "npm:nodemailer";
+
+const SMTP_HOST = Deno.env.get("SMTP_HOSTNAME");
+const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") || "465");
+const SMTP_USER = Deno.env.get("SMTP_USER");
+const SMTP_PASS = Deno.env.get("SMTP_PASS");
+
+const transporter = createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465,
+  auth: { user: SMTP_USER, pass: SMTP_PASS },
+});
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+  try {
+    const json = await req.json();
+    const to = json.to || json.email;
+    const subject = json.subject;
+    const body = json.body || json.message || "";
+    const customHtml = json.html || json.htmlBody;
+    const name = json.name || json.customerName;
+
+    if (!to) throw new Error("Destinatário (to/email) é obrigatório");
+    if (!subject) throw new Error("Assunto (subject) é obrigatório");
+
+    console.log(\`[SMTP EDGE FUNCTION] Disparando e-mail para \${to}: \${subject}\`);
+
+    const finalHtml = customHtml ? customHtml : \`
+      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 650px; margin: 0 auto; background-color: #ffffff; color: #1a1a1a; padding: 40px 24px; border: 1px solid #f0f0f0; border-radius: 8px;">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <img src="https://i.imgur.com/bkuoZcP.png" alt="SArt Boutique" style="height: 48px; width: auto; margin-bottom: 12px; display: inline-block;" />
+          <div style="font-size: 22px; font-weight: 300; letter-spacing: 5px; color: #000000; text-transform: uppercase;">SArt Boutique</div>
+          <div style="height: 2px; width: 60px; background: #D4AF37; margin: 12px auto 0;"></div>
+        </div>
+        
+        <div style="line-height: 1.7; font-size: 15px; color: #333333;">
+          \${name ? \`<p style="font-weight: 600; font-size: 16px; margin-bottom: 16px;">Olá \${name},</p>\` : ''}
+          <div style="color: #444444; white-space: pre-line;">
+            \${body}
+          </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 50px; padding-top: 30px; border-top: 1px solid #eeeeee;">
+          <p style="font-size: 11px; color: #888888; letter-spacing: 1.5px; font-weight: bold; text-transform: uppercase; margin: 0;">
+            © 2026 SART BOUTIQUE | PORTO - PORTUGAL
+          </p>
+        </div>
+      </div>
+    \`;
+
+    await transporter.sendMail({
+      from: \`"SArt Boutique" <\${SMTP_USER}>\`,
+      to: to,
+      subject: subject,
+      html: finalHtml,
+    });
+
+    return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+  }
+});`);
+                        toast.success("Código da Supabase Edge Function copiado!");
+                      }}
+                      className="bg-luxury-gold text-black hover:bg-white text-[10px] font-bold uppercase tracking-widest px-4 h-9"
+                    >
+                      <Copy size={12} className="mr-2" /> Copiar Código
+                    </Button>
+                  </div>
+
+                  <pre className="bg-[#020202] border border-white/10 p-5 rounded-xl text-emerald-400 font-mono text-[11px] leading-relaxed overflow-x-auto max-h-[480px]">
+{`import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createTransport } from "npm:nodemailer";
+
+const SMTP_HOST = Deno.env.get("SMTP_HOSTNAME");
+const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") || "465");
+const SMTP_USER = Deno.env.get("SMTP_USER");
+const SMTP_PASS = Deno.env.get("SMTP_PASS");
+
+const transporter = createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465,
+  auth: { user: SMTP_USER, pass: SMTP_PASS },
+});
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+  try {
+    const json = await req.json();
+    const to = json.to || json.email;
+    const subject = json.subject;
+    const body = json.body || json.message || "";
+    const customHtml = json.html || json.htmlBody;
+    const name = json.name || json.customerName;
+
+    if (!to) throw new Error("Destinatário (to/email) é obrigatório");
+    if (!subject) throw new Error("Assunto (subject) é obrigatório");
+
+    console.log(\`[SMTP EDGE FUNCTION] Disparando e-mail para \${to}: \${subject}\`);
+
+    const finalHtml = customHtml ? customHtml : \`...\`;
+
+    await transporter.sendMail({
+      from: \`"SArt Boutique" <\${SMTP_USER}>\`,
+      to: to,
+      subject: subject,
+      html: finalHtml,
+    });
+
+    return new Response(JSON.stringify({ success: true }), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+  }
+});`}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-white/10 bg-[#050505] flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="flex items-center gap-2 text-white/60 text-[10px] uppercase font-mono">
+                <CheckCircle size={14} className="text-emerald-400" />
+                SMTP Ativo (Porta 465 / SSL)
+              </div>
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsEmailModalOpen(false)}
+                  className="flex-1 sm:flex-none border-white/10 text-white hover:bg-white/5 h-12 px-6 text-[10px] uppercase tracking-widest font-bold rounded-none"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleSendBatchEmail}
+                  disabled={sendingEmail || selectedUserIdsForEmail.length === 0}
+                  className="flex-1 sm:flex-none bg-luxury-gold text-black hover:bg-amber-400 h-12 px-8 text-[10px] uppercase tracking-widest font-extrabold rounded-none shadow-xl shadow-luxury-gold/20 flex items-center justify-center gap-2"
+                >
+                  {sendingEmail ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Disparando E-mails...
+                    </>
+                  ) : (
+                    <>
+                      <Mail size={16} />
+                      Disparar E-mails ({selectedUserIdsForEmail.length})
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </motion.div>
         </div>
