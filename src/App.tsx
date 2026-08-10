@@ -2125,7 +2125,7 @@ const ProductDetailsPage = ({
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={async () => {
-            const url = `${window.location.origin}/?v=product-detail&product=${product.id}`;
+            const url = `${window.location.origin}/p/${product.id}`;
             
             const shareData: any = {
               title: product.title ? `${product.title} | S.art Full` : 'S.art Full | Loja Oficial de Vestuário',
@@ -2876,6 +2876,11 @@ export default function App() {
     if (status === "cancel") return "cancelled";
     if (sessionId) return "success";
 
+    const pathMatch = window.location.pathname.match(/\/(?:product|produto|p|item)\/([a-zA-Z0-9\-_]+)/i);
+    if (pathMatch && pathMatch[1]) {
+      return "product-detail";
+    }
+
     if (v && ["home", "dashboard", "success", "cancelled", "admin", "reset-password", "terms", "product-detail", "shipping"].includes(v)) {
       return v as any;
     }
@@ -2915,17 +2920,22 @@ export default function App() {
   useEffect(() => {
     if (!isInitialized || isNavigatingByHistory) return;
 
-    const params = new URLSearchParams(window.location.search);
-    params.set("v", view);
+    let targetUrl = window.location.pathname + window.location.search;
+
     if (view === "product-detail" && detailProduct) {
-      params.set("product", detailProduct.id);
+      targetUrl = `/p/${detailProduct.id}`;
+    } else if (view === "home") {
+      targetUrl = "/";
     } else {
+      const params = new URLSearchParams(window.location.search);
+      params.set("v", view);
       params.delete("product");
+      targetUrl = `/?${params.toString()}`;
     }
 
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    if (window.location.search !== `?${params.toString()}`) {
-      window.history.pushState({ view, productId: detailProduct?.id }, "", newUrl);
+    const currentUrl = window.location.pathname + window.location.search;
+    if (currentUrl !== targetUrl) {
+      window.history.pushState({ view, productId: detailProduct?.id }, "", targetUrl);
     }
     
     // Persist to localStorage for refresh reliability
@@ -2955,8 +2965,13 @@ export default function App() {
       } else {
         // Fallback: parse URL parameters manually if state is null
         const params = new URLSearchParams(window.location.search);
-        const urlView = params.get("v");
-        const urlProduct = params.get("product");
+        let urlView = params.get("v");
+        let urlProduct = params.get("product");
+        const pathMatch = window.location.pathname.match(/\/(?:product|produto|p|item)\/([a-zA-Z0-9\-_]+)/i);
+        if (pathMatch && pathMatch[1]) {
+          urlProduct = pathMatch[1].trim();
+          urlView = "product-detail";
+        }
         if (urlProduct && products.length > 0) {
           const prod = products.find(p => p.id === urlProduct);
           if (prod) setDetailProduct(prod);
@@ -3071,8 +3086,14 @@ export default function App() {
     console.log("[INIT] Sincronizando estado da aplicação...");
 
     const params = new URLSearchParams(window.location.search);
-    const urlProduct = params.get("product");
-    const urlView = params.get("v");
+    let urlProduct = params.get("product");
+    let urlView = params.get("v");
+
+    const pathMatch = window.location.pathname.match(/\/(?:product|produto|p|item)\/([a-zA-Z0-9\-_]+)/i);
+    if (pathMatch && pathMatch[1]) {
+      urlProduct = pathMatch[1].trim();
+      urlView = "product-detail";
+    }
     
     // Check if Stripe is returning (prioritize)
     const status = params.get("payment_status");

@@ -4570,14 +4570,14 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
     : directImageUrl;
 
-  let fullCanonicalUrl = reqUrl || `${origin}/?v=product-detail&product=${product.id}`;
-  if (fullCanonicalUrl.includes('localhost') || fullCanonicalUrl.includes('127.0.0.1') || fullCanonicalUrl.includes(':3000')) {
+  let fullCanonicalUrl = `${origin}/p/${product.id}`;
+  if (reqUrl && reqUrl.startsWith("http")) {
     try {
-      const parsedCanonical = new URL(fullCanonicalUrl);
-      fullCanonicalUrl = `https://sart-full.pt${parsedCanonical.pathname}${parsedCanonical.search}`;
-    } catch (e) {
-      fullCanonicalUrl = `https://sart-full.pt/?v=product-detail&product=${product.id}`;
-    }
+      const parsedCanonical = new URL(reqUrl);
+      if (!parsedCanonical.hostname.includes("localhost") && !parsedCanonical.hostname.includes("127.0.0.1") && parsedCanonical.port !== "3000") {
+        fullCanonicalUrl = `${parsedCanonical.origin}${parsedCanonical.pathname}${parsedCanonical.search}`;
+      }
+    } catch (e) {}
   }
 
   const priceVal = product.price ? parseFloat(String(product.price)).toFixed(2) : '';
@@ -4596,7 +4596,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     '@context': 'https://schema.org/',
     '@type': 'Product',
     'name': title,
-    'image': [directImageUrl, ogImageUrl],
+    'image': [ogImageUrl, directImageUrl],
     'description': description,
     'offers': {
       '@type': 'Offer',
@@ -4621,10 +4621,13 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta property="og:title" content="${metaTitle}" />
     <meta property="og:description" content="${description}" />
     <meta property="og:url" content="${fullCanonicalUrl}" />
-    <meta property="og:image" content="${directImageUrl}" />
-    <meta property="og:image:secure_url" content="${directImageUrl}" />
+    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image:secure_url" content="${ogImageUrl}" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="800" />
+    <meta property="og:image:height" content="800" />
     <meta property="og:image:alt" content="${title}" />
-    ${ogImageUrl && ogImageUrl !== directImageUrl ? `<meta property="og:image" content="${ogImageUrl}" />` : ''}
+    ${directImageUrl && directImageUrl !== ogImageUrl ? `<meta property="og:image" content="${directImageUrl}" />` : ''}
     ${priceVal ? `<meta property="product:price:amount" content="${priceVal}" />` : ''}
     <meta property="product:price:currency" content="EUR" />
 
@@ -4632,7 +4635,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${metaTitle}" />
     <meta name="twitter:description" content="${description}" />
-    <meta name="twitter:image" content="${directImageUrl}" />
+    <meta name="twitter:image" content="${ogImageUrl}" />
 
     <!-- Product Structured Data -->
     <script type="application/ld+json">${productLdJson}</script>
