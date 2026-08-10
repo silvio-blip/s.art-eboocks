@@ -1345,15 +1345,7 @@ const ProductCard = React.memo(function ProductCard({
         />
         
         {/* Subtle luxury vignette overlay on hover */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
-        
-        {/* Premium Action Overlay - slides up on hover (desktop only) */}
-        <div className="hidden md:flex absolute inset-x-0 bottom-0 p-3.5 translate-y-full group-hover:translate-y-0 opacity-0 group-hover:opacity-100 transition-all duration-400 bg-black/85 backdrop-blur-md items-center justify-center border-t border-gold/40">
-          <span className="text-[9px] uppercase tracking-[0.3em] text-white font-bold flex items-center gap-2 bg-gradient-to-r from-gold to-amber-500 text-black px-4 py-2 rounded-[2px] shadow-lg hover:brightness-110 transition-all">
-            <ShoppingBag size={12} className="stroke-[2.5]" />
-            {isOwned && product.product_type !== 'physical' ? 'Ler Produto' : 'Adicionar ao Carrinho'}
-          </span>
-        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
       </div>
 
       {/* Product Information */}
@@ -1373,19 +1365,31 @@ const ProductCard = React.memo(function ProductCard({
             ) : null}
           </div>
           
-          <h4 className="text-xs md:text-sm font-serif text-luxury-foreground font-semibold tracking-wide leading-snug line-clamp-2 group-hover:text-gold transition-colors duration-300">
+          <h4 className="text-xs md:text-sm font-serif text-luxury-foreground dark:text-white font-semibold tracking-wide leading-snug line-clamp-2 group-hover:text-gold transition-colors duration-300">
             {product.title}
           </h4>
         </div>
         
-        <div className="flex justify-between items-center pt-3 border-t border-black/[0.06] dark:border-white/10 gap-2 flex-wrap">
-          <span className="text-base md:text-lg font-serif text-luxury-foreground font-semibold tracking-tight">
+        <div className="flex justify-between items-center pt-3 border-t border-black/[0.06] dark:border-white/10 gap-2">
+          <span className="text-base md:text-lg font-serif text-luxury-foreground dark:text-white font-semibold tracking-tight">
             {formatPrice ? formatPrice(getEffectivePrice(product)) : `€${getEffectivePrice(product)}`}
           </span>
           
-          <span className="md:hidden text-[9px] uppercase tracking-[0.2em] font-extrabold text-gold bg-gold/10 px-2.5 py-1 rounded border border-gold/20">
-            Comprar
-          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isOwned && product.product_type !== 'physical' && onRead) {
+                onRead(product);
+              } else {
+                onBuy(product);
+              }
+            }}
+            className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] font-extrabold text-black bg-gold hover:bg-amber-400 px-3 md:px-4 py-1.5 md:py-2 rounded-none transition-all flex items-center gap-1.5 shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-95 shrink-0"
+          >
+            <ShoppingBag size={12} className="stroke-[2.5]" />
+            <span>{isOwned && product.product_type !== 'physical' ? 'Aceder' : 'Comprar'}</span>
+          </button>
         </div>
       </div>
     </motion.div>
@@ -4679,8 +4683,26 @@ export default function App() {
                 const featuredProducts = products.filter(p => p.is_featured && p.is_active !== false);
                 if (featuredProducts.length === 0) return null;
                 
+                // Helper function to get column span class for dynamic bento grid layout
+                const getBentoColSpanClass = (index: number, total: number) => {
+                  if (total === 1) return 'col-span-12 max-w-5xl mx-auto';
+                  if (total === 2) {
+                    return index === 0 ? 'col-span-12 lg:col-span-7' : 'col-span-12 lg:col-span-5';
+                  }
+                  if (total === 3) {
+                    if (index === 0) return 'col-span-12 lg:col-span-6';
+                    return 'col-span-12 lg:col-span-3';
+                  }
+                  // For 4 or more items: alternate row proportions (7/5, 5/7, 8/4, etc.)
+                  const patternIndex = index % 4;
+                  if (patternIndex === 0) return 'col-span-12 lg:col-span-7';
+                  if (patternIndex === 1) return 'col-span-12 lg:col-span-5';
+                  if (patternIndex === 2) return 'col-span-12 lg:col-span-5';
+                  return 'col-span-12 lg:col-span-7';
+                };
+
                 return (
-                  <section id="featured-section" className="bg-luxury-bg py-24 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
+                  <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
 
                     <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
 
@@ -4693,128 +4715,133 @@ export default function App() {
                         visible: {
                           opacity: 1,
                           transition: {
-                            staggerChildren: 0.2
+                            staggerChildren: 0.15
                           }
                         }
                       }}
                       className="px-[5%] mt-12 max-w-7xl mx-auto"
                     >
-                      <div className={`grid grid-cols-1 ${featuredProducts.length === 1 ? 'max-w-4xl mx-auto' : 'md:grid-cols-2 gap-8 lg:gap-10'} overflow-visible`}>
-                        {featuredProducts.map((featuredProduct) => (
-                          <motion.div 
-                            key={featuredProduct.id} 
-                            initial={{ opacity: 0, y: 15 }}
-                            whileInView={{ 
-                              opacity: 1, 
-                              y: 0,
-                              transition: { duration: 0.5, ease: "easeOut" } 
-                            }}
-                            viewport={{ once: true, amount: 0.1 }}
-                            className="group relative flex flex-col rounded-none overflow-visible bg-[#FAF8F5] dark:bg-[#181818] border border-black/10 dark:border-white/10 hover:border-gold/60 transition-colors duration-300 cursor-pointer"
-                            onClick={() => {
-                              setSelectedProduct(featuredProduct);
-                              setDetailProduct(featuredProduct);
-                              setView("product-detail");
-                            }}
-                          >
-                            {/* Starburst discount badge on featured card */}
-                            {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
-                              <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute -top-3.5 -right-3.5 z-20 pointer-events-none" />
-                            ) : null}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch overflow-visible">
+                        {featuredProducts.map((featuredProduct, idx) => {
+                          const colSpan = getBentoColSpanClass(idx, featuredProducts.length);
+                          const isHero = colSpan.includes('lg:col-span-7') || colSpan.includes('lg:col-span-8') || featuredProducts.length === 1;
 
-                            {/* Image Header - Completely flat and square */}
-                            <div className="relative w-full aspect-[16/10] sm:aspect-[16/9] overflow-hidden bg-[#F5F0E8] dark:bg-[#121212] rounded-none border-b border-black/10 dark:border-white/10">
-                              <img 
-                                src={getImageUrl(featuredProduct.image_url || "")} 
-                                alt={featuredProduct.title}
-                                className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500 ease-out"
-                                loading="lazy"
-                              />
-                              
-                              {/* Category Badge and Original Price if present */}
-                              <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-                                {featuredProduct.category && (
-                                  <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 text-luxury-foreground dark:text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 rounded-none shadow-sm">
-                                    {featuredProduct.category}
-                                  </span>
-                                )}
-                                {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
-                                  <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 line-through text-neutral-400 dark:text-neutral-400 font-mono text-[10px] font-normal px-2.5 py-1 rounded-none shadow-sm">
-                                    {formatPrice(featuredProduct.pvp)}
-                                  </span>
-                                ) : null}
-                              </div>
+                          return (
+                            <motion.div 
+                              key={featuredProduct.id} 
+                              initial={{ opacity: 0, y: 20 }}
+                              whileInView={{ 
+                                opacity: 1, 
+                                y: 0,
+                                transition: { duration: 0.5, ease: "easeOut" } 
+                              }}
+                              viewport={{ once: true, amount: 0.1 }}
+                              className={`${colSpan} group relative flex flex-col justify-between rounded-none overflow-hidden bg-[#FAF8F5] dark:bg-[#181818] border border-black/10 dark:border-white/10 hover:border-gold/60 transition-all duration-300 cursor-pointer h-full shadow-md hover:shadow-2xl`}
+                              onClick={() => {
+                                setSelectedProduct(featuredProduct);
+                                setDetailProduct(featuredProduct);
+                                setView("product-detail");
+                              }}
+                            >
+                              {/* Starburst discount badge on featured card */}
+                              {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                                <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute -top-3.5 -right-3.5 z-20 pointer-events-none" />
+                              ) : null}
 
-                              {featuredProduct.free_shipping && (
-                                <div className="absolute bottom-4 left-4 z-10">
-                                  <span className="bg-emerald-900/10 dark:bg-emerald-950/80 border border-emerald-600/30 text-emerald-700 dark:text-emerald-400 font-mono text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-none flex items-center gap-1">
-                                    <Truck size={12} />
-                                    Frete Grátis
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Card Body - Warm nude/cream background in light mode */}
-                            <div className="p-6 md:p-8 flex flex-col justify-between flex-1 space-y-5 relative z-10 bg-[#FAF8F5] dark:bg-[#181818] rounded-none">
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-1 text-gold">
-                                    {[...Array(5)].map((_, i) => (
-                                      <Star key={i} size={13} className="fill-gold text-gold" />
-                                    ))}
-                                    <span className="text-luxury-foreground/60 dark:text-white/60 text-[10px] font-mono ml-1 font-semibold">
-                                      5.0 (Exclusivo)
+                              {/* Image Header - Dynamic aspect ratio based on card size */}
+                              <div className={`relative w-full overflow-hidden bg-[#F5F0E8] dark:bg-[#121212] rounded-none border-b border-black/10 dark:border-white/10 ${isHero ? 'aspect-[16/9] lg:aspect-[16/8.5]' : 'aspect-[16/10] lg:aspect-[4/3]'}`}>
+                                <img 
+                                  src={getImageUrl(featuredProduct.image_url || "")} 
+                                  alt={featuredProduct.title}
+                                  className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-out"
+                                  loading="lazy"
+                                />
+                                
+                                {/* Category Badge and Original Price if present */}
+                                <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+                                  {featuredProduct.category && (
+                                    <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 text-luxury-foreground dark:text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 rounded-none shadow-sm">
+                                      {featuredProduct.category}
                                     </span>
-                                  </div>
-                                </div>
-
-                                <h3 className="font-serif text-xl sm:text-2xl text-luxury-foreground dark:text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1">
-                                  {featuredProduct.title}
-                                </h3>
-
-                                {featuredProduct.description && (
-                                  <p className="text-luxury-foreground/75 dark:text-white/70 text-xs sm:text-sm font-sans line-clamp-2 leading-relaxed">
-                                    {featuredProduct.description}
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Price & Action Row */}
-                              <div className="pt-4 border-t border-black/10 dark:border-white/10 flex items-center justify-between gap-4">
-                                <div className="flex flex-col">
-                                  <span className="text-[9px] uppercase tracking-[0.2em] text-[#8C7A6B] dark:text-white/50 font-mono font-bold">
-                                    Valor de Investimento
-                                  </span>
-                                  <div className="flex items-baseline gap-2 flex-wrap">
-                                    <span className="text-xl sm:text-2xl font-serif font-bold text-luxury-foreground dark:text-gold">
-                                      {formatPrice(getEffectivePrice(featuredProduct))}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={(e: any) => {
-                                    e.stopPropagation();
-                                    handleBuy(featuredProduct);
-                                  }}
-                                  disabled={checkoutLoading === featuredProduct.id}
-                                  className="bg-gold hover:bg-amber-500 text-black font-bold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-5 sm:px-6 py-2.5 sm:py-3 rounded-none transition-colors flex items-center gap-2 shrink-0"
-                                >
-                                  {checkoutLoading === featuredProduct.id ? (
-                                    <Loader2 size={14} className="animate-spin text-black" />
-                                  ) : (
-                                    <>
-                                      <span>Comprar</span>
-                                      <ShoppingBag size={14} className="stroke-[2.5]" />
-                                    </>
                                   )}
-                                </button>
+                                  {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                                    <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 line-through text-neutral-400 dark:text-neutral-400 font-mono text-[10px] font-normal px-2.5 py-1 rounded-none shadow-sm">
+                                      {formatPrice(featuredProduct.pvp)}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                {featuredProduct.free_shipping && (
+                                  <div className="absolute bottom-4 left-4 z-10">
+                                    <span className="bg-emerald-900/10 dark:bg-emerald-950/80 border border-emerald-600/30 text-emerald-700 dark:text-emerald-400 font-mono text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-none flex items-center gap-1">
+                                      <Truck size={12} />
+                                      Frete Grátis
+                                    </span>
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                          </motion.div>
-                        ))}
+
+                              {/* Card Body - Warm nude/cream background in light mode */}
+                              <div className="p-6 lg:p-7 flex flex-col justify-between flex-1 space-y-5 relative z-10 bg-[#FAF8F5] dark:bg-[#181818] rounded-none">
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1 text-gold">
+                                      {[...Array(5)].map((_, i) => (
+                                        <Star key={i} size={13} className="fill-gold text-gold" />
+                                      ))}
+                                      <span className="text-luxury-foreground/60 dark:text-white/60 text-[10px] font-mono ml-1 font-semibold">
+                                        5.0 (Exclusivo)
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <h3 className={`font-serif ${isHero ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'} text-luxury-foreground dark:text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1`}>
+                                    {featuredProduct.title}
+                                  </h3>
+
+                                  {featuredProduct.description && (
+                                    <p className="text-luxury-foreground/75 dark:text-white/70 text-xs sm:text-sm font-sans line-clamp-2 leading-relaxed">
+                                      {featuredProduct.description}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Price & Action Row */}
+                                <div className="pt-4 border-t border-black/10 dark:border-white/10 flex items-center justify-between gap-4">
+                                  <div className="flex flex-col">
+                                    <span className="text-[9px] uppercase tracking-[0.2em] text-[#8C7A6B] dark:text-white/50 font-mono font-bold">
+                                      Valor de Investimento
+                                    </span>
+                                    <div className="flex items-baseline gap-2 flex-wrap">
+                                      <span className="text-xl sm:text-2xl font-serif font-bold text-luxury-foreground dark:text-gold">
+                                        {formatPrice(getEffectivePrice(featuredProduct))}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={(e: any) => {
+                                      e.stopPropagation();
+                                      handleBuy(featuredProduct);
+                                    }}
+                                    disabled={checkoutLoading === featuredProduct.id}
+                                    className="bg-gold hover:bg-amber-400 text-black font-extrabold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-5 sm:px-6 py-2.5 sm:py-3 rounded-none transition-all flex items-center gap-2 shrink-0 shadow-md hover:scale-[1.02] active:scale-95"
+                                  >
+                                    {checkoutLoading === featuredProduct.id ? (
+                                      <Loader2 size={14} className="animate-spin text-black" />
+                                    ) : (
+                                      <>
+                                        <span>Comprar</span>
+                                        <ShoppingBag size={14} className="stroke-[2.5]" />
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
                       </div>
                     </motion.div>
                   </section>
