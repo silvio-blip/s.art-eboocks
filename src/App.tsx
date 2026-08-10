@@ -2485,40 +2485,7 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    // Round favicon logic using Canvas
-    const roundFavicon = () => {
-      const icon = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
-      const appleIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement;
-      
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.beginPath();
-          ctx.arc(64, 64, 64, 0, Math.PI * 2);
-          ctx.clip();
-          ctx.drawImage(img, 0, 0, 128, 128);
-          const roundDataUrl = canvas.toDataURL('image/png');
-          
-          // Update all possible favicon links
-          const links = document.querySelectorAll('link[rel*="icon"]');
-          links.forEach((link: any) => {
-            link.href = roundDataUrl;
-          });
-          
-          if (appleIcon) appleIcon.href = roundDataUrl;
-        }
-      };
-      // Use a cache-buster to ensure we get a fresh version for canvas
-      img.src = 'https://i.imgur.com/bkuoZcP.png' + '?v=' + new Date().getTime();
-    };
-    roundFavicon();
-  }, []);
+
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [products, setProducts] = useState<Product[]>(() => {
     try {
