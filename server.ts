@@ -161,7 +161,7 @@ const initDB = async () => {
 
           -- Seed default site settings if empty
           INSERT INTO site_settings (key, value)
-          SELECT 'hero', '{"image": "https://i.imgur.com/LdaKiWv.png", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
+          SELECT 'hero', '{"image": "https://i.imgur.com/bkuoZcP.png", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
           WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
 
           -- Ensure store_events table exists
@@ -1218,7 +1218,7 @@ apiRouter.get('/og-image', async (req, res) => {
     }
 
     if (!targetImageUrl) {
-      targetImageUrl = "https://i.imgur.com/LdaKiWv.png";
+      targetImageUrl = "https://i.imgur.com/bkuoZcP.png";
     }
 
     targetImageUrl = getProductImageUrl(targetImageUrl);
@@ -1258,7 +1258,7 @@ apiRouter.get('/og-image', async (req, res) => {
     if (targetImageUrl && targetImageUrl.startsWith('http')) {
       return res.redirect(targetImageUrl);
     }
-    return res.redirect("https://i.imgur.com/LdaKiWv.png");
+    return res.redirect("https://i.imgur.com/bkuoZcP.png");
   }
 });
 
@@ -4514,7 +4514,7 @@ async function getProductForMeta(productId: string) {
 }
 
 function getProductImageUrl(url: string | undefined | null) {
-  if (!url) return "https://i.imgur.com/LdaKiWv.png";
+  if (!url) return "https://i.imgur.com/bkuoZcP.png";
   if (url.startsWith("http")) return url;
   const projectUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   if (!projectUrl) return url;
@@ -4565,7 +4565,8 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     if (extra.length > 0) rawImg = extra[0];
   }
 
-  const directImageUrl = rawImg ? getProductImageUrl(rawImg) : "https://i.imgur.com/LdaKiWv.png";
+  const sharePrimaryImage = "https://i.imgur.com/bkuoZcP.png";
+  const directImageUrl = rawImg ? getProductImageUrl(rawImg) : sharePrimaryImage;
   const ogImageUrl = product.id 
     ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
     : directImageUrl;
@@ -4596,7 +4597,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     '@context': 'https://schema.org/',
     '@type': 'Product',
     'name': title,
-    'image': [directImageUrl],
+    'image': [sharePrimaryImage, directImageUrl],
     'description': description,
     'offers': {
       '@type': 'Offer',
@@ -4608,6 +4609,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   });
 
   // 2. Build clean, precise meta block for WhatsApp, Facebook, iMessage, Twitter, Telegram, etc.
+  // Using user requested primary share image (https://i.imgur.com/bkuoZcP.png) as primary og:image tag
   const metaBlock = `
     <title>${metaTitle}</title>
     <meta name="description" content="${description}" />
@@ -4621,13 +4623,14 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta property="og:title" content="${metaTitle}" />
     <meta property="og:description" content="${description}" />
     <meta property="og:url" content="${fullCanonicalUrl}" />
-    <meta property="og:image" content="${ogImageUrl}" />
-    <meta property="og:image:secure_url" content="${ogImageUrl}" />
-    <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="800" />
+    <meta property="og:image" content="${sharePrimaryImage}" />
+    <meta property="og:image:secure_url" content="${sharePrimaryImage}" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="${title}" />
-    ${directImageUrl && directImageUrl !== ogImageUrl ? `<meta property="og:image" content="${directImageUrl}" />` : ''}
+    ${directImageUrl && directImageUrl !== sharePrimaryImage ? `<meta property="og:image" content="${directImageUrl}" />` : ''}
+    ${ogImageUrl && ogImageUrl !== directImageUrl ? `<meta property="og:image" content="${ogImageUrl}" />` : ''}
     ${priceVal ? `<meta property="product:price:amount" content="${priceVal}" />` : ''}
     <meta property="product:price:currency" content="EUR" />
 
@@ -4635,7 +4638,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${metaTitle}" />
     <meta name="twitter:description" content="${description}" />
-    <meta name="twitter:image" content="${ogImageUrl}" />
+    <meta name="twitter:image" content="${sharePrimaryImage}" />
 
     <!-- Product Structured Data -->
     <script type="application/ld+json">${productLdJson}</script>

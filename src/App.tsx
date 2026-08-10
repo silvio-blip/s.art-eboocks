@@ -2515,7 +2515,7 @@ export default function App() {
         }
       };
       // Use a cache-buster to ensure we get a fresh version for canvas
-      img.src = 'https://i.imgur.com/LdaKiWv.png' + '?v=' + new Date().getTime();
+      img.src = 'https://i.imgur.com/bkuoZcP.png' + '?v=' + new Date().getTime();
     };
     roundFavicon();
   }, []);
