@@ -161,7 +161,7 @@ const initDB = async () => {
 
           -- Seed default site settings if empty
           INSERT INTO site_settings (key, value)
-          SELECT 'hero', '{"image": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
+          SELECT 'hero', '{"image": "https://i.imgur.com/LdaKiWv.png", "video_url": "", "title": "Luxo & Exclusividade", "subtitle": "A Essência da Exclusividade", "buttonText": "Explorar Coleção"}'::jsonb
           WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE key = 'hero');
 
           -- Ensure store_events table exists
@@ -1199,11 +1199,12 @@ async function broadcastProductDeleted(productId: string) {
 apiRouter.get('/og-image', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  let targetImageUrl = '';
   try {
     const productId = (req.query.product || req.query.id) as string;
     const rawUrl = req.query.url as string;
 
-    let targetImageUrl = rawUrl;
+    targetImageUrl = rawUrl;
 
     if (!targetImageUrl && productId) {
       const product = (await getProductForMeta(productId)) as any;
@@ -1217,7 +1218,7 @@ apiRouter.get('/og-image', async (req, res) => {
     }
 
     if (!targetImageUrl) {
-      targetImageUrl = "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
+      targetImageUrl = "https://i.imgur.com/LdaKiWv.png";
     }
 
     targetImageUrl = getProductImageUrl(targetImageUrl);
@@ -1254,14 +1255,10 @@ apiRouter.get('/og-image', async (req, res) => {
 
   } catch (err: any) {
     console.error('[OG IMAGE PROXY ERROR]', err.message);
-    // Serve fallback default store image processed as JPEG
-    try {
-      const fallbackResp = await axios.get("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070", { responseType: 'arraybuffer' });
-      const fallbackJpeg = await sharp(fallbackResp.data).resize(800, 800, { fit: 'cover' }).jpeg({ quality: 75 }).toBuffer();
-      res.status(200).header('Content-Type', 'image/jpeg').send(fallbackJpeg);
-    } catch (fallbackErr) {
-      res.redirect("https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070");
+    if (targetImageUrl && targetImageUrl.startsWith('http')) {
+      return res.redirect(targetImageUrl);
     }
+    return res.redirect("https://i.imgur.com/LdaKiWv.png");
   }
 });
 
@@ -4517,7 +4514,7 @@ async function getProductForMeta(productId: string) {
 }
 
 function getProductImageUrl(url: string | undefined | null) {
-  if (!url) return "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
+  if (!url) return "https://i.imgur.com/LdaKiWv.png";
   if (url.startsWith("http")) return url;
   const projectUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   if (!projectUrl) return url;
@@ -4568,7 +4565,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     if (extra.length > 0) rawImg = extra[0];
   }
 
-  const directImageUrl = rawImg ? getProductImageUrl(rawImg) : "https://images.unsplash.com/photo-1441986300917-64674bd600d8?q=80&w=2070";
+  const directImageUrl = rawImg ? getProductImageUrl(rawImg) : "https://i.imgur.com/LdaKiWv.png";
   const ogImageUrl = product.id 
     ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
     : directImageUrl;
@@ -4599,7 +4596,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     '@context': 'https://schema.org/',
     '@type': 'Product',
     'name': title,
-    'image': [ogImageUrl, directImageUrl],
+    'image': [directImageUrl, ogImageUrl],
     'description': description,
     'offers': {
       '@type': 'Offer',
@@ -4624,13 +4621,10 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta property="og:title" content="${metaTitle}" />
     <meta property="og:description" content="${description}" />
     <meta property="og:url" content="${fullCanonicalUrl}" />
-    <meta property="og:image" content="${ogImageUrl}" />
-    <meta property="og:image:secure_url" content="${ogImageUrl}" />
-    <meta property="og:image:type" content="image/jpeg" />
-    <meta property="og:image:width" content="800" />
-    <meta property="og:image:height" content="800" />
+    <meta property="og:image" content="${directImageUrl}" />
+    <meta property="og:image:secure_url" content="${directImageUrl}" />
     <meta property="og:image:alt" content="${title}" />
-    ${directImageUrl && directImageUrl !== ogImageUrl ? `<meta property="og:image" content="${directImageUrl}" />` : ''}
+    ${ogImageUrl && ogImageUrl !== directImageUrl ? `<meta property="og:image" content="${ogImageUrl}" />` : ''}
     ${priceVal ? `<meta property="product:price:amount" content="${priceVal}" />` : ''}
     <meta property="product:price:currency" content="EUR" />
 
@@ -4638,7 +4632,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${metaTitle}" />
     <meta name="twitter:description" content="${description}" />
-    <meta name="twitter:image" content="${ogImageUrl}" />
+    <meta name="twitter:image" content="${directImageUrl}" />
 
     <!-- Product Structured Data -->
     <script type="application/ld+json">${productLdJson}</script>
