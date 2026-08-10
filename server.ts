@@ -4566,6 +4566,9 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
   }
 
   const directImageUrl = rawImg ? getProductImageUrl(rawImg) : "https://i.imgur.com/LdaKiWv.png";
+  const ogImageUrl = product.id 
+    ? `${origin}/api/og-image?product=${encodeURIComponent(product.id)}`
+    : directImageUrl;
 
   let fullCanonicalUrl = `${origin}/p/${product.id}`;
   if (reqUrl && reqUrl.startsWith("http")) {
@@ -4618,12 +4621,13 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta property="og:title" content="${metaTitle}" />
     <meta property="og:description" content="${description}" />
     <meta property="og:url" content="${fullCanonicalUrl}" />
-    <meta property="og:image" content="${directImageUrl}" />
-    <meta property="og:image:secure_url" content="${directImageUrl}" />
+    <meta property="og:image" content="${ogImageUrl}" />
+    <meta property="og:image:secure_url" content="${ogImageUrl}" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="800" />
     <meta property="og:image:height" content="800" />
     <meta property="og:image:alt" content="${title}" />
+    ${directImageUrl && directImageUrl !== ogImageUrl ? `<meta property="og:image" content="${directImageUrl}" />` : ''}
     ${priceVal ? `<meta property="product:price:amount" content="${priceVal}" />` : ''}
     <meta property="product:price:currency" content="EUR" />
 
@@ -4631,7 +4635,7 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${metaTitle}" />
     <meta name="twitter:description" content="${description}" />
-    <meta name="twitter:image" content="${directImageUrl}" />
+    <meta name="twitter:image" content="${ogImageUrl}" />
 
     <!-- Product Structured Data -->
     <script type="application/ld+json">${productLdJson}</script>

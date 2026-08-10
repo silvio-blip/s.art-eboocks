@@ -2128,8 +2128,8 @@ const ProductDetailsPage = ({
             const url = `${window.location.origin}/p/${product.id}`;
             
             const shareData: any = {
-              title: product.title ? `${product.title} | S.art Full` : 'S.art Full | Loja Oficial de Vestuário',
-              text: `${product.title || 'Confira esta peça exclusiva'} na S.art Full`,
+              title: product.title || '',
+              text: product.title || '',
               url: url
             };
 
