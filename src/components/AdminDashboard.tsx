@@ -696,10 +696,12 @@ export default function AdminDashboard({
   const [aliAppKey, setAliAppKey] = useState("533964");
   const [aliAppSecret, setAliAppSecret] = useState("Fmek9qAohE8K2tgkyGcAeC2tQ8dMZiq7");
   const [aliAccessToken, setAliAccessToken] = useState("");
+  const [aliAutoFulfill, setAliAutoFulfill] = useState(false);
   const [aliAuthCode, setAliAuthCode] = useState("");
   const [isExchangingAliCode, setIsExchangingAliCode] = useState(false);
   const [isTestingAliConnection, setIsTestingAliConnection] = useState(false);
   const [aliTestResult, setAliTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isBatchFulfilling, setIsBatchFulfilling] = useState(false);
 
   const handleExchangeAliCode = async () => {
     if (!aliAuthCode.trim()) {
@@ -973,6 +975,74 @@ export default function AdminDashboard({
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
   const [orderToRefund, setOrderToRefund] = useState<Order | null>(null);
 
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+  const [cancelWithStripeRefund, setCancelWithStripeRefund] = useState(true);
+  const [cancelReason, setCancelReason] = useState("");
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
+  const [isSyncingAllAli, setIsSyncingAllAli] = useState(false);
+
+  const confirmCancelOrderAction = async () => {
+    if (!orderToCancel) return;
+    setIsCancellingOrder(true);
+    const cancelToast = toast.loading('Processando cancelamento e sincronização com AliExpress...');
+    try {
+      const response = await fetch(`/api/admin/orders/${orderToCancel.id}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        },
+        body: JSON.stringify({
+          refund_stripe: cancelWithStripeRefund,
+          reason: cancelReason || 'Cancelado pelo administrador'
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success(data.message || 'Pedido cancelado e sincronizado com sucesso!', { id: cancelToast, duration: 6000 });
+        setIsCancelModalOpen(false);
+        setOrderToCancel(null);
+        setCancelReason("");
+        if (viewingOrder && viewingOrder.id === orderToCancel.id) {
+          setViewingOrder(data.order ? { ...viewingOrder, ...data.order } : null);
+        }
+        fetchDashboardData();
+      } else {
+        toast.error(data.error || 'Erro ao cancelar o pedido.', { id: cancelToast });
+      }
+    } catch (e: any) {
+      toast.error(`Erro de rede ao cancelar pedido: ${e.message}`, { id: cancelToast });
+    } finally {
+      setIsCancellingOrder(false);
+    }
+  };
+
+  const handleSyncAllOrdersAliExpress = async () => {
+    setIsSyncingAllAli(true);
+    const syncToast = toast.loading('Sincronizando todas as encomendas com o AliExpress...');
+    try {
+      const response = await fetch('/api/admin/orders/sync-all-ali', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast.success(data.message || 'Sincronização com AliExpress finalizada!', { id: syncToast, duration: 6000 });
+        fetchDashboardData();
+      } else {
+        toast.error(data.error || 'Erro ao sincronizar com AliExpress', { id: syncToast });
+      }
+    } catch (e: any) {
+      toast.error('Erro de conexão ao sincronizar.', { id: syncToast });
+    } finally {
+      setIsSyncingAllAli(false);
+    }
+  };
+
   const confirmRefundAction = async () => {
     if (!orderToRefund) return;
     
@@ -1038,6 +1108,7 @@ export default function AdminDashboard({
       if (aliData && Object.keys(aliData).length > 0) {
         if (aliData.app_key) setAliAppKey(aliData.app_key);
         if (aliData.app_secret) setAliAppSecret(aliData.app_secret);
+        if (aliData.auto_fulfill !== undefined) setAliAutoFulfill(!!aliData.auto_fulfill);
         if (aliData.access_token) {
           setAliAccessToken(aliData.access_token);
           setAliTestResult({
@@ -1071,7 +1142,8 @@ export default function AdminDashboard({
         body: JSON.stringify({
           app_key: aliAppKey,
           app_secret: aliAppSecret,
-          access_token: aliAccessToken
+          access_token: aliAccessToken,
+          auto_fulfill: aliAutoFulfill
         }),
       });
 
@@ -1765,8 +1837,8 @@ export default function AdminDashboard({
   };
 
   const handleManualFulfill = async (orderId: string) => {
+    const toastId = toast.loading("A enviar pedido para o AliExpress via API oficial...");
     try {
-      toast.loading("A enviar pedido manualmente...", { id: "fulfill" });
       const res = await fetch(`/api/admin/orders/${orderId}/fulfill`, {
         method: 'POST',
         headers: {
@@ -1778,18 +1850,23 @@ export default function AdminDashboard({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao conectar com fornecedor");
       
-      const provider = viewingOrder?.provider || viewingOrder?.product?.provider || 'aliexpress';
-      const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
-      
-      toast.success(`Pedido ENVIADO com sucesso para ${providerLabel}!`, { id: "fulfill" });
+      const aliId = data.order_id || data.order?.provider_order_id || "";
+      toast.success(
+        aliId 
+          ? `🎉 Encomenda enviada para o AliExpress com sucesso! ID: #${aliId}` 
+          : `🎉 Pedido processado com sucesso no AliExpress!`, 
+        { id: toastId, duration: 6000 }
+      );
       
       // Atualizar estado local
       if (viewingOrder && viewingOrder.id === orderId) {
         setViewingOrder({
           ...viewingOrder,
-          status: 'processing_at_supplier',
-          provider_order_id: data.order.provider_order_id,
-          provider: provider
+          status: 'paid',
+          shipping_status: 'preparing',
+          provider_order_id: aliId || viewingOrder.provider_order_id,
+          provider: 'aliexpress',
+          fulfillment_error: null
         });
       }
       
@@ -1797,108 +1874,56 @@ export default function AdminDashboard({
       fetchDashboardData();
     } catch (err: any) {
       console.error("[Manual Fulfill Error]", err);
-      toast.error(err.message, { id: "fulfill" });
+      toast.error(`Falha no envio: ${err.message}`, { id: toastId, duration: 6000 });
+      fetchDashboardData();
     }
   };
 
   const handleInternationalFulfill = async (orderId: string) => {
-    const loadingToast = toast.loading('Sincronizando com Logística Global...');
+    return handleManualFulfill(orderId);
+  };
+
+  const handleBatchFulfillAliExpress = async (targetOrderIds?: string[]) => {
+    // Se não passar lista explícita, encontrar todos os pedidos pagos sem provider_order_id
+    const idsToFulfill = targetOrderIds && targetOrderIds.length > 0 
+      ? targetOrderIds 
+      : orders
+          .filter(o => (o.status === 'paid' || o.status === 'pago' || o.status === 'completed') && !o.provider_order_id && o.product?.aliexpress_id)
+          .map(o => o.id);
+
+    if (idsToFulfill.length === 0) {
+      toast.info("Não existem pedidos pendentes de envio para o AliExpress.");
+      return;
+    }
+
+    setIsBatchFulfilling(true);
+    const toastId = toast.loading(`A enviar ${idsToFulfill.length} pedido(s) em lote para o AliExpress...`);
+    
     try {
-      const order = orders.find(o => o.id === orderId);
-      if (!order) throw new Error("Ordem não encontrada.");
+      const res = await fetch('/api/admin/orders/batch-fulfill', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.id
+        },
+        body: JSON.stringify({ order_ids: idsToFulfill })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro no envio em lote.");
 
-      // Parse shipping details
-      let customerAddress;
-      if (!order.shipping_details) {
-         // Try selected_options.shipping_details fallback if exists
-         customerAddress = order.selected_options?.shipping_details;
-      } else if (typeof order.shipping_details === 'string') {
-        try {
-          customerAddress = JSON.parse(order.shipping_details);
-        } catch(e) {
-          customerAddress = order.shipping_details;
-        }
+      if (data.fulfilled > 0) {
+        toast.success(`🚀 ${data.fulfilled} de ${data.total} pedido(s) criados no AliExpress com sucesso!`, { id: toastId, duration: 6000 });
       } else {
-        customerAddress = order.shipping_details;
+        toast.error(`Nenhum pedido pôde ser criado. Verifique os erros individuais nos detalhes do pedido.`, { id: toastId, duration: 6000 });
       }
 
-      if (!customerAddress || typeof customerAddress === 'string') {
-        throw new Error("Dados de entrega incompletos ou em formato inválido.");
-      }
-
-      const response = await AliExpressService.placeOrder(order, customerAddress);
-      
-      // Check for API errors
-      if (response.error_response) {
-        const err = response.error_response;
-        // Code 27 is IllegalAccessToken, but also check for msg
-        if (err.code === 27 || err.msg?.toLowerCase().includes('token') || err.msg?.toLowerCase().includes('permission')) {
-           toast.error("API Pendente: Por favor, faça a encomenda manualmente no portal do parceiro usando a morada do cliente.", { id: loadingToast, duration: 6000 });
-           return;
-        }
-        throw new Error(err.msg || "Erro na API Global");
-      }
-
-      // Extrair Order ID retornado pelo AliExpress com fallbacks robustos
-      let aliOrderId = "";
-      const respKeys = [
-        "aliexpress_trade_buy_placeorder_response",
-        "aliexpress_ds_trade_buy_placeorder_response"
-      ];
-      
-      for (const key of respKeys) {
-        const resp = response[key];
-        if (resp && resp.result) {
-          const result = resp.result;
-          if (result.order_id) {
-            aliOrderId = String(result.order_id);
-          } else if (result.order_id_list && result.order_id_list.length > 0) {
-            aliOrderId = String(result.order_id_list[0]);
-          } else if (result.data && result.data.order_id) {
-             aliOrderId = String(result.data.order_id);
-          }
-        }
-        if (aliOrderId) break;
-      }
-      
-      if (!aliOrderId) {
-        console.warn("[ALIEXPRESS] Ordem colocada mas ID não encontrado no retorno:", response);
-        // Tentar busca genérica se falhar as chaves conhecidas
-        for (const k in response) {
-          if (response[k]?.result?.order_id) aliOrderId = String(response[k].result.order_id);
-          if (aliOrderId) break;
-        }
-      }
-
-      // Success: Update status in Supabase
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({ 
-          status: 'processing_provider',
-          shipping_status: 'preparing',
-          provider: 'aliexpress',
-          provider_order_id: aliOrderId || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
-
-      if (updateError) throw updateError;
-
-      toast.success("🎉 Pedido enviado para logística global com sucesso!", { id: loadingToast });
-      
-      // Update local state if viewing
-      if (viewingOrder && viewingOrder.id === orderId) {
-        setViewingOrder({
-          ...viewingOrder,
-          status: 'processing_provider',
-          shipping_status: 'preparing'
-        } as any);
-      }
-      
       fetchDashboardData();
-    } catch (error: any) {
-      console.error("[ALIEXPRESS_FULFILL_ERROR]", error);
-      toast.error(`Falha no Processamento: ${error.message}`, { id: loadingToast });
+    } catch (err: any) {
+      console.error("[Batch Fulfill Error]", err);
+      toast.error(`Erro no processamento em lote: ${err.message}`, { id: toastId, duration: 6000 });
+    } finally {
+      setIsBatchFulfilling(false);
     }
   };
 
@@ -3718,10 +3743,19 @@ export default function AdminDashboard({
               <Button
                 variant="outline"
                 onClick={syncAllPayments}
-                className="h-auto px-6 text-[9px] uppercase tracking-widest font-black border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold/10"
+                className="h-auto px-5 text-[9px] uppercase tracking-widest font-black border-luxury-gold/30 text-luxury-gold hover:bg-luxury-gold/10 whitespace-nowrap"
               >
-                <RefreshCw size={14} className="mr-2" />
+                <RefreshCw size={12} className="mr-2" />
                 Sincronizar Tudo
+              </Button>
+              <Button
+                onClick={handleSyncAllOrdersAliExpress}
+                disabled={isSyncingAllAli}
+                className="h-auto px-5 text-[9px] uppercase tracking-widest font-black bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/40 rounded whitespace-nowrap"
+                title="Sincronizar status e cancelamentos de todos os pedidos no AliExpress"
+              >
+                <RefreshCw size={12} className={`mr-2 ${isSyncingAllAli ? 'animate-spin' : ''}`} />
+                {isSyncingAllAli ? 'Sincronizando AliExpress...' : 'Sincronizar AliExpress'}
               </Button>
               <select
                 value={orderDateFilter}
@@ -3743,6 +3777,56 @@ export default function AdminDashboard({
                 </option>
               </select>
             </div>
+
+            {/* Banner de Envio em Lote para o AliExpress */}
+            {(() => {
+              const pendingAli = orders.filter(
+                o => (["paid", "pago", "completed", "succeeded"].includes(o.status?.toLowerCase() || "") || 
+                      ["paid", "pago", "completed", "succeeded"].includes(o.payment_status?.toLowerCase() || "")) && 
+                     !o.provider_order_id && 
+                     (o.product?.aliexpress_id || o.provider === 'aliexpress')
+              );
+              if (pendingAli.length === 0) return null;
+              return (
+                <div className="bg-gradient-to-r from-orange-950/40 via-black to-luxury-dark border border-orange-500/30 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-orange-950/20">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-orange-500/20 text-orange-400 rounded-lg border border-orange-500/30">
+                      <Truck size={20} className="animate-pulse" />
+                    </div>
+                    <div>
+                      <div className="text-xs uppercase tracking-wider font-black text-orange-400 flex items-center gap-2">
+                        <span>{pendingAli.length} {pendingAli.length === 1 ? 'Pedido Pago Pendente' : 'Pedidos Pagos Pendentes'} para o AliExpress</span>
+                        <span className="text-[9px] bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded font-mono">
+                          {aliAutoFulfill ? 'Auto-Fulfill Ativo' : 'Aprovação Manual'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-white/70 mt-0.5">
+                        {aliAutoFulfill 
+                          ? 'Estes pedidos estão configurados para envio automático ou pode forçar o envio em lote agora.'
+                          : 'Envie as encomendas para o AliExpress com apenas 1 clique usando os dados oficiais do cliente.'}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => handleBatchFulfillAliExpress(pendingAli.map(o => o.id))}
+                    disabled={isBatchFulfilling}
+                    className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg h-10 px-5 text-[10px] uppercase tracking-widest font-black flex items-center gap-2 shadow-md shadow-orange-900/30 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {isBatchFulfilling ? (
+                      <>
+                        <RefreshCw size={12} className="animate-spin" />
+                        A Enviar Encomendas...
+                      </>
+                    ) : (
+                      <>
+                        <Zap size={12} />
+                        Enviar Todos p/ AliExpress ({pendingAli.length})
+                      </>
+                    )}
+                  </Button>
+                </div>
+              );
+            })()}
 
             <div className="overflow-x-auto border border-white/5 bg-luxury-dark/30 luxury-scrollbar">
               <table className="w-full text-left text-sm min-w-[1200px]">
@@ -3876,72 +3960,44 @@ export default function AdminDashboard({
                             </span>
                           </div>
                         ) : (["paid", "pago", "completed", "succeeded"].includes(order.status?.toLowerCase() || "")) ? (
-                          <div className="flex items-center gap-1.5 min-w-[140px]">
-                            {(order.provider_order_id) ? (
-                               <Button 
-                                size="sm"
-                                onClick={() => handleSyncStatus(order.id)}
-                                className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 border border-emerald-500/20 flex-1"
-                              >
-                                <RefreshCw size={10} className="mr-1.5" /> Sincronizar
-                              </Button>
-                            ) : (
-                              <>
+                          <div className="flex flex-col gap-1.5 min-w-[170px]">
+                            {order.provider_order_id ? (
+                              <div className="flex flex-col gap-1">
+                                <a
+                                  href={`https://trade.aliexpress.com/order_detail.htm?orderId=${order.provider_order_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="bg-orange-500/15 hover:bg-orange-500/25 text-orange-400 border border-orange-500/30 px-2.5 py-1 text-[8px] uppercase tracking-wider font-bold rounded flex items-center justify-between transition-colors"
+                                  title="Ver Pedido no AliExpress"
+                                >
+                                  <span className="truncate">AliExpress: #{order.provider_order_id}</span>
+                                  <ExternalLink size={9} className="ml-1 shrink-0" />
+                                </a>
                                 <Button 
                                   size="sm"
-                                  variant="outline"
                                   onClick={() => handleSyncStatus(order.id)}
-                                  className="border-white/10 text-white/60 hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-7 px-2"
-                                  title="Sincronizar com Stripe"
+                                  className="bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 rounded text-[7px] uppercase tracking-widest font-bold h-6 px-2 w-full"
                                 >
-                                  Verificar
+                                  <RefreshCw size={8} className="mr-1" /> Sincronizar
                                 </Button>
-                                {order.product?.aliexpress_id ? (
-                                  <div className="flex flex-col gap-1.5 flex-1 w-full">
-                                    {(order.shipping_status_metadata?.manual_update || order.provider_order_id) ? (
-                                      <div className="flex flex-col gap-1">
-                                        <span className="text-[9px] text-orange-500 font-black uppercase tracking-widest bg-orange-500/10 px-2 py-1 border border-orange-500/20 text-center">
-                                          {order.shipping_status_metadata?.lastExternalStatus || "Processado Manual"}
-                                        </span>
-                                        <Button 
-                                          size="sm"
-                                          onClick={() => handleSyncStatus(order.id)}
-                                          className="bg-orange-500/5 text-orange-500 hover:bg-orange-500 hover:text-white border border-orange-500/20 rounded-none text-[7px] uppercase tracking-widest font-bold h-6"
-                                        >
-                                          <RefreshCw size={8} className="mr-1" /> Sincronizar
-                                        </Button>
-                                      </div>
-                                    ) : (
-                                      <div className="flex gap-1 flex-1">
-                                        <Button 
-                                          size="sm"
-                                          onClick={() => handleManualFulfill(order.id)}
-                                          className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-2 flex-1"
-                                          title="Processar manualmente"
-                                        >
-                                          Manual
-                                        </Button>
-                                        <Button 
-                                          size="sm"
-                                          onClick={() => handleInternationalFulfill(order.id)}
-                                          className="bg-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white border border-orange-500/30 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-2 flex-1"
-                                          title="Processar via Logística Auto"
-                                        >
-                                          Auto-API
-                                        </Button>
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <Button 
-                                    size="sm"
-                                    onClick={() => handleManualFulfill(order.id)}
-                                    className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[8px] uppercase tracking-widest font-black h-7 px-3 flex-1"
-                                  >
-                                    Enviar Manual
-                                  </Button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-1">
+                                <Button 
+                                  size="sm"
+                                  onClick={() => handleManualFulfill(order.id)}
+                                  className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded text-[8px] uppercase tracking-widest font-black h-7 px-3 flex items-center justify-center gap-1.5 shadow-sm shadow-orange-950/30 w-full"
+                                  title="Criar e enviar pedido no AliExpress"
+                                >
+                                  <Truck size={10} />
+                                  <span>Enviar p/ AliExpress</span>
+                                </Button>
+                                {order.fulfillment_error && (
+                                  <span className="text-[7px] text-rose-400 font-mono truncate max-w-[170px]" title={order.fulfillment_error}>
+                                    ⚠️ {order.fulfillment_error}
+                                  </span>
                                 )}
-                              </>
+                              </div>
                             )}
                           </div>
                         ) : (
@@ -4028,6 +4084,22 @@ export default function AdminDashboard({
                                <Undo2 size={10} className="mr-1" /> Reembolsar
                              </Button>
                           )}
+
+                          {!["canceled", "cancelled", "refunded"].includes(order.status?.toLowerCase() || "") && (
+                            <Button
+                               onClick={() => {
+                                 setOrderToCancel(order);
+                                 setCancelWithStripeRefund(["paid", "completed", "pago", "succeeded"].includes(order.status?.toLowerCase() || "") || ["paid", "completed", "pago", "succeeded"].includes(order.payment_status?.toLowerCase() || ""));
+                                 setCancelReason("");
+                                 setIsCancelModalOpen(true);
+                               }}
+                               variant="ghost"
+                               title="Cancelar Pedido (Local & AliExpress)"
+                               className="text-rose-400 hover:text-white hover:bg-rose-500/20 h-8 px-3 text-[8px] uppercase tracking-widest font-bold border border-rose-500/20 whitespace-nowrap"
+                             >
+                               <XCircle size={10} className="mr-1" /> Cancelar
+                             </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -4045,6 +4117,130 @@ export default function AdminDashboard({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* Modal de Confirmação de Cancelamento de Pedido */}
+        {isCancelModalOpen && orderToCancel && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              className="bg-zinc-950 border border-rose-500/30 w-full max-w-lg overflow-hidden relative shadow-2xl rounded-xl"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-rose-600 via-orange-500 to-amber-500"></div>
+              
+              <div className="p-8 space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-rose-500/10 rounded-full flex items-center justify-center text-rose-500 shrink-0 border border-rose-500/20">
+                    <XCircle size={26} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white tracking-tight">Cancelar Pedido</h3>
+                    <p className="text-white/70 text-xs uppercase tracking-wider mt-0.5">Sincronização com Loja e Fornecedor</p>
+                  </div>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 p-4 rounded-lg space-y-2.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/60 uppercase tracking-widest text-[10px]">Ordem</span>
+                    <span className="text-white font-mono font-bold">Sart-{orderToCancel.id.split('-')[0].toUpperCase()}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/60 uppercase tracking-widest text-[10px]">Produto</span>
+                    <span className="text-white truncate max-w-[220px]">{orderToCancel.product?.title || "Item"}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/60 uppercase tracking-widest text-[10px]">Valor Total</span>
+                    <span className="text-white font-bold">{renderPrice(Number(orderToCancel.total_amount))}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-white/60 uppercase tracking-widest text-[10px]">Cliente</span>
+                    <span className="text-white truncate max-w-[220px]">{orderToCancel.customer_email}</span>
+                  </div>
+                </div>
+
+                {orderToCancel.provider_order_id && (
+                  <div className="bg-orange-500/10 border border-orange-500/30 p-3.5 rounded-lg space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-bold text-orange-400 flex items-center gap-1.5">
+                        <Truck size={12} /> AliExpress Vinculado
+                      </span>
+                      <a 
+                        href={`https://trade.aliexpress.com/order_detail.htm?orderId=${orderToCancel.provider_order_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[9px] text-orange-300 hover:text-white underline flex items-center gap-1 font-bold"
+                      >
+                        Abrir Pedido #{orderToCancel.provider_order_id} <ExternalLink size={10} />
+                      </a>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      O cancelamento atualizará a loja e sincronizará com o status do AliExpress.
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer p-3 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-colors">
+                    <input 
+                      type="checkbox"
+                      checked={cancelWithStripeRefund}
+                      onChange={(e) => setCancelWithStripeRefund(e.target.checked)}
+                      className="mt-0.5 rounded accent-rose-500 w-4 h-4"
+                    />
+                    <div className="text-xs">
+                      <span className="text-white font-bold block">Processar Reembolso Automático no Stripe</span>
+                      <span className="text-white/60 text-[11px] block mt-0.5">Estorna o valor pago diretamente no cartão do cliente.</span>
+                    </div>
+                  </label>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] uppercase tracking-wider text-white/70 font-bold block">
+                      Motivo do Cancelamento (Opcional)
+                    </label>
+                    <input 
+                      type="text"
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder="Ex: Solicitado pelo cliente, sem estoque, etc."
+                      className="w-full bg-black/40 border border-white/10 p-3 text-xs text-white placeholder:text-white/30 rounded focus:border-rose-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <Button 
+                    variant="outline"
+                    className="flex-1 rounded-lg border-white/10 hover:bg-white/5 text-white/70 h-11 text-xs"
+                    onClick={() => {
+                      setIsCancelModalOpen(false);
+                      setOrderToCancel(null);
+                    }}
+                    disabled={isCancellingOrder}
+                  >
+                    Voltar
+                  </Button>
+                  <Button 
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold uppercase tracking-widest text-[10px] h-11 rounded-lg shadow-lg shadow-rose-950/40 flex items-center justify-center gap-2"
+                    onClick={confirmCancelOrderAction}
+                    disabled={isCancellingOrder}
+                  >
+                    {isCancellingOrder ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Cancelando...
+                      </>
+                    ) : (
+                      <>
+                        <XCircle size={14} />
+                        Confirmar Cancelamento
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
           </div>
         )}
 
@@ -5765,43 +5961,66 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                                     )}
                                     
                                     {isAli ? (
-                                      <div className="flex gap-2">
+                                      <div className="flex flex-col sm:flex-row gap-2 w-full">
                                         <Button 
                                           size="sm"
                                           onClick={() => handleManualFulfill(viewingOrder.id)}
-                                          className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20 flex-1"
+                                          className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded text-[10px] uppercase tracking-widest font-black h-10 px-6 shadow-lg shadow-orange-950/30 flex-1 flex items-center justify-center gap-2"
                                         >
-                                          <Truck size={10} className="mr-2" /> Manual
-                                        </Button>
-                                        <Button 
-                                          size="sm"
-                                          onClick={() => handleInternationalFulfill(viewingOrder.id)}
-                                          className="bg-orange-500 text-white hover:bg-orange-600 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-orange-900/20 flex-1"
-                                        >
-                                          <Zap size={10} className="mr-2" /> Auto-API
+                                          <Truck size={14} />
+                                          <span>🚀 Enviar Encomenda para o AliExpress</span>
                                         </Button>
                                       </div>
                                     ) : (
                                       <Button 
                                         size="sm"
                                         onClick={() => handleManualFulfill(viewingOrder.id)}
-                                        className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded-none text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
+                                        className="bg-luxury-gold text-black hover:bg-luxury-gold/80 rounded text-[9px] uppercase tracking-widest font-black h-9 px-6 shadow-lg shadow-luxury-gold/20"
                                       >
-                                        Enviar Manualmente
+                                        Enviar Fornecedor Manual
                                       </Button>
                                     )}
                                   </>
                                 )}
 
                                 {externalId && (
-                                  <Button 
+                                  <div className="flex items-center gap-2">
+                                    <a
+                                      href={`https://trade.aliexpress.com/order_detail.htm?orderId=${externalId}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border border-orange-500/30 px-3 py-2 text-[9px] uppercase tracking-wider font-bold rounded flex items-center gap-1.5 transition-colors"
+                                    >
+                                      <span>Ver no AliExpress (#{externalId})</span>
+                                      <ExternalLink size={11} />
+                                    </a>
+                                    <Button 
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleManualFulfill(viewingOrder.id)}
+                                      className="border-white/10 text-white/80 hover:bg-white/10 rounded text-[8px] uppercase tracking-widest font-bold h-8 px-3"
+                                      title="Reenviar pedido para o AliExpress"
+                                    >
+                                      <RefreshCw size={10} className="mr-1.5" /> 
+                                      Reenviar API
+                                    </Button>
+                                  </div>
+                                )}
+
+                                {!["canceled", "cancelled", "refunded"].includes(viewingOrder.status?.toLowerCase() || "") && (
+                                  <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => handleSyncStatus(viewingOrder.id)}
-                                    className="border-white/10 text-white hover:bg-white/5 rounded-none text-[8px] uppercase tracking-widest font-bold h-8 px-3"
+                                    onClick={() => {
+                                      setOrderToCancel(viewingOrder);
+                                      setCancelWithStripeRefund(["paid", "completed", "pago", "succeeded"].includes(viewingOrder.status?.toLowerCase() || "") || ["paid", "completed", "pago", "succeeded"].includes(viewingOrder.payment_status?.toLowerCase() || ""));
+                                      setCancelReason("");
+                                      setIsCancelModalOpen(true);
+                                    }}
+                                    className="border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white rounded text-[8px] uppercase tracking-widest font-bold h-8 px-3 ml-auto"
+                                    title="Cancelar Pedido e Sincronizar com AliExpress"
                                   >
-                                    <RefreshCw size={10} className="mr-2" /> 
-                                    Sincronizar c/ {providerLabel}
+                                    <XCircle size={11} className="mr-1.5" /> Cancelar Pedido
                                   </Button>
                                 )}
                               </div>
@@ -6163,6 +6382,43 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                         rows={3}
                         className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono resize-none custom-scrollbar rounded"
                       />
+                    </div>
+
+                    {/* Modo de Envio de Pedidos para o AliExpress */}
+                    <div className="mt-4 p-4 rounded-xl border border-luxury-gold/30 bg-black/40 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="text-[11px] font-bold text-luxury-gold uppercase tracking-wider flex items-center gap-2">
+                            <span>Modo de Envio dos Pedidos (Fulfillment)</span>
+                          </h5>
+                          <p className="text-[10px] text-white/60 mt-0.5">
+                            Escolha se os pedidos pagos devem ser criados no AliExpress de forma 100% automática ou com aprovação manual.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setAliAutoFulfill(!aliAutoFulfill)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${aliAutoFulfill ? 'bg-emerald-600' : 'bg-white/20'}`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${aliAutoFulfill ? 'translate-x-6' : 'translate-x-1'}`}
+                          />
+                        </button>
+                      </div>
+
+                      <div className={`p-3 rounded-lg text-[10px] border flex items-start gap-2.5 ${aliAutoFulfill ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-300' : 'bg-white/5 border-white/10 text-white/80'}`}>
+                        <div className="mt-0.5 text-base">{aliAutoFulfill ? '🚀' : '🖐️'}</div>
+                        <div className="space-y-1">
+                          <div className="font-bold">
+                            {aliAutoFulfill ? 'Modo Automático Ativado (Recomendado)' : 'Modo Manual Ativado'}
+                          </div>
+                          <div className="opacity-90 leading-relaxed">
+                            {aliAutoFulfill 
+                              ? 'Assim que um cliente paga a encomenda (Stripe/Multibanco/MBWay), o sistema cria a encomenda imediatamente no AliExpress com a morada e opções do cliente.'
+                              : 'Os pedidos pagos ficam disponíveis na aba de Pedidos com um botão "Enviar p/ AliExpress" ou "Enviar Todos" para você aprovar e enviar com 1 clique.'}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

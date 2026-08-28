@@ -956,31 +956,55 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="flex-1 p-6 md:p-8 flex flex-col md:flex-row items-center gap-8">
                         <div className="flex-1 min-w-0 space-y-3 text-center md:text-left">
                           <div className="flex flex-col md:flex-row items-center gap-3">
-                            <span className={`text-[7px] md:text-[8px] uppercase tracking-[0.3em] font-black py-1 px-2 border rounded-sm ${
-                              ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500 border-red-500/20' :
-                              ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'text-zinc-500 border-zinc-500/20' :
-                              order.shipping_status === 'delivered' ? 'text-emerald-500 border-emerald-500/20' : 
-                              order.shipping_status === 'out_for_delivery' ? 'text-amber-500 border-amber-500/20' :
-                              order.shipping_status === 'sent' ? 'text-blue-500 border-blue-500/20' :
-                              order.shipping_status === 'incident' ? 'text-orange-500 border-orange-500/20' :
-                              order.shipping_status === 'lost' ? 'text-red-700 border-red-700/20' :
-                              'text-luxury-gold border-luxury-gold/20'
-                            }`}>
-                              {order.shipping_status === 'delivered' ? 'ENTREGADOS' : 
-                               order.shipping_status === 'out_for_delivery' ? 'EM ENTREGA' :
-                               ['canceled', 'cancelled'].includes(order.status || '') ? 'CANCELADOS' : 
-                               order.shipping_status === 'sent' ? 'EM TRÂNSITO' :
-                               order.shipping_status === 'confirmed' ? 'CONFIRMADOS' :
-                               order.shipping_status === 'preparing' ? 'EM PREPARAÇÃO' :
-                               order.shipping_status === 'ready' ? 'PREPARADOS' :
-                               order.shipping_status === 'incident' ? 'COM INCIDENTE' :
-                               order.shipping_status === 'rejected' ? 'REJEITADOS' :
-                               order.shipping_status === 'review' ? 'COM ERRO E REVISÃO' :
-                               order.shipping_status === 'lost' ? 'EXTRAVIADO' :
-                               order.shipping_status === 'pending_confirmation' ? 'PEND. DE CONFIRMAÇÃO' :
-                               ['refunded', 'reembolsado', 'refund_pending'].includes(order.status || '') ? 'REEMBOLSADO' :
-                               'EM PROCESSAMENTO'}
-                            </span>
+                            {(() => {
+                              const isRefunded = ['refunded', 'reembolsado'].includes(order.status?.toLowerCase() || '') || order.payment_status === 'refunded';
+                              const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(order.status?.toLowerCase() || '') || order.payment_status === 'refund_pending';
+                              const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(order.status?.toLowerCase() || '') || ['canceled', 'cancelled'].includes(order.shipping_status?.toLowerCase() || '');
+                              
+                              let badgeColor = 'text-luxury-gold border-luxury-gold/20';
+                              let badgeText = 'EM PROCESSAMENTO';
+
+                              if (isRefunded) {
+                                badgeColor = 'text-rose-400 border-rose-500/30 bg-rose-500/10 font-bold';
+                                badgeText = 'REEMBOLSADO';
+                              } else if (isRefundPending) {
+                                badgeColor = 'text-amber-400 border-amber-500/30 bg-amber-500/10 font-bold';
+                                badgeText = 'REEMBOLSO EM ANÁLISE';
+                              } else if (isCanceled) {
+                                badgeColor = 'text-red-500 border-red-500/20 bg-red-500/10';
+                                badgeText = 'CANCELADO';
+                              } else if (order.shipping_status === 'delivered') {
+                                badgeColor = 'text-emerald-500 border-emerald-500/20';
+                                badgeText = 'ENTREGUE';
+                              } else if (order.shipping_status === 'out_for_delivery') {
+                                badgeColor = 'text-amber-500 border-amber-500/20';
+                                badgeText = 'EM ENTREGA';
+                              } else if (order.shipping_status === 'sent') {
+                                badgeColor = 'text-blue-500 border-blue-500/20';
+                                badgeText = 'EM TRÂNSITO';
+                              } else if (order.shipping_status === 'confirmed') {
+                                badgeColor = 'text-luxury-gold border-luxury-gold/20';
+                                badgeText = 'CONFIRMADO';
+                              } else if (order.shipping_status === 'preparing') {
+                                badgeColor = 'text-luxury-gold border-luxury-gold/20';
+                                badgeText = 'EM PREPARAÇÃO';
+                              } else if (order.shipping_status === 'ready') {
+                                badgeColor = 'text-luxury-gold border-luxury-gold/20';
+                                badgeText = 'PREPARADO';
+                              } else if (order.shipping_status === 'incident') {
+                                badgeColor = 'text-orange-500 border-orange-500/20';
+                                badgeText = 'COM INCIDENTE';
+                              } else if (order.shipping_status === 'lost') {
+                                badgeColor = 'text-red-700 border-red-700/20';
+                                badgeText = 'EXTRAVIADO';
+                              }
+
+                              return (
+                                <span className={`text-[7px] md:text-[8px] uppercase tracking-[0.3em] font-black py-1 px-2.5 border rounded-sm ${badgeColor}`}>
+                                  {badgeText}
+                                </span>
+                              );
+                            })()}
                             <p className="text-[7px] font-mono text-white/70 uppercase tracking-widest whitespace-nowrap">ID: Sart-{order.id.split('-')[0].toUpperCase()}</p>
                           </div>
                           <h4 className="text-lg md:text-xl font-serif text-white truncate max-w-[200px] lg:max-w-xs group-hover:text-luxury-gold transition-colors duration-500">
@@ -996,30 +1020,46 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                         <div className="flex flex-row md:flex-col lg:flex-row items-center gap-3 md:gap-4 w-full md:w-auto shrink-0 md:ml-auto">
                            <div className="flex-1 md:w-32 shrink-0 p-3 bg-white/5 border border-white/10 text-center space-y-1">
                               <p className="text-[7px] uppercase tracking-widest text-white/85 font-black">LOGÍSTICA</p>
-                              <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
-                                order.shipping_status === 'delivered' ? 'text-emerald-500' : 
-                                ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' :
-                                'text-luxury-gold'
-                              }`}>
-                                {['canceled', 'cancelled'].includes(order.status || '') ? 'CANCELADOS' :
-                                 order.shipping_status === 'delivered' ? 'ENTREGADOS' : 
-                                 order.shipping_status === 'sent' ? 'EM TRÂNSITO' :
-                                 order.shipping_status === 'preparing' ? 'EM PREPARAÇÃO' :
-                                 order.shipping_status === 'ready' ? 'PREPARADOS' :
-                                 order.shipping_status === 'incident' ? 'COM INCIDENTE' :
-                                 order.shipping_status === 'lost' ? 'EXTRAVIADO' :
-                                 order.shipping_status === 'rejected' ? 'REJEITADOS' :
-                                 order.shipping_status === 'review' ? 'ERRO E REVISÃO' :
-                                 'PRODUÇÃO'}
-                              </p>
+                              {(() => {
+                                const isRefunded = ['refunded', 'reembolsado'].includes(order.status?.toLowerCase() || '') || order.payment_status === 'refunded';
+                                const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(order.status?.toLowerCase() || '') || ['canceled', 'cancelled'].includes(order.shipping_status?.toLowerCase() || '');
+                                
+                                if (isRefunded) {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-rose-400">Cancelado</p>;
+                                }
+                                if (isCanceled) {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-red-500">Cancelado</p>;
+                                }
+                                if (order.shipping_status === 'delivered') {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-emerald-500">Entregue</p>;
+                                }
+                                if (order.shipping_status === 'sent') {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-blue-400">Em Trânsito</p>;
+                                }
+                                if (order.shipping_status === 'preparing') {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-luxury-gold">Em Preparação</p>;
+                                }
+                                return <p className="text-[9px] font-black uppercase tracking-widest truncate text-luxury-gold">Produção</p>;
+                              })()}
                            </div>
                            <div className="flex-1 md:w-32 shrink-0 p-3 bg-white/5 border border-white/10 text-center space-y-1">
                               <p className="text-[7px] uppercase tracking-widest text-white/85 font-black">FINANCEIRO</p>
-                              <p className={`text-[9px] font-black uppercase tracking-widest truncate ${
-                                ['canceled', 'cancelled'].includes(order.status || '') ? 'text-red-500' : 'text-emerald-500'
-                              }`}>
-                                {['canceled', 'cancelled'].includes(order.status || '') ? 'Cancelado' : 'Satisfeito'}
-                              </p>
+                              {(() => {
+                                const isRefunded = ['refunded', 'reembolsado'].includes(order.status?.toLowerCase() || '') || order.payment_status === 'refunded';
+                                const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(order.status?.toLowerCase() || '') || order.payment_status === 'refund_pending';
+                                const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(order.status?.toLowerCase() || '');
+                                
+                                if (isRefunded) {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-rose-400 font-bold">Reembolsado</p>;
+                                }
+                                if (isRefundPending) {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-amber-400">Reembolso em Curso</p>;
+                                }
+                                if (isCanceled) {
+                                  return <p className="text-[9px] font-black uppercase tracking-widest truncate text-red-500">Cancelado</p>;
+                                }
+                                return <p className="text-[9px] font-black uppercase tracking-widest truncate text-emerald-500">Satisfeito</p>;
+                              })()}
                            </div>
                         </div>
 
@@ -1209,13 +1249,22 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
                            <div className="space-y-1">
                               <p className="text-[8px] uppercase tracking-widest text-white/85 font-bold">Estado Atual</p>
-                              <p className="text-xs text-white font-black uppercase tracking-widest">
-                                {selectedOrder.shipping_status === 'out_for_delivery' ? 'EM DISTRIBUIÇÃO' : 
-                                 selectedOrder.shipping_status === 'sent' ? 'EM TRÂNSITO' :
-                                 selectedOrder.shipping_status === 'delivered' ? 'ENTREGUE' :
-                                 ['confirmed', 'confirmed_order'].includes(selectedOrder.shipping_status || '') ? 'CONFIRMADO' :
-                                 ['preparing', 'ready'].includes(selectedOrder.shipping_status || '') ? 'EM PREPARAÇÃO' :
-                                 selectedOrder.shipping_status || 'Aguardando Verificação'}
+                              <p className="text-xs font-black uppercase tracking-widest">
+                                {(() => {
+                                  const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
+                                  const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refund_pending';
+                                  const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(selectedOrder.status?.toLowerCase() || '') || ['canceled', 'cancelled'].includes(selectedOrder.shipping_status?.toLowerCase() || '');
+
+                                  if (isRefunded) return <span className="text-rose-400 font-bold">PEDIDO REEMBOLSADO</span>;
+                                  if (isRefundPending) return <span className="text-amber-400 font-bold">REEMBOLSO EM ANÁLISE</span>;
+                                  if (isCanceled) return <span className="text-red-500 font-bold">PEDIDO CANCELADO</span>;
+                                  if (selectedOrder.shipping_status === 'delivered') return <span className="text-emerald-500 font-bold">ENTREGUE</span>;
+                                  if (selectedOrder.shipping_status === 'out_for_delivery') return <span className="text-amber-400 font-bold">EM DISTRIBUIÇÃO</span>;
+                                  if (selectedOrder.shipping_status === 'sent') return <span className="text-blue-400 font-bold">EM TRÂNSITO</span>;
+                                  if (['confirmed', 'confirmed_order'].includes(selectedOrder.shipping_status || '')) return <span className="text-white">CONFIRMADO</span>;
+                                  if (['preparing', 'ready'].includes(selectedOrder.shipping_status || '')) return <span className="text-white">EM PREPARAÇÃO</span>;
+                                  return <span className="text-white">{selectedOrder.shipping_status || 'Aguardando Verificação'}</span>;
+                                })()}
                               </p>
                            </div>
                            {selectedOrder.shipping_status_metadata?.lastExternalStatus && (
@@ -1267,10 +1316,17 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       <div className="pt-6 border-t border-black/10 flex flex-col gap-4">
                          <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
                             <span>Status</span>
-                            <span className="bg-white/20 px-2 py-0.5">
-                               {['canceled', 'cancelled'].includes(selectedOrder.status || '') ? 'CANCELADO' :
-                                ['refunded', 'reembolsado', 'refund_pending'].includes(selectedOrder.status || '') ? 'REEMBOLSADO' :
-                                'COMPLETO'}
+                            <span className="bg-white/20 px-2 py-0.5 font-black">
+                               {(() => {
+                                 const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
+                                 const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refund_pending';
+                                 const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(selectedOrder.status?.toLowerCase() || '');
+
+                                 if (isRefunded) return 'REEMBOLSADO';
+                                 if (isRefundPending) return 'REEMBOLSO EM ANÁLISE';
+                                 if (isCanceled) return 'CANCELADO';
+                                 return 'COMPLETO';
+                               })()}
                             </span>
                          </div>
                          <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">

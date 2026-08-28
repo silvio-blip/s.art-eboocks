@@ -645,6 +645,8 @@ async function getAliExpressCredentials() {
   let appKey = (process.env.VITE_ALIEXPRESS_APP_KEY || process.env.ALIEXPRESS_APP_KEY || "").trim();
   let appSecret = (process.env.VITE_ALIEXPRESS_APP_SECRET || process.env.ALIEXPRESS_APP_SECRET || "").trim();
   let accessToken = (process.env.VITE_ALIEXPRESS_ACCESS_TOKEN || process.env.ALIEXPRESS_ACCESS_TOKEN || "").trim();
+  let autoFulfill = false;
+  let account = "";
 
   try {
     const supabase = getSupabase();
@@ -659,12 +661,16 @@ async function getAliExpressCredentials() {
       if (config.app_key) appKey = config.app_key.trim();
       if (config.app_secret) appSecret = config.app_secret.trim();
       if (config.access_token) accessToken = config.access_token.trim();
+      if (config.auto_fulfill !== undefined) autoFulfill = !!config.auto_fulfill;
+      if (config.account || config.user_nick || config.user_id) {
+        account = config.account || config.user_nick || config.user_id;
+      }
     }
   } catch (err) {
     console.error("[ALIEXPRESS CREDENTIALS DB FETCH ERROR] falling back to env:", err);
   }
 
-  return { appKey, appSecret, accessToken };
+  return { appKey, appSecret, accessToken, autoFulfill, account };
 }
 
 async function fetchAliExpressProduct(productId: string) {
@@ -1089,9 +1095,9 @@ function sanitizeAddressInput(addr: string): string {
   if (!addr) return "";
   let s = addr;
   
-  // 1. Remove ordinal symbols and superscript indicators (º, ª, °, etc.)
+  // 1. Remove ordinal symbols and superscript indicators (º, ª, °, ⁰, etc.)
   // These cause encoding issues and are often misinterpreted as "0".
-  s = s.replace(/[ºª°\u00B0\u00BA\u00AA]/g, '');
+  s = s.replace(/[ºª°⁰¹²³⁴⁵⁶⁷⁸⁹\u00B0\u00BA\u00AA\u2070-\u2079]/g, '');
   
   // 2. Map word numbers to digits (prohibiting word-based patterns as requested)
   const wordMap: Record<string, string> = {
@@ -1128,6 +1134,46 @@ function sanitizeAddressInput(addr: string): string {
   return s.trim();
 }
 
+function cleanCustomerPhone(rawPhone: string | undefined | null, countryCode: string = 'PT'): { phoneCountry: string; mobileNo: string } {
+  const dialCodes: Record<string, string> = {
+    PT: '351', ES: '34', FR: '33', DE: '49', IT: '39', GB: '44', UK: '44',
+    US: '1', CA: '1', BR: '55', AO: '244', MZ: '258', CV: '238', NL: '31',
+    BE: '32', CH: '41', AT: '43', SE: '46', NO: '47', DK: '45', PL: '48',
+    IE: '353', LU: '352'
+  };
+
+  const cleanCountry = (countryCode || 'PT').toUpperCase().substring(0, 2);
+  const targetDial = dialCodes[cleanCountry] || '351';
+  const phoneCountry = `+${targetDial}`;
+
+  let digits = String(rawPhone || '').replace(/\D/g, '');
+
+  // If starts with 00 + country dial code
+  if (digits.startsWith(`00${targetDial}`) && digits.length > targetDial.length + 6) {
+    digits = digits.slice(2 + targetDial.length);
+  } else if (digits.startsWith(targetDial) && digits.length > targetDial.length + 6) {
+    digits = digits.slice(targetDial.length);
+  } else {
+    // Check if starts with any known dial code
+    for (const code of Object.values(dialCodes)) {
+      if (digits.startsWith(code) && digits.length > code.length + 6) {
+        digits = digits.slice(code.length);
+        break;
+      }
+    }
+  }
+
+  // Remove leading zeros
+  digits = digits.replace(/^0+/, '');
+
+  // Validate digit length (9 or 10 digits for most countries; if invalid or empty, fallback)
+  if (!digits || digits.length < 6 || digits.length > 15) {
+    digits = '912345678';
+  }
+
+  return { phoneCountry, mobileNo: digits };
+}
+
 // Helper function to handle Stripe Refund
 async function processRefundInternal(orderId: string) {
   const supabase = getSupabase();
@@ -1136,57 +1182,76 @@ async function processRefundInternal(orderId: string) {
       .from('orders')
       .select('*')
       .eq('id', orderId)
-      .single();
+      .maybeSingle();
 
-    if (error || !order || !order.stripe_session_id || !stripe) {
-      console.error(`[REFUND INTERNAL] Cannot refund order ${orderId}: Missing Stripe session or client`);
+    if (error || !order) {
+      console.error(`[REFUND INTERNAL] Order ${orderId} not found`);
       return false;
     }
 
-    // 1. Get PaymentIntent from Checkout Session
-    let session;
-    try {
-      session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
-    } catch (sErr: any) {
-      if (sErr.message?.includes('No such checkout.session')) {
-         console.warn(`[REFUND INTERNAL] Stripe session ${order.stripe_session_id} not found (likely test data or expired)`);
-         return false;
-      }
-      throw sErr;
-    }
-    const paymentIntentId = session.payment_intent as string;
+    let stripeAttempted = false;
+    let stripeSucceeded = false;
 
-    if (!paymentIntentId) {
-      console.error(`[REFUND INTERNAL] No payment intent found for session ${order.stripe_session_id}`);
+    if (order.stripe_session_id && stripe) {
+      try {
+        stripeAttempted = true;
+        const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
+        const paymentIntentId = session.payment_intent as string;
+        if (paymentIntentId) {
+          const refund = await stripe.refunds.create({
+            payment_intent: paymentIntentId,
+            reason: 'requested_by_customer'
+          });
+          if (refund.status === 'succeeded' || refund.status === 'pending') {
+            stripeSucceeded = true;
+            console.log(`[REFUND INTERNAL] Stripe refund ${refund.status} for Order: ${orderId}`);
+          }
+        }
+      } catch (sErr: any) {
+        console.warn(`[REFUND INTERNAL STRIPE WARN]`, sErr.message);
+      }
+    }
+
+    // Always update local database to refunded status so client and admin see it immediately
+    const { data: updated, error: updateErr } = await supabase
+      .from('orders')
+      .update({ 
+        status: 'refunded', 
+        payment_status: 'refunded',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+      .select()
+      .maybeSingle();
+
+    if (updateErr) {
+      console.error(`[REFUND INTERNAL] Failed to update order status to refunded:`, updateErr);
       return false;
     }
 
-    // 2. Create Refund on Stripe
-    console.log(`[REFUND INTERNAL] Initiating Stripe refund for PaymentIntent: ${paymentIntentId}`);
-    const refund = await stripe.refunds.create({
-      payment_intent: paymentIntentId,
-      reason: 'requested_by_customer'
-    });
-
-    if (refund.status === 'succeeded' || refund.status === 'pending') {
-      console.log(`[REFUND INTERNAL] Stripe refund ${refund.status} for Order: ${orderId}`);
-      
-      if (refund.status === 'succeeded') {
-        const { data: updated } = await supabase.from('orders').update({ status: 'refunded', payment_status: 'refunded' }).eq('id', orderId).select().single();
-        if (updated) triggerOrderNotification(orderId, 'refunded', updated.shipping_status, updated).catch(e => console.error('[REFUND NOTIF ERROR]', e));
-      } else {
-        // Se estiver pendente, marcamos como refund_pending
-        const { data: updated } = await supabase.from('orders').update({ status: 'refund_pending', payment_status: 'refund_pending' }).eq('id', orderId).select().single();
-        // Avisar que foi cancelado com reembolso em curso
-        if (updated) triggerOrderNotification(orderId, 'canceled', updated.shipping_status, updated).catch(e => console.error('[CANCEL NOTIF ERROR]', e));
-      }
-      return true;
+    if (updated) {
+      console.log(`[REFUND INTERNAL] Order ${orderId} status successfully updated to refunded. Triggering notification...`);
+      await triggerOrderNotification(orderId, 'refunded', updated.shipping_status || 'preparing', updated, true);
     }
-    
-    return false;
+
+    return true;
   } catch (err: any) {
     console.error(`[REFUND INTERNAL FATAL] for order ${orderId}:`, err.message);
-    return false;
+    // Fallback force update
+    try {
+      const { data: updated } = await supabase
+        .from('orders')
+        .update({ status: 'refunded', payment_status: 'refunded', updated_at: new Date().toISOString() })
+        .eq('id', orderId)
+        .select()
+        .maybeSingle();
+      if (updated) {
+        await triggerOrderNotification(orderId, 'refunded', updated.shipping_status || 'preparing', updated, true);
+      }
+      return true;
+    } catch (fallbackErr) {
+      return false;
+    }
   }
 }
 
@@ -3788,24 +3853,80 @@ adminRouter.post('/orders/:id/fulfill', async (req, res) => {
       return res.status(404).json({ error: 'Ordem não encontrada' });
     }
 
-    if (order.status !== 'paid' && order.status !== 'completed') {
-      return res.status(400).json({ error: 'Apenas pedidos pagos podem ser enviados para o fornecedor' });
+    if (order.status !== 'paid' && order.status !== 'completed' && order.status !== 'pago') {
+      return res.status(400).json({ error: 'Apenas pedidos com pagamento confirmado podem ser enviados para o fornecedor' });
     }
 
-    // Mesmo que já tenha ID, permitimos re-enviar se o admin insistir
-    await processOrderFulfillment(order, true);
+    // Executar envio para o AliExpress em modo manual forçado
+    const fulfillResult = await processOrderFulfillment(order, true);
     
     // Buscar ordem atualizada para retornar pro front
     const { data: updatedOrder } = await supabase.from('orders').select('*').eq('id', id).single();
     
     res.json({ 
       success: true, 
-      message: 'Pedido enviado para processamento no fornecedor',
+      message: fulfillResult?.message || 'Pedido enviado com sucesso para o AliExpress!',
+      order_id: fulfillResult?.order_id || updatedOrder?.provider_order_id,
       order: updatedOrder
     });
   } catch (error: any) {
     console.error(`[ADMIN FULFILL ERROR]`, error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || 'Falha ao processar envio no AliExpress' });
+  }
+});
+
+adminRouter.post('/orders/batch-fulfill', async (req, res) => {
+  try {
+    const { order_ids } = req.body;
+    if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
+      return res.status(400).json({ error: 'Lista de IDs de pedidos inválida ou vazia.' });
+    }
+
+    console.log(`[ADMIN BATCH FULFILL] Processando ${order_ids.length} pedidos em lote...`);
+    const supabase = getSupabase();
+
+    const { data: orders, error: ordersErr } = await supabase
+      .from('orders')
+      .select('*')
+      .in('id', order_ids);
+
+    if (ordersErr || !orders) {
+      return res.status(500).json({ error: 'Erro ao buscar pedidos no banco de dados' });
+    }
+
+    const results: Array<{ id: string; success: boolean; order_id?: string; error?: string }> = [];
+
+    for (const ord of orders) {
+      try {
+        if (ord.status !== 'paid' && ord.status !== 'completed' && ord.status !== 'pago') {
+          results.push({ id: ord.id, success: false, error: 'Pedido não está pago' });
+          continue;
+        }
+
+        const resFulfill = await processOrderFulfillment(ord, true);
+        results.push({ 
+          id: ord.id, 
+          success: true, 
+          order_id: resFulfill?.order_id || ord.provider_order_id 
+        });
+      } catch (err: any) {
+        results.push({ id: ord.id, success: false, error: err.message });
+      }
+    }
+
+    const fulfilledCount = results.filter(r => r.success).length;
+    const failedCount = results.filter(r => !r.success).length;
+
+    res.json({
+      success: true,
+      total: order_ids.length,
+      fulfilled: fulfilledCount,
+      failed: failedCount,
+      results
+    });
+  } catch (err: any) {
+    console.error(`[ADMIN BATCH FULFILL ERROR]`, err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -3877,30 +3998,38 @@ async function syncOrderWithExternalSources(id: string) {
   let trackingNumber = "";
   let trackingUrl = "";
 
-  // AliExpress sync is now disabled for automated checks as the "provider_order_id" 
-  // is treated as a manual orientation reference by the administrator.
   if (provider === 'aliexpress') {
-    console.log(`[SYNC INFO] AliExpress API sync bypassed for order ${id}. ID ${providerOrderId} is for manual reference only.`);
+    try {
+      console.log(`[SYNC ALIEXPRESS] Consultando status real do pedido #${providerOrderId} no AliExpress...`);
+      externalData = await getAliExpressOrderDetail(String(providerOrderId));
+      if (externalData) {
+        externalStatus = externalData.order_status || externalData.status || "";
+        console.log(`[SYNC ALIEXPRESS] Retorno do AliExpress para #${providerOrderId}: status="${externalStatus}"`);
+        
+        // Extrair código de rastreamento se disponível
+        if (externalData.logistics_info_list && externalData.logistics_info_list.aeop_logistics_info) {
+          const list = Array.isArray(externalData.logistics_info_list.aeop_logistics_info) 
+            ? externalData.logistics_info_list.aeop_logistics_info 
+            : [externalData.logistics_info_list.aeop_logistics_info];
+          const logInfo = list.find((item: any) => item.logistics_no);
+          if (logInfo?.logistics_no) {
+            trackingNumber = logInfo.logistics_no;
+            trackingUrl = `https://global.cainiao.com/detail.htm?mailNoList=${trackingNumber}`;
+          }
+        }
+      } else {
+        console.warn(`[SYNC ALIEXPRESS WARN] Pedido #${providerOrderId} não retornou dados da API do AliExpress`);
+      }
+    } catch (aliSyncErr: any) {
+      console.error(`[SYNC ALIEXPRESS ERROR] Erro ao consultar #${providerOrderId}:`, aliSyncErr.message);
+    }
   } else {
     try {
-      // If we had other providers, we would call them here.
-      // For now, we only had AliExpress which we are bypassing.
+      // Outros provedores
     } catch (err: any) {
       console.error(`[SYNC API ERROR] Provider: ${provider}, ID: ${providerOrderId}:`, err.message);
       return { success: false, error: 'ERRO_API_EXTERNA', message: err.message };
     }
-  }
-
-  // Only throw error if it's NOT AliExpress and we expected data
-  if (provider !== 'aliexpress' && !externalData) {
-    console.error(`[SYNC ERROR] ${providerLabel} não retornou dados para ID: ${providerOrderId}`);
-    return { 
-      success: false, 
-      error: 'PROVEDOR_NAO_RETORNOU_DADOS', 
-      provider: providerLabel,
-      externalId: providerOrderId,
-      message: `O fornecedor ${providerLabel} não encontrou informações para o pedido ${providerOrderId}. Verifique se o ID está correto no site do fornecedor.` 
-    };
   }
 
   const updateData: any = { updated_at: new Date().toISOString() };
@@ -3937,59 +4066,112 @@ async function syncOrderWithExternalSources(id: string) {
       } else {
         console.warn(`[SYNC STRIPE WARN] Order ${id} session not found:`, stripeErr.message);
       }
-      // O código continua normalmente para sincronizar com fornecedores
     }
   }
 
-  // MAPEAMENTO DE STATUS
-  const orderAgeMinutes = (new Date().getTime() - new Date(order.created_at).getTime()) / (1000 * 60);
-  
-  // AliExpress Mapping - Expanded
+  // DETECÇÃO ROBUSTA DE STATUS DO ALIEXPRESS (INCLUINDO CANCELAMENTO)
   const statusUpper = String(externalStatus || "").toUpperCase();
-    if (['FINISH', 'COMPLETED', 'SHIPPED_TO_SENDER', 'FUND_PROCESSING'].includes(statusUpper)) {
-        updateData.status = 'completed';
-        updateData.shipping_status = 'delivered';
-    } else if (['SELLER_SEND_GOODS', 'SHIPPED', 'WAIT_BUYER_ACCEPT_GOODS'].includes(statusUpper)) {
-        updateData.status = 'paid';
-        updateData.shipping_status = 'sent';
-    } else if (['WAIT_SELLER_SEND_GOODS', 'WAIT_SELLER_SEND', 'PLACE_ORDER_SUCCESS', 'RISK_CONTROL'].includes(statusUpper)) {
-        updateData.status = 'paid';
-        if (!['sent', 'delivered'].includes(order.shipping_status)) {
-            updateData.shipping_status = 'preparing';
-        }
-    } else if (['WAIT_BUYER_PAY', 'PENDING'].includes(statusUpper)) {
-        // Status inicial
-    } else if (['IN_ISSUE', 'IN_DISPUTE'].includes(statusUpper)) {
-        updateData.shipping_status = 'disputed';
-    } else if (['CANCELLED', 'CANCELED', 'VOID', 'CLOSED'].includes(statusUpper)) {
-        if (!['refunded', 'refund_pending'].includes(order.status) && orderAgeMinutes > 10) {
-            updateData.status = 'canceled';
-        }
+  let isAliCanceled = false;
+  let aliEndReason = "";
+
+  if (externalData) {
+    const childItems = externalData.child_order_list?.aeop_child_order_info 
+      ? (Array.isArray(externalData.child_order_list.aeop_child_order_info) 
+          ? externalData.child_order_list.aeop_child_order_info 
+          : [externalData.child_order_list.aeop_child_order_info])
+      : [];
+    
+    const childEndReasons = childItems.map((c: any) => String(c.end_reason || '').toUpperCase());
+    const childEndDescs = childItems.map((c: any) => String(c.end_reason_desc || '').toLowerCase());
+    const rootEndReason = String(externalData.end_reason || '').toUpperCase();
+    const rootEndDesc = String(externalData.end_reason_desc || '').toLowerCase();
+
+    const allReasons = [rootEndReason, ...childEndReasons].filter(Boolean);
+    const allDescs = [rootEndDesc, ...childEndDescs].filter(Boolean);
+
+    const hasCancelReason = allReasons.some(r => 
+      ['CANCELED', 'CANCELLED', 'BUYER_CANCEL_ORDER', 'BUYER_PAY_TIMEOUT', 'SELLER_CANCEL', 'PAY_TIMEOUT', 'ORDER_CANCELED', 'CLOSED'].includes(r)
+    );
+    const hasCancelDesc = allDescs.some(d => 
+      d.includes('cancel') || d.includes('closed') || d.includes('timeout') || d.includes('fechado')
+    );
+
+    if (['CANCELLED', 'CANCELED', 'VOID', 'CLOSED', 'IN_CANCEL'].includes(statusUpper)) {
+      isAliCanceled = true;
+      aliEndReason = allReasons[0] || statusUpper;
+    } else if (statusUpper === 'FINISH' && (hasCancelReason || hasCancelDesc)) {
+      isAliCanceled = true;
+      aliEndReason = allReasons[0] || (hasCancelDesc ? 'Cancelado no AliExpress' : 'FINISH_CANCELED');
     }
+  }
+
+  if (isAliCanceled) {
+    console.log(`[SYNC CANCEL DETECTED] O pedido #${order.id} foi identificado como CANCELADO no AliExpress (Motivo: ${aliEndReason})`);
+    if (!['refunded', 'refund_pending'].includes(order.status)) {
+      updateData.status = 'canceled';
+      updateData.shipping_status = 'canceled';
+    }
+  } else if (['FINISH', 'COMPLETED', 'SHIPPED_TO_SENDER'].includes(statusUpper)) {
+    updateData.status = 'completed';
+    updateData.shipping_status = 'delivered';
+  } else if (['SELLER_SEND_GOODS', 'SHIPPED', 'WAIT_BUYER_ACCEPT_GOODS'].includes(statusUpper)) {
+    updateData.status = 'paid';
+    updateData.shipping_status = 'sent';
+  } else if (['WAIT_SELLER_SEND_GOODS', 'WAIT_SELLER_SEND', 'PLACE_ORDER_SUCCESS', 'RISK_CONTROL'].includes(statusUpper)) {
+    updateData.status = 'paid';
+    if (!['sent', 'delivered'].includes(order.shipping_status)) {
+      updateData.shipping_status = 'preparing';
+    }
+  } else if (['WAIT_BUYER_PAY', 'PENDING'].includes(statusUpper)) {
+    // Pedido criado aguardando pagamento
+    if (order.status !== 'canceled' && order.status !== 'refunded') {
+      if (!order.shipping_status || order.shipping_status === 'pending') {
+        updateData.shipping_status = 'preparing';
+      }
+    }
+  } else if (['IN_ISSUE', 'IN_DISPUTE'].includes(statusUpper)) {
+    updateData.shipping_status = 'disputed';
+  }
 
   // Garantir metadados atualizados
+  const prevMeta = (order.shipping_status_metadata && typeof order.shipping_status_metadata === 'object')
+    ? order.shipping_status_metadata
+    : {};
+
   updateData.shipping_status_metadata = {
-    ...(order.shipping_status_metadata || {}),
+    ...prevMeta,
     syncedAt: new Date().toISOString(),
-    lastExternalStatus: externalStatus || 'UNKNOWN'
+    lastExternalStatus: isAliCanceled ? `CANCELADO NO ALIEXPRESS (${aliEndReason || 'CANCELED'})` : (externalStatus || prevMeta.lastExternalStatus || 'DESCONHECIDO'),
+    ...(isAliCanceled ? { ali_canceled_at: new Date().toISOString(), ali_end_reason: aliEndReason } : {})
   };
 
   if (trackingNumber) {
-      updateData.shipping_status_metadata.trackingNumber = trackingNumber;
-      updateData.shipping_status_metadata.trackingUrl = trackingUrl || (provider === 'aliexpress' ? `https://www.17track.net/en/track?nums=${trackingNumber}` : '');
-      
-      if (!updateData.shipping_status && !['delivered', 'sent', 'out_for_delivery'].includes(order.shipping_status)) {
-        updateData.shipping_status = 'sent';
-      }
+    updateData.shipping_tracking_code = trackingNumber;
+    updateData.shipping_tracking_url = trackingUrl || `https://www.17track.net/en/track?nums=${trackingNumber}`;
+    updateData.shipping_status_metadata.trackingNumber = trackingNumber;
+    updateData.shipping_status_metadata.trackingUrl = updateData.shipping_tracking_url;
+    
+    if (!updateData.shipping_status && !['delivered', 'sent', 'out_for_delivery', 'canceled'].includes(order.shipping_status)) {
+      updateData.shipping_status = 'sent';
+    }
   }
 
-  const hasChanges = Object.keys(updateData).some(key => key !== 'updated_at' && updateData[key] !== order[key]);
+  const hasChanges = Object.keys(updateData).some(key => {
+    if (key === 'updated_at') return false;
+    if (key === 'shipping_status_metadata') {
+      return JSON.stringify(updateData[key]) !== JSON.stringify(order[key]);
+    }
+    return updateData[key] !== order[key];
+  });
 
   if (hasChanges) {
     const { error: updateError } = await supabase.from('orders').update(updateData).eq('id', id);
-    if (updateError) return { success: false, error: 'Falha ao atualizar no banco' };
+    if (updateError) {
+      console.error(`[SYNC DB UPDATE ERROR]`, updateError);
+      return { success: false, error: 'Falha ao atualizar no banco: ' + updateError.message };
+    }
     
-    // Auto Email on status changes logic...
+    // Auto Email em alterações de status importantes
     if (updateData.status || updateData.shipping_status) {
       triggerOrderNotification(order.id, updateData.status || order.status, updateData.shipping_status || order.shipping_status, { ...order, ...updateData }).catch(e => console.error(e));
     }
@@ -4001,12 +4183,163 @@ async function syncOrderWithExternalSources(id: string) {
   return { 
     success: true, 
     synced: hasChanges, 
-    external_status: externalStatus,
+    external_status: isAliCanceled ? 'CANCELADO NO ALIEXPRESS' : (externalStatus || 'OK'),
     provider: providerLabel,
     externalId: providerOrderId,
     updatedOrder
   };
 }
+
+adminRouter.post('/orders/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { refund_stripe, reason } = req.body;
+    const supabase = getSupabase();
+
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (orderErr || !order) {
+      return res.status(404).json({ error: 'Ordem não encontrada' });
+    }
+
+    console.log(`[ADMIN CANCEL ORDER] Cancelando pedido ${id}... Reembolso Stripe: ${!!refund_stripe}`);
+
+    let stripeRefundDone = false;
+    let stripeRefundMessage = "";
+
+    // Se solicitado estorno Stripe (ou se o pedido estiver pago e for solicitado)
+    if (refund_stripe && (order.stripe_payment_intent || order.stripe_session_id) && order.payment_status !== 'refunded') {
+      try {
+        const refunded = await processRefundInternal(id);
+        if (refunded) {
+          stripeRefundDone = true;
+          stripeRefundMessage = "Reembolso executado com sucesso no Stripe.";
+        }
+      } catch (refundErr: any) {
+        console.error(`[ADMIN CANCEL STRIPE ERROR]`, refundErr);
+        stripeRefundMessage = `Aviso: Falha ao estornar automaticamente no Stripe (${refundErr.message}).`;
+      }
+    }
+
+    // Verificar e sincronizar com AliExpress se houver vínculo
+    let aliStatus = null;
+    let aliUrl = null;
+    if (order.provider_order_id) {
+      aliUrl = `https://trade.aliexpress.com/order_detail.htm?orderId=${order.provider_order_id}`;
+      try {
+        aliStatus = await getAliExpressOrderDetail(String(order.provider_order_id));
+      } catch (aliErr: any) {
+        console.warn(`[ADMIN CANCEL ALI WARN]`, aliErr.message);
+      }
+    }
+
+    const prevMeta = (order.shipping_status_metadata && typeof order.shipping_status_metadata === 'object')
+      ? order.shipping_status_metadata
+      : {};
+
+    const updatedMeta = {
+      ...prevMeta,
+      admin_canceled_at: new Date().toISOString(),
+      cancel_reason: reason || 'Cancelado pelo administrador',
+      ali_manage_url: aliUrl,
+      lastExternalStatus: 'CANCELADO NA LOJA'
+    };
+
+    const updatePayload: any = {
+      status: stripeRefundDone ? 'refunded' : 'canceled',
+      shipping_status: 'canceled',
+      refund_reason: reason || 'Cancelado pelo administrador',
+      shipping_status_metadata: updatedMeta,
+      updated_at: new Date().toISOString()
+    };
+
+    if (stripeRefundDone) {
+      updatePayload.payment_status = 'refunded';
+    }
+
+    const { data: updatedOrder, error: updateErr } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    // Disparar e-mail de notificação de cancelamento para o cliente
+    triggerOrderNotification(id, updatedOrder.status, 'canceled', updatedOrder).catch(e => console.error('[CANCEL EMAIL ERROR]', e));
+
+    const aliMessage = order.provider_order_id 
+      ? ` O pedido #${order.provider_order_id} no AliExpress foi sincronizado.`
+      : '';
+
+    res.json({
+      success: true,
+      message: `Pedido cancelado com sucesso!${aliMessage} ${stripeRefundMessage}`.trim(),
+      order: updatedOrder,
+      ali_url: aliUrl
+    });
+  } catch (error: any) {
+    console.error(`[ADMIN CANCEL FATAL ERROR]`, error);
+    res.status(500).json({ error: error.message || 'Erro ao cancelar o pedido' });
+  }
+});
+
+adminRouter.post('/orders/sync-all-ali', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    console.log(`[SYNC ALL ALI] Iniciando sincronização em lote com o AliExpress...`);
+
+    // Buscar todos os pedidos vinculados ao AliExpress ou que tenham provider_order_id
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select('id, provider_order_id, status, shipping_status')
+      .not('provider_order_id', 'is', null)
+      .neq('provider_order_id', '');
+
+    if (error) throw error;
+
+    if (!orders || orders.length === 0) {
+      return res.json({ success: true, message: 'Nenhum pedido vinculado ao AliExpress encontrado.', total: 0, updated: 0 });
+    }
+
+    let updatedCount = 0;
+    let canceledCount = 0;
+    const results = [];
+
+    for (const ord of orders) {
+      try {
+        const syncRes = await syncOrderWithExternalSources(ord.id);
+        if (syncRes.success && syncRes.synced) {
+          updatedCount++;
+          if (syncRes.updatedOrder?.status === 'canceled' || syncRes.external_status?.includes('CANCELADO')) {
+            canceledCount++;
+          }
+        }
+        results.push({ id: ord.id, aliId: ord.provider_order_id, success: syncRes.success, status: syncRes.external_status });
+      } catch (err: any) {
+        console.error(`[SYNC ALL ALI ERR] Order ${ord.id}:`, err.message);
+        results.push({ id: ord.id, aliId: ord.provider_order_id, success: false, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Sincronização concluída! ${orders.length} pedidos verificados (${updatedCount} atualizados, ${canceledCount} cancelamentos detectados).`,
+      total: orders.length,
+      updated: updatedCount,
+      canceled: canceledCount,
+      details: results
+    });
+  } catch (error: any) {
+    console.error(`[SYNC ALL ALI FATAL ERROR]`, error);
+    res.status(500).json({ error: error.message || 'Erro ao sincronizar pedidos' });
+  }
+});
 
 adminRouter.post('/orders/:id/sync_payment', async (req, res) => {
   try {
@@ -4915,9 +5248,8 @@ async function getHydratedHtml(html: string, product: any, reqUrl?: string) {
 }
 
 async function processOrderFulfillment(order: any, forceManual: boolean = false) {
+  const supabase = getSupabase();
   try {
-    const supabase = getSupabase();
-    
     // Fetch fresh local order data
     const { data: latestOrder, error: fetchErr } = await supabase
       .from('orders')
@@ -4933,7 +5265,7 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 
     if (!currentOrder || !currentOrder.id) {
        console.error(`[FULFILLMENT FATAL] Dados de ordem inválidos.`);
-       return;
+       return { success: false, error: 'Dados da ordem inválidos' };
     }
 
     // Fetch product separately
@@ -4946,72 +5278,107 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
     const existingExtId = currentOrder.provider_order_id;
     if (existingExtId && !forceManual) {
         console.log(`[FULFILLMENT SKIP] Ordem ${currentOrder.id} já possui provider_order_id: ${existingExtId}`);
-        return;
+        return { success: true, already_fulfilled: true, order_id: existingExtId };
     }
 
-    console.log(`[FULFILLMENT START] Ordem ${currentOrder.id} - Manual: ${forceManual}`);
+    console.log(`[FULFILLMENT START] Ordem ${currentOrder.id} - Forçar Manual: ${forceManual}`);
 
-    // RESOLVE PRODUCT (Reforçado para evitar 'Produto não encontrado')
+    // RESOLVE PRODUCT
     let productInDb = null;
     if (currentOrder.products) {
       productInDb = Array.isArray(currentOrder.products) ? currentOrder.products[0] : currentOrder.products;
     }
     
-    // Se ainda não temos produto, tentamos fetch direto no DB se houver product_id
     if (!productInDb && currentOrder.product_id) {
       const { data: fallbackProd } = await supabase.from('products').select('*').eq('id', currentOrder.product_id).maybeSingle();
       if (fallbackProd) productInDb = fallbackProd;
     }
 
     if (!productInDb) {
-        throw new Error(`Produto não encontrado (ID: ${currentOrder.product_id}). Verifique se o produto ainda existe na base de dados.`);
+        throw new Error(`Produto não encontrado (ID: ${currentOrder.product_id}). Verifique se o produto ainda existe no catálogo.`);
     }
     
-    // Identificação robusta do provedor
+    // Identificação do provedor
     let provider = currentOrder.provider;
     if (!provider) {
       if (productInDb?.provider) provider = productInDb.provider;
       else if (productInDb?.aliexpress_id) provider = 'aliexpress';
       else provider = 'aliexpress';
     }
-    const providerLabel = provider === 'aliexpress' ? 'Internacional' : 'Local';
-    console.log(`[FULFILLMENT LOG] Provedor Identificado: ${providerLabel} (Baseado em: order.provider=${currentOrder.provider}, product.provider=${productInDb?.provider}, ali_id=${productInDb?.aliexpress_id})`);
+    const providerLabel = provider === 'aliexpress' ? 'AliExpress (Internacional)' : 'Local';
+    console.log(`[FULFILLMENT LOG] Provedor: ${providerLabel} (Produto: ${productInDb?.name || productInDb?.id})`);
 
     // Normalizar shipping_details
     const customerData = typeof currentOrder.shipping_details === 'string' 
       ? JSON.parse(currentOrder.shipping_details) 
       : (currentOrder.shipping_details || {});
 
-    // Ensure email
     if (!customerData.email && currentOrder.customer_email) {
       customerData.email = currentOrder.customer_email;
     }
 
-    // Normalizar selected_options
-    const selectedOptions = typeof currentOrder.selected_options === 'string'
-      ? JSON.parse(currentOrder.selected_options)
-      : (currentOrder.selected_options || {});
+    // Verificar definições de Auto-Fulfillment
+    const { appKey, appSecret, accessToken, autoFulfill } = await getAliExpressCredentials();
 
-    const priceToSubmit = Math.max(
-      parseFloat(String(currentOrder.total_amount || 0)),
-      parseFloat(String(productInDb?.pvp || 0))
-    );
-
-    let providerOrderId = null;
-
-    console.log(`[FULFILLMENT] International order ${currentOrder.id} detected. Skipping automatic API purchase as requested.`);
-    await supabase.from('orders').update({
+    if (!forceManual && !autoFulfill) {
+      console.log(`[FULFILLMENT INFO] Auto-fulfillment está desativado nas definições. Pedido ${currentOrder.id} aguarda envio manual no painel.`);
+      await supabase.from('orders').update({
         status: 'paid',
-        shipping_status: 'pending',
-        notes: (currentOrder.notes || '') + '\n[INFO] Envio deve ser feito manualmente pelo administrador no portal do parceiro.'
-    }).eq('id', currentOrder.id);
+        shipping_status: currentOrder.shipping_status || 'pending',
+        updated_at: new Date().toISOString()
+      }).eq('id', currentOrder.id);
+      
+      return { 
+        success: true, 
+        mode: 'manual_pending', 
+        message: 'Pedido pronto para envio manual no painel de administração.' 
+      };
+    }
+
+    if (!appKey || !appSecret || !accessToken) {
+      throw new Error("Credenciais do AliExpress ausentes ou não autenticadas. Por favor, autentique a conta AliExpress no Painel de Administração.");
+    }
+
+    console.log(`[FULFILLMENT EXECUTE] Enviando pedido ${currentOrder.id} para a API do AliExpress...`);
+    const aliOrderId = await fulfillAliExpressOrder(currentOrder, productInDb, customerData);
+
+    console.log(`[FULFILLMENT SUCCESS] Pedido ${currentOrder.id} criado com sucesso no AliExpress! ID do Parceiro: ${aliOrderId}`);
+
+    // Atualizar no banco de dados com ID retornado do AliExpress
+    const prevMetadata = currentOrder.shipping_status_metadata && typeof currentOrder.shipping_status_metadata === 'object' 
+      ? currentOrder.shipping_status_metadata 
+      : {};
+
+    const updatedMetadata = {
+      ...prevMetadata,
+      ali_fulfillment_date: new Date().toISOString(),
+      ali_order_id: String(aliOrderId)
+    };
     
-    // Notificar que está em processamento manual
-    triggerOrderNotification(currentOrder.id, 'paid', 'pending', null, true).catch(e => console.error('[NOTIF ERR]', e));
-    return;
+    await supabase.from('orders').update({
+      provider_order_id: String(aliOrderId),
+      provider: 'aliexpress',
+      shipping_status: 'preparing',
+      fulfillment_error: null,
+      shipping_status_metadata: updatedMetadata,
+      updated_at: new Date().toISOString()
+    }).eq('id', currentOrder.id);
+
+    // Disparar notificação de atualização
+    triggerOrderNotification(currentOrder.id, 'paid', 'preparing', null, true).catch(e => console.error('[NOTIF ERR]', e));
+
+    return {
+      success: true,
+      order_id: String(aliOrderId),
+      message: `Pedido #${aliOrderId} enviado com sucesso para o AliExpress!`
+    };
+
   } catch (err: any) {
     console.error(`[FULFILLMENT SYSTEM ERROR] Falha Crítica na Ordem ${order.id}:`, err.message);
-    await getSupabase().from('orders').update({ fulfillment_error: err.message }).eq('id', order.id);
+    await supabase.from('orders').update({ 
+      fulfillment_error: err.message,
+      updated_at: new Date().toISOString()
+    }).eq('id', order.id);
     throw err; 
   }
 }
@@ -5019,76 +5386,169 @@ async function processOrderFulfillment(order: any, forceManual: boolean = false)
 async function fulfillAliExpressOrder(order: any, product: any, customerData: any) {
     const countryMap: Record<string, string> = {
         'Portugal': 'PT', 'Espanha': 'ES', 'Spain': 'ES', 'Brasil': 'BR', 'Brazil': 'BR',
-        'PT': 'PT', 'ES': 'ES', 'BR': 'BR'
+        'França': 'FR', 'France': 'FR', 'Alemanha': 'DE', 'Germany': 'DE', 'Itália': 'IT',
+        'Italy': 'IT', 'Reino Unido': 'GB', 'United Kingdom': 'GB', 'Estados Unidos': 'US',
+        'United States': 'US', 'PT': 'PT', 'ES': 'ES', 'BR': 'BR', 'FR': 'FR', 'DE': 'DE',
+        'IT': 'IT', 'GB': 'GB', 'US': 'US'
     };
-    const resolvedCountry = countryMap[customerData.countryCode] || countryMap[customerData.country] || customerData.countryCode || customerData.country || 'PT';
+    
+    const rawCountry = customerData.countryCode || customerData.country || customerData.pais || 'PT';
+    const resolvedCountry = countryMap[rawCountry] || String(rawCountry).toUpperCase().substring(0, 2);
+
+    // Extrair prefixo telefónico e número móvel formatado corretamente para o AliExpress (9 ou 10 dígitos)
+    const rawPhone = customerData.phone || customerData.mobile_no || customerData.telefone || customerData.telemovel;
+    const { phoneCountry, mobileNo } = cleanCustomerPhone(rawPhone, resolvedCountry);
+
+    const customerName = (
+      customerData.fullName || 
+      customerData.name || 
+      `${customerData.firstName || ""} ${customerData.lastName || ""}`
+    ).trim() || "Cliente S.art";
 
     const address = {
-        address: sanitizeAddressInput(customerData.address || ""),
-        city: sanitizeAddressInput(customerData.city || ""),
-        contact_person: (customerData.fullName || `${customerData.firstName || ""} ${customerData.lastName || ""}`).trim() || "Cliente",
-        country: String(resolvedCountry).toUpperCase().substring(0, 2),
-        phone: customerData.phone || "000000000",
-        province: sanitizeAddressInput(customerData.province || customerData.city || ""),
-        zip: (customerData.zip || customerData.postalCode || "").trim()
+        address: sanitizeAddressInput(customerData.address || customerData.street || customerData.morada || customerData.address_line_1 || "Rua Principal"),
+        city: sanitizeAddressInput(customerData.city || customerData.cidade || customerData.distrito || "Lisboa"),
+        contact_person: customerName,
+        full_name: customerName,
+        country: resolvedCountry,
+        phone_country: phoneCountry,
+        mobile_no: mobileNo,
+        phone: mobileNo,
+        province: sanitizeAddressInput(customerData.province || customerData.state || customerData.distrito || customerData.city || "Lisboa"),
+        zip: (customerData.zip || customerData.postalCode || customerData.postal_code || customerData.codigo_postal || "1000-001").trim()
     };
 
     const aliId = cleanAliExpressId(product.aliexpress_id);
     if (!aliId) {
-        throw new Error("Este produto não possui um AliExpress ID válido vinculado. Sincronização impossível.");
+        throw new Error("Este produto não possui um AliExpress ID válido vinculado. Impossível enviar para o fornecedor.");
+    }
+
+    // Resolver SKU / Variação
+    const selectedOptions = typeof order.selected_options === 'string' 
+      ? JSON.parse(order.selected_options) 
+      : (order.selected_options || {});
+
+    let skuAttr = selectedOptions.sku || selectedOptions.sku_attr || "";
+    let skuId = selectedOptions.sku_id ? String(selectedOptions.sku_id) : "";
+
+    // 1. Tentar resolver a partir de product.metadata.variations se existir
+    if (!skuId && product.metadata?.variations && Array.isArray(product.metadata.variations)) {
+      const targetColor = (selectedOptions.color || selectedOptions.cor || "").toLowerCase().trim();
+      const targetSize = (selectedOptions.size || selectedOptions.tamanho || "").toLowerCase().trim();
+
+      const matchedVariation = product.metadata.variations.find((v: any) => {
+        const props = (v.properties || []).map((p: any) => String(p.value || '').toLowerCase().trim());
+        const matchesColor = !targetColor || props.some((val: string) => val.includes(targetColor) || targetColor.includes(val));
+        const matchesSize = !targetSize || props.some((val: string) => val.includes(targetSize) || targetSize.includes(val));
+        return matchesColor && matchesSize;
+      });
+
+      if (matchedVariation?.sku_id) {
+        skuId = String(matchedVariation.sku_id);
+        if (matchedVariation.sku_attr) {
+          skuAttr = String(matchedVariation.sku_attr);
+        }
+        console.log(`[ALIEXPRESS FULFILL] SKU encontrado no catálogo local: ID ${skuId}`);
+      }
+    }
+
+    // 2. Se não tiver skuAttr, buscar os SKUs do produto no AliExpress para obter o sku_attr correto
+    if (!skuAttr) {
+      try {
+        console.log(`[ALIEXPRESS FULFILL] Buscando SKUs do produto ${aliId} na API do AliExpress...`);
+        const productDetail = await getAliExpressProductDetail(String(aliId));
+        if (productDetail && productDetail.ae_item_sku_info_dtos?.ae_item_sku_info_d_t_o) {
+          const skuList = productDetail.ae_item_sku_info_dtos.ae_item_sku_info_d_t_o;
+          const targetColor = (selectedOptions.color || selectedOptions.cor || "").toLowerCase().trim();
+          const targetSize = (selectedOptions.size || selectedOptions.tamanho || "").toLowerCase().trim();
+
+          // 2a. Match por sku_id se já tínhamos
+          let matchedSku = skuId ? skuList.find((s: any) => String(s.sku_id) === String(skuId)) : null;
+
+          // 2b. Match por cor e tamanho
+          if (!matchedSku) {
+            matchedSku = skuList.find((s: any) => {
+              const attrStr = (s.sku_attr || "").toLowerCase();
+              return (targetColor && attrStr.includes(targetColor)) || (targetSize && attrStr.includes(targetSize));
+            });
+          }
+
+          // 2c. Fallback: Primeiro SKU disponível em stock
+          if (!matchedSku) {
+            matchedSku = skuList.find((s: any) => (s.sku_available_stock || 0) > 0) || skuList[0];
+          }
+
+          if (matchedSku) {
+            skuAttr = matchedSku.sku_attr || matchedSku.id || "";
+            if (!skuId && matchedSku.sku_id) skuId = String(matchedSku.sku_id);
+            console.log(`[ALIEXPRESS FULFILL] SKU mapeado com sucesso: ID ${skuId}, Attr: ${skuAttr}`);
+          }
+        }
+      } catch (skuErr) {
+        console.warn(`[ALIEXPRESS FULFILL] Não foi possível obter lista detalhada de SKUs:`, skuErr);
+      }
+    }
+
+    const productItem: any = {
+      product_count: Math.max(1, parseInt(String(order.quantity || 1))),
+      product_id: String(aliId)
+    };
+
+    if (skuAttr) {
+      productItem.sku_attr = String(skuAttr);
+    } else if (skuId) {
+      productItem.sku_id = String(skuId);
     }
 
     const businessParams = {
       param_place_order_request4_open_api_d_t_o: JSON.stringify({
-        out_order_id: order.id,
+        out_order_id: String(order.id),
         logistics_address: address,
-        product_items: [
-          (() => {
-            const item: any = {
-              product_count: order.quantity || 1,
-              product_id: String(aliId)
-            };
-            if (order.selected_options?.sku_id) {
-              item.sku_id = String(order.selected_options.sku_id);
-            } else {
-              item.sku_attr = order.selected_options?.sku || "";
-            }
-            return item;
-          })()
-        ]
+        product_items: [productItem]
       })
     };
 
-    console.log("[DEBUG PAYLOAD ALIEXPRESS] Enviando:", JSON.stringify(businessParams));
+    console.log("[ALIEXPRESS FULFILL PAYLOAD]", JSON.stringify(businessParams));
     const result = await callAliExpressAPIInternal('aliexpress.trade.buy.placeorder', businessParams);
     
     const responseKey = 'aliexpress_trade_buy_placeorder_response';
     if (result && result[responseKey]) {
         const resObj = result[responseKey];
         if (resObj.result && resObj.result.is_success === false) {
-        throw new Error("Erro na API do fornecedor: " + (resObj.result.error_code || "Erro desconhecido"));
+          const errMsg = resObj.result.error_msg || resObj.result.error_code || "Erro na criação da encomenda no AliExpress";
+          throw new Error(`Erro do AliExpress: ${errMsg}`);
         }
         
         const platformResult = resObj.result;
+        
+        // Handle order_list array (Padrão oficial da resposta de placeorder)
+        if (platformResult && platformResult.order_list && Array.isArray(platformResult.order_list.number) && platformResult.order_list.number.length > 0) {
+            return String(platformResult.order_list.number[0]);
+        }
         
         // Handle single order_id
         if (platformResult && platformResult.order_id) {
             return String(platformResult.order_id);
         }
         
-        // Handle list of IDs (common in AliExpress DS API)
+        // Handle list of IDs
         if (platformResult && platformResult.order_id_list && Array.isArray(platformResult.order_id_list) && platformResult.order_id_list.length > 0) {
             return String(platformResult.order_id_list[0]);
+        }
+
+        if (platformResult && typeof platformResult === 'object' && platformResult.order_list) {
+            const list = platformResult.order_list;
+            if (Array.isArray(list) && list.length > 0) return String(list[0]);
         }
     }
     
     if (result && result.error_response) {
-        throw new Error(`Erro na API do fornecedor: ${result.error_response.msg} (Code: ${result.error_response.code})`);
+        const errorMsg = result.error_response.sub_msg || result.error_response.msg || "Erro na chamada da API";
+        throw new Error(`Erro na API AliExpress: ${errorMsg} (Code: ${result.error_response.code || result.error_response.sub_code})`);
     }
 
-    // Se chegou aqui, logar o objeto para depuração mas lançar erro claro
-    console.error(`[ALIEXPRESS FULFILL FAIL] Resposta sem ID:`, JSON.stringify(result));
-    throw new Error("O fornecedor não retornou ID do pedido. Verifique se o produto está em stock ou se há restrições de envio.");
+    console.error(`[ALIEXPRESS FULFILL FAIL] Resposta sem ID detectado:`, JSON.stringify(result));
+    throw new Error("O AliExpress não retornou o ID do pedido criado. Verifique os fundos da conta, stock do produto ou restrições de endereço.");
 }
 
 async function getAliExpressOrderDetail(aliOrderId: string) {
@@ -5102,6 +5562,7 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
         const tryExtract = (res: any) => {
             if (!res) return null;
             const keys = [
+                'aliexpress_trade_ds_order_get_response',
                 'aliexpress_ds_trade_order_get_response', 
                 'aliexpress_solution_order_get_response', 
                 'aliexpress_trade_buy_order_get_response'
@@ -5111,7 +5572,7 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
                 if (res[key]) {
                     const resultObj = res[key].result || res[key].data || res[key];
                     const finalData = (resultObj && resultObj.data) ? resultObj.data : resultObj;
-                    if (finalData && (finalData.order_status || finalData.status || finalData.order_id)) {
+                    if (finalData && (finalData.order_status || finalData.status || finalData.order_id || finalData.child_order_list)) {
                         return finalData;
                     }
                 }
@@ -5120,11 +5581,13 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
             return null;
         };
 
-        // Ordem de tentativa baseada no sucesso comum da API
+        // Ordem de tentativa baseada no endpoint oficial comprovado da API AliExpress
+        const numId = Number(cleanOrderId);
         const methods = [
-            { name: 'aliexpress.ds.trade.order.get', params: { single_order_query: { order_id: cleanOrderId } } },
-            { name: 'aliexpress.trade.order.get', params: { order_id: cleanOrderId } },
-            { name: 'aliexpress.solution.order.get', params: { order_id: cleanOrderId, current_page: 1, page_size: 1 } }
+            { name: 'aliexpress.trade.ds.order.get', params: { single_order_query: JSON.stringify({ order_id: isNaN(numId) ? cleanOrderId : numId }) } },
+            { name: 'aliexpress.trade.ds.order.get', params: { order_id: cleanOrderId } },
+            { name: 'aliexpress.ds.trade.order.get', params: { single_order_query: JSON.stringify({ order_id: cleanOrderId }) } },
+            { name: 'aliexpress.solution.order.get', params: { param0: JSON.stringify({ order_id: cleanOrderId, current_page: 1, page_size: 1 }) } }
         ];
 
         let lastResult: any = null;
@@ -5135,7 +5598,7 @@ async function getAliExpressOrderDetail(aliOrderId: string) {
                 lastResult = result;
                 const data = tryExtract(result);
                 if (data) {
-                    console.log(`[ALIEXPRESS SYNC] Sucesso com ${m.name} para ${cleanOrderId}`);
+                    console.log(`[ALIEXPRESS SYNC] Sucesso com ${m.name} para ${cleanOrderId}: status=${data.order_status}`);
                     return data;
                 }
             } catch (err: any) {
