@@ -905,40 +905,57 @@ apiRouter.post('/aliexpress/exchange-token', async (req, res) => {
 
     console.log(`[ALIEXPRESS OAUTH EXCHANGE] Trocando code com AppKey ${appKey} em modo Produção...`);
 
-    const params = new URLSearchParams();
-    params.append('grant_type', 'authorization_code');
-    params.append('code', code.trim());
-    params.append('client_id', appKey);
-    params.append('client_secret', appSecret);
-    params.append('redirect_uri', redirectUri);
-    params.append('sp', 'ae');
-
-    let tokenRes: any = null;
     let data: any = null;
 
-    // Tenta primeiro o endpoint global de OAuth do AliExpress
+    // 1. Método Oficial AliExpress Dropshipping: IOP /rest/auth/token/create com HMAC-SHA256
     try {
-      tokenRes = await axios.post('https://oauth.aliexpress.com/token', params.toString(), {
+      const timestamp = Date.now().toString();
+      const iopParams: Record<string, string> = {
+        app_key: appKey,
+        timestamp: timestamp,
+        sign_method: 'sha256',
+        code: code.trim()
+      };
+      
+      const keys = Object.keys(iopParams).sort();
+      let queryStr = "/auth/token/create";
+      for (const k of keys) {
+        queryStr += k + iopParams[k];
+      }
+      iopParams.sign = crypto.createHmac('sha256', appSecret).update(queryStr, 'utf8').digest('hex').toUpperCase();
+
+      const iopRes = await axios.post('https://api-sg.aliexpress.com/rest/auth/token/create', new URLSearchParams(iopParams).toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
         timeout: 20000
       });
-      data = tokenRes.data;
-    } catch (e: any) {
-      data = e.response?.data || null;
+      if (iopRes.data && (iopRes.data.access_token || iopRes.data.code === '0')) {
+        data = iopRes.data;
+        console.log('[ALIEXPRESS OAUTH EXCHANGE] Sucesso via IOP /rest/auth/token/create!');
+      }
+    } catch (iopErr: any) {
+      console.warn('[ALIEXPRESS IOP TOKEN EXCHANGE WARN]', iopErr.response?.data || iopErr.message);
     }
 
-    // Se falhar ou der erro, tenta o gateway de Singapura
-    if (!data || data.error_response || data.error || data.error_code || !data.access_token) {
+    // 2. Fallback para oauth.aliexpress.com
+    if (!data || !data.access_token) {
+      const params = new URLSearchParams();
+      params.append('grant_type', 'authorization_code');
+      params.append('code', code.trim());
+      params.append('client_id', appKey);
+      params.append('client_secret', appSecret);
+      params.append('redirect_uri', redirectUri);
+      params.append('sp', 'ae');
+
       try {
-        const fallbackRes = await axios.post('https://api-sg.aliexpress.com/oauth/token', params.toString(), {
+        const tokenRes = await axios.post('https://oauth.aliexpress.com/token', params.toString(), {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
           timeout: 20000
         });
-        if (fallbackRes.data && fallbackRes.data.access_token) {
-          data = fallbackRes.data;
+        if (tokenRes.data && tokenRes.data.access_token) {
+          data = tokenRes.data;
         }
-      } catch (fbErr: any) {
-        // mantém o erro original para diagnóstico
+      } catch (e: any) {
+        if (!data) data = e.response?.data || null;
       }
     }
 
