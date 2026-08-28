@@ -45,22 +45,50 @@ serve(async (req) => {
     formData.append("redirect_uri", redirectUri);
     formData.append("sp", "ae");
 
-    const tokenRes = await fetch("https://oauth.aliexpress.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-      },
-      body: formData.toString(),
-    });
+    let tokenData: any = null;
+    try {
+      const tokenRes = await fetch("https://oauth.aliexpress.com/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        },
+        body: formData.toString(),
+      });
+      tokenData = await tokenRes.json();
+    } catch (e: any) {
+      console.error("[ALIEXPRESS TOKEN FETCH ERROR]", e);
+    }
 
-    const tokenData = await tokenRes.json();
+    if (!tokenData || tokenData.error_response || tokenData.error || tokenData.error_code || !tokenData.access_token) {
+      try {
+        const fallbackRes = await fetch("https://api-sg.aliexpress.com/oauth/token", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+          },
+          body: formData.toString(),
+        });
+        const fbData = await fallbackRes.json();
+        if (fbData && fbData.access_token) {
+          tokenData = fbData;
+        }
+      } catch (fbErr: any) {
+        // preserve original error
+      }
+    }
 
-    if (tokenData.error_response || tokenData.error || !tokenData.access_token) {
+    if (!tokenData || tokenData.error_response || tokenData.error || tokenData.error_code || !tokenData.access_token) {
       console.error("[ALIEXPRESS TOKEN ERROR]", tokenData);
+      let friendlyError = tokenData?.error_msg || tokenData?.error_description || tokenData?.msg || tokenData?.error || "Falha ao obter token da AliExpress";
+      if (tokenData?.error_code === 'param-appkey.not.exists' || tokenData?.error_msg?.includes('appkey not exists')) {
+        friendlyError = `A API AliExpress retornou: "appkey not exists" (AppKey: ${appKey}). A AppKey está em processo de sincronização pelos servidores da Alibaba (demora 5 a 20 minutos após aprovação) ou pode copiar o Access Token diretamente do portal do desenvolvedor da AliExpress.`;
+      }
+
       return new Response(
         JSON.stringify({
           success: false,
-          error: tokenData.error_description || tokenData.msg || tokenData.error || "Falha ao obter token da AliExpress",
+          error: friendlyError,
+          raw_error: tokenData?.error_msg || tokenData?.error_code || tokenData,
           details: tokenData,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }

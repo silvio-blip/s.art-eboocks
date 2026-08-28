@@ -913,18 +913,47 @@ apiRouter.post('/aliexpress/exchange-token', async (req, res) => {
     params.append('redirect_uri', redirectUri);
     params.append('sp', 'ae');
 
-    const tokenRes = await axios.post('https://oauth.aliexpress.com/token', params.toString(), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
-      timeout: 20000
-    });
+    let tokenRes: any = null;
+    let data: any = null;
 
-    const data = tokenRes.data;
+    // Tenta primeiro o endpoint global de OAuth do AliExpress
+    try {
+      tokenRes = await axios.post('https://oauth.aliexpress.com/token', params.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+        timeout: 20000
+      });
+      data = tokenRes.data;
+    } catch (e: any) {
+      data = e.response?.data || null;
+    }
 
-    if (data.error_response || data.error || !data.access_token) {
+    // Se falhar ou der erro, tenta o gateway de Singapura
+    if (!data || data.error_response || data.error || data.error_code || !data.access_token) {
+      try {
+        const fallbackRes = await axios.post('https://api-sg.aliexpress.com/oauth/token', params.toString(), {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+          timeout: 20000
+        });
+        if (fallbackRes.data && fallbackRes.data.access_token) {
+          data = fallbackRes.data;
+        }
+      } catch (fbErr: any) {
+        // mantém o erro original para diagnóstico
+      }
+    }
+
+    if (!data || data.error_response || data.error || data.error_code || !data.access_token) {
       console.error('[ALIEXPRESS OAUTH EXCHANGE ERROR]', data);
+      
+      let friendlyError = data?.error_msg || data?.error_description || data?.msg || data?.error || 'Falha ao trocar código pelo token oficial';
+      if (data?.error_code === 'param-appkey.not.exists' || data?.error_msg?.includes('appkey not exists')) {
+        friendlyError = `A API AliExpress retornou: "appkey not exists" (AppKey: ${appKey}).\n\nIsto significa que a AppKey foi aprovada recentemente e os servidores globais da Alibaba ainda estão em processo de replicação (demora entre 5 a 20 minutos), ou o token deve ser copiado diretamente do Console da AliExpress ("Test Tool" / "Session Key").`;
+      }
+
       return res.status(400).json({
         success: false,
-        error: data.error_description || data.msg || data.error || 'Falha ao trocar código pelo token oficial',
+        error: friendlyError,
+        raw_error: data?.error_msg || data?.error_code || data,
         details: data
       });
     }
