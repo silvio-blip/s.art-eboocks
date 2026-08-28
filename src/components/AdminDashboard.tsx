@@ -693,9 +693,72 @@ export default function AdminDashboard({
     buttonText: ""
   });
 
-  const [aliAppKey, setAliAppKey] = useState("");
-  const [aliAppSecret, setAliAppSecret] = useState("");
+  const [aliAppKey, setAliAppKey] = useState("533964");
+  const [aliAppSecret, setAliAppSecret] = useState("Fmek9qAohE8K2tgkyGcAeC2tQ8dMZiq7");
   const [aliAccessToken, setAliAccessToken] = useState("");
+  const [aliAuthCode, setAliAuthCode] = useState("");
+  const [isExchangingAliCode, setIsExchangingAliCode] = useState(false);
+  const [isTestingAliConnection, setIsTestingAliConnection] = useState(false);
+  const [aliTestResult, setAliTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleExchangeAliCode = async () => {
+    if (!aliAuthCode.trim()) {
+      toast.error("Por favor, introduza o 'code' temporário gerado no AliExpress.");
+      return;
+    }
+    setIsExchangingAliCode(true);
+    try {
+      const res = await fetch("/api/aliexpress/exchange-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: aliAuthCode.trim(),
+          appKey: aliAppKey.trim() || "533964",
+          appSecret: aliAppSecret.trim() || "Fmek9qAohE8K2tgkyGcAeC2tQ8dMZiq7",
+          redirectUri: "https://sart-full.pt/"
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.access_token) {
+        setAliAccessToken(data.access_token);
+        setAliAuthCode("");
+        toast.success("✨ Token Oficial de Produção obtido e gravado com sucesso!");
+        setAliTestResult({ success: true, message: `Conectado ao AliExpress (ID: ${data.user_id || data.user_nick || 'Produção'})` });
+      } else {
+        toast.error(data.error || "Falha ao trocar o código pelo token.");
+        setAliTestResult({ success: false, message: data.error || "Erro na troca do código." });
+      }
+    } catch (err: any) {
+      toast.error("Erro de rede ao conectar com o AliExpress.");
+      setAliTestResult({ success: false, message: err.message });
+    } finally {
+      setIsExchangingAliCode(false);
+    }
+  };
+
+  const handleTestAliConnection = async () => {
+    setIsTestingAliConnection(true);
+    setAliTestResult(null);
+    try {
+      const res = await fetch("/api/aliexpress/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("✅ Conexão com a API de Produção do AliExpress 100% Ativa!");
+        setAliTestResult({ success: true, message: "API AliExpress Produção respondeu com sucesso (200 OK)!" });
+      } else {
+        toast.error(data.error || "Erro ao testar conexão.");
+        setAliTestResult({ success: false, message: data.error || "Falha no teste da API." });
+      }
+    } catch (err: any) {
+      toast.error("Erro ao testar conexão com AliExpress.");
+      setAliTestResult({ success: false, message: err.message });
+    } finally {
+      setIsTestingAliConnection(false);
+    }
+  };
 
   // Categories are strictly managed from the categories table
   const allAvailableCategories = useMemo(() => {
@@ -5967,52 +6030,116 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                 </div>
 
                 {/* Integração AliExpress */}
-                <div className="space-y-4 pb-6 border-b border-white/5 bg-white/[0.01] p-4 border border-white/5">
+                <div className="space-y-4 pb-6 border-b border-white/5 bg-white/[0.02] p-5 rounded-xl border border-luxury-gold/20">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 bg-luxury-gold rounded-full animate-pulse" />
-                      <h4 className="text-[10px] uppercase tracking-[0.2em] text-white/95 font-black">Integração Oficial AliExpress</h4>
+                      <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                      <h4 className="text-[11px] uppercase tracking-[0.2em] text-white/95 font-black flex items-center gap-2">
+                        <span>Integração Oficial AliExpress</span>
+                        <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30">
+                          PRODUÇÃO (ONLINE)
+                        </span>
+                      </h4>
                     </div>
-                    <span className="text-[8px] bg-luxury-gold/10 text-luxury-gold px-2 py-0.5 uppercase tracking-wider font-bold">API Ativa</span>
+                    <button
+                      type="button"
+                      onClick={handleTestAliConnection}
+                      disabled={isTestingAliConnection}
+                      className="text-[9px] bg-luxury-gold text-black px-3 py-1.5 uppercase tracking-wider font-extrabold rounded hover:bg-luxury-gold/90 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                    >
+                      <RefreshCw size={10} className={isTestingAliConnection ? "animate-spin" : ""} />
+                      {isTestingAliConnection ? "Testando..." : "⚡ Testar Conexão"}
+                    </button>
+                  </div>
+
+                  {aliTestResult && (
+                    <div className={`p-3 rounded-lg text-xs font-mono border ${aliTestResult.success ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300' : 'bg-rose-950/40 border-rose-500/40 text-rose-300'}`}>
+                      <div className="font-bold mb-0.5">{aliTestResult.success ? "✅ Conexão Validada" : "⚠️ Erro na Conexão"}</div>
+                      <div className="text-[11px] opacity-90">{aliTestResult.message}</div>
+                    </div>
+                  )}
+
+                  {/* Passo 1: Link de Autorização OAuth 2.0 */}
+                  <div className="bg-black/40 border border-white/10 rounded-lg p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] uppercase tracking-wider text-luxury-gold font-bold flex items-center gap-1.5">
+                        <span>Passo 1: Gerar Código de Autorização</span>
+                      </div>
+                      <a
+                        href={`https://oauth.aliexpress.com/authorize?response_type=code&force_auth=true&client_id=${aliAppKey.trim() || '533964'}&redirect_uri=https://sart-full.pt/&sp=ae`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[9px] bg-white/10 hover:bg-white/20 text-white font-bold px-2.5 py-1 rounded border border-white/20 transition-colors uppercase tracking-wider flex items-center gap-1"
+                      >
+                        <ExternalLink size={10} />
+                        Abrir Link no Navegador
+                      </a>
+                    </div>
+                    <p className="text-[9px] text-white/60 leading-relaxed">
+                      Abra o link acima, faça login na sua conta AliExpress e clique em <strong className="text-white/90">Authorize</strong>. O navegador será redirecionado para a sua loja com o código no link (ex: <code className="text-luxury-gold">?code=3_533964_...</code>).
+                    </p>
+                  </div>
+
+                  {/* Passo 2: Troca do Code por Token de Produção */}
+                  <div className="bg-black/40 border border-white/10 rounded-lg p-3.5 space-y-2.5">
+                    <div className="text-[10px] uppercase tracking-wider text-luxury-gold font-bold">
+                      Passo 2: Trocar "Code" pelo Token Oficial de Produção
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={aliAuthCode}
+                        onChange={(e) => setAliAuthCode(e.target.value)}
+                        placeholder="Cole aqui o code gerado (ex: 3_533964_xxx...)"
+                        className="flex-1 bg-white/5 border border-white/15 px-3 py-2 text-xs outline-none focus:border-luxury-gold transition-all text-white font-mono rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleExchangeAliCode}
+                        disabled={isExchangingAliCode || !aliAuthCode.trim()}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-[10px] uppercase tracking-wider font-black rounded transition-all disabled:opacity-40 flex items-center gap-1.5 whitespace-nowrap shadow-sm"
+                      >
+                        <Check size={12} />
+                        {isExchangingAliCode ? "Gerando..." : "Gerar Token"}
+                      </button>
+                    </div>
                   </div>
                   
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">App Key</label>
-                      <input
-                        value={aliAppKey}
-                        onChange={(e) => setAliAppKey(e.target.value)}
-                        placeholder="Ex: 504381"
-                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono"
-                      />
-                    </div>
+                  <div className="space-y-3 pt-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">App Key (Produção)</label>
+                        <input
+                          value={aliAppKey}
+                          onChange={(e) => setAliAppKey(e.target.value)}
+                          placeholder="533964"
+                          className="w-full bg-white/5 border border-white/10 px-4 py-2.5 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono rounded"
+                        />
+                      </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">App Secret (Segredo)</label>
-                      <input
-                        type="password"
-                        value={aliAppSecret}
-                        onChange={(e) => setAliAppSecret(e.target.value)}
-                        placeholder="••••••••••••••••••••"
-                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono"
-                      />
+                      <div className="space-y-1">
+                        <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">App Secret (Produção)</label>
+                        <input
+                          type="password"
+                          value={aliAppSecret}
+                          onChange={(e) => setAliAppSecret(e.target.value)}
+                          placeholder="••••••••••••••••••••"
+                          className="w-full bg-white/5 border border-white/10 px-4 py-2.5 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono rounded"
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-1">
                       <div className="flex justify-between items-center">
-                        <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">Token de Acesso (Session Key)</label>
-                        <span className="text-[8px] text-luxury-gold/90 uppercase tracking-widest font-black">Obrigatório para importar</span>
+                        <label className="text-[9px] uppercase tracking-[0.15em] text-white/60 font-bold block">Access Token Oficial (Session Key)</label>
+                        <span className="text-[8px] text-emerald-400 uppercase tracking-widest font-black">Pronto para Produção</span>
                       </div>
                       <textarea
                         value={aliAccessToken}
                         onChange={(e) => setAliAccessToken(e.target.value)}
-                        placeholder="Cole aqui o seu Token de Acesso (Session Key) completo do console do AliExpress..."
+                        placeholder="O Access Token oficial do AliExpress aparecerá aqui automaticamente após a troca ou pode colá-lo diretamente..."
                         rows={3}
-                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono resize-none custom-scrollbar"
+                        className="w-full bg-white/5 border border-white/10 px-4 py-3 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 font-mono resize-none custom-scrollbar rounded"
                       />
-                      <p className="text-[8px] text-white/40 leading-relaxed mt-1">
-                        Este Token de Acesso permite a importação direta de produtos com todas as variações e imagens 100% integradas.
-                      </p>
                     </div>
                   </div>
                 </div>

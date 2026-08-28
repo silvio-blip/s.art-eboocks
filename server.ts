@@ -877,6 +877,167 @@ apiRouter.post('/aliexpress/proxy', async (req, res) => {
   }
 });
 
+// Endpoint para gerar a URL oficial de autorização OAuth 2.0
+apiRouter.get('/aliexpress/auth-url', async (req, res) => {
+  try {
+    const { appKey } = await getAliExpressCredentials();
+    const effectiveAppKey = appKey || "533964";
+    const redirectUri = (req.query.redirect_uri as string) || "https://sart-full.pt/";
+    const authUrl = `https://oauth.aliexpress.com/authorize?response_type=code&force_auth=true&client_id=${effectiveAppKey}&redirect_uri=${encodeURIComponent(redirectUri)}&sp=ae`;
+    res.json({ auth_url: authUrl, app_key: effectiveAppKey, redirect_uri: redirectUri });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para troca direta de Code temporário por Access Token & Refresh Token Oficiais
+apiRouter.post('/aliexpress/exchange-token', async (req, res) => {
+  try {
+    const { code, appKey: customKey, appSecret: customSecret, redirectUri: customRedirect } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: "O código temporário de autorização ('code') é obrigatório." });
+    }
+
+    const { appKey: envKey, appSecret: envSecret } = await getAliExpressCredentials();
+    const appKey = (customKey || envKey || "533964").trim();
+    const appSecret = (customSecret || envSecret || "Fmek9qAohE8K2tgkyGcAeC2tQ8dMZiq7").trim();
+    const redirectUri = (customRedirect || "https://sart-full.pt/").trim();
+
+    console.log(`[ALIEXPRESS OAUTH EXCHANGE] Trocando code com AppKey ${appKey} em modo Produção...`);
+
+    const params = new URLSearchParams();
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code.trim());
+    params.append('client_id', appKey);
+    params.append('client_secret', appSecret);
+    params.append('redirect_uri', redirectUri);
+    params.append('sp', 'ae');
+
+    const tokenRes = await axios.post('https://oauth.aliexpress.com/token', params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+      timeout: 20000
+    });
+
+    const data = tokenRes.data;
+
+    if (data.error_response || data.error || !data.access_token) {
+      console.error('[ALIEXPRESS OAUTH EXCHANGE ERROR]', data);
+      return res.status(400).json({
+        success: false,
+        error: data.error_description || data.msg || data.error || 'Falha ao trocar código pelo token oficial',
+        details: data
+      });
+    }
+
+    console.log(`[ALIEXPRESS OAUTH SUCCESS] Access Token gerado com sucesso! User: ${data.user_nick || data.user_id}`);
+
+    // Gravar diretamente na tabela site_settings (chave 'aliexpress_config')
+    const supabase = getSupabase();
+    const configValue = {
+      app_key: appKey,
+      app_secret: appSecret,
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || "",
+      expires_in: data.expires_in,
+      user_id: data.user_id,
+      user_nick: data.user_nick || "",
+      status: "active",
+      updated_at: new Date().toISOString()
+    };
+
+    await supabase
+      .from('site_settings')
+      .upsert({
+        key: 'aliexpress_config',
+        value: configValue,
+        updated_at: new Date()
+      });
+
+    res.json({
+      success: true,
+      message: 'Token de Produção obtido e gravado no sistema com sucesso!',
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_in: data.expires_in,
+      user_id: data.user_id,
+      user_nick: data.user_nick
+    });
+  } catch (err: any) {
+    console.error('[ALIEXPRESS OAUTH EXCEPTION]', err.response?.data || err.message);
+    res.status(500).json({
+      success: false,
+      error: err.response?.data?.error_description || err.message,
+      details: err.response?.data
+    });
+  }
+});
+
+// Endpoint de Teste da API de Produção AliExpress
+apiRouter.post('/aliexpress/test-connection', async (req, res) => {
+  try {
+    const { appKey, appSecret, accessToken } = await getAliExpressCredentials();
+
+    if (!appKey || !appSecret || !accessToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'Credenciais incompletas. Verifique se AppKey, AppSecret e Access Token estão configurados.'
+      });
+    }
+
+    const currentTimestamp = getAliExpressTimestamp();
+    const systemParams: Record<string, any> = {
+      app_key: appKey,
+      timestamp: currentTimestamp,
+      sign_method: 'md5',
+      method: 'aliexpress.ds.recommend.feed.get',
+      v: '2.0',
+      format: 'json',
+      session: accessToken
+    };
+
+    const businessParams: Record<string, any> = {
+      feed_name: 'ds_hot_feed',
+      page_no: '1',
+      page_size: '2',
+      target_currency: 'EUR',
+      target_language: 'PT',
+      ship_to_country: 'PT'
+    };
+
+    const allParams = { ...systemParams, ...businessParams };
+    const sign = generateAliExpressSignature(allParams, appSecret);
+
+    const formData = new URLSearchParams();
+    Object.keys(allParams).sort().forEach(k => formData.append(k, String(allParams[k])));
+    formData.append('sign', sign);
+
+    const apiRes = await axios.post('https://api-sg.aliexpress.com/sync', formData.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+      timeout: 15000
+    });
+
+    if (apiRes.data.error_response) {
+      return res.status(400).json({
+        success: false,
+        error: `AliExpress API Error: ${apiRes.data.error_response.msg} (${apiRes.data.error_response.sub_msg || ''})`,
+        details: apiRes.data.error_response
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Conexão de Produção com a API AliExpress estabelecida com sucesso 100%!',
+      data: apiRes.data
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.response?.data?.error_response?.msg || err.message,
+      details: err.response?.data
+    });
+  }
+});
+
 // Utility to sanitize address input according to user's strict requirements (anti-ordinals, anti-word-numbers)
 function sanitizeAddressInput(addr: string): string {
   if (!addr) return "";
