@@ -4331,21 +4331,29 @@ export default function App() {
     }
   };
 
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+    }, 1800);
+    return () => clearTimeout(timer);
+  }, []);
+
   if (loading) {
     return (
       <div
-        className={`h-screen w-screen flex flex-col items-center justify-center p-4 ${theme === "dark" ? "dark bg-[#0A0A0A] text-white" : "bg-[#FCFAF7] text-luxury-foreground"}`}
+        className={`h-screen w-screen flex flex-col items-center justify-center p-4 ${theme === "dark" ? "dark bg-[#050505] text-white" : "bg-[#050505] text-white"}`}
       >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3 }}
-          className="text-center"
-        >
-          <h1 className="font-serif text-3xl sm:text-5xl font-extrabold tracking-[0.25em] text-amber-500 uppercase select-none">
-            SART FULL
+        <div className="text-center">
+          <h1 className="text-white font-light text-4xl sm:text-6xl tracking-[10px] mb-2 font-serif animate-[fadeInDown_1s_ease_forwards]">
+            S.ART
           </h1>
-        </motion.div>
+          <p className="text-[#888888] font-sans text-xs sm:text-sm tracking-[14px] uppercase mb-8 animate-[fadeInUp_1s_ease_forwards]">
+            BOUTIQUE
+          </p>
+          <div className="w-[60px] h-[2px] bg-white mx-auto animate-[loadLine_1.5s_ease_infinite_alternate]" />
+        </div>
       </div>
     );
   }
@@ -4354,7 +4362,149 @@ export default function App() {
     <div
       className={`min-h-screen ${theme === "dark" ? "dark" : ""} bg-background text-foreground font-sans selection:bg-primary-foreground selection:text-primary transition-colors duration-700 ${(isCursorTransformed && cursorPreferEnabled) ? 'md:cursor-none' : ''}`}
     >
-      <style dangerouslySetInnerHTML={{ __html: getThemeStyle(siteTheme.active) }} />
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes slideVertical {
+          0% { transform: translateY(0); }
+          100% { transform: translateY(50vh); }
+        }
+        @keyframes moveUp {
+          0% { transform: translateY(0); opacity: 0; }
+          50% { opacity: 0.9; }
+          100% { transform: translateY(-140vh); opacity: 0; }
+        }
+        @keyframes moveDown {
+          0% { transform: translateY(0); opacity: 0; }
+          50% { opacity: 0.9; }
+          100% { transform: translateY(140vh); opacity: 0; }
+        }
+        @keyframes fadeInDown {
+          from { opacity: 0; transform: translateY(-20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes loadLine {
+          0% { width: 20px; opacity: 0.3; }
+          100% { width: 80px; opacity: 1; }
+        }
+        #intro-splash {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background-color: #030303;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 999999;
+          overflow: hidden;
+          transition: opacity 0.8s ease, visibility 0.8s ease;
+        }
+        .intro-animation-bg {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 1;
+          pointer-events: none;
+        }
+        .moving-grid-line {
+          position: absolute;
+          top: -100vh;
+          bottom: -100vh;
+          width: 1px;
+          background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.25), transparent);
+        }
+        .mg-1 { left: 8vw; animation: slideVertical 2.5s linear infinite; }
+        .mg-2 { left: 18vw; animation: slideVertical 3.1s linear infinite reverse; }
+        .mg-3 { left: 28vw; animation: slideVertical 2.2s linear infinite; }
+        .mg-4 { left: 38vw; animation: slideVertical 2.8s linear infinite reverse; }
+        .mg-5 { left: 48vw; animation: slideVertical 2.0s linear infinite; }
+        .mg-6 { left: 58vw; animation: slideVertical 3.4s linear infinite reverse; }
+        .mg-7 { left: 68vw; animation: slideVertical 2.6s linear infinite; }
+        .mg-8 { left: 78vw; animation: slideVertical 2.3s linear infinite reverse; }
+        .mg-9 { left: 88vw; animation: slideVertical 2.9s linear infinite; }
+        .mg-10 { left: 95vw; animation: slideVertical 2.1s linear infinite reverse; }
+
+        .dynamic-line {
+          position: absolute;
+          width: 2px;
+          height: 45vh;
+          background: linear-gradient(to bottom, transparent, #ffffff, transparent);
+          opacity: 0.6;
+        }
+        .l-up-1 { left: 5vw; bottom: -45vh; animation: moveUp 1.3s cubic-bezier(0.77, 0, 0.175, 1) infinite; }
+        .l-down-1 { left: 14vw; top: -45vh; animation: moveDown 1.1s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.2s; }
+        .l-up-2 { left: 24vw; bottom: -45vh; animation: moveUp 1.6s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.4s; }
+        .l-down-2 { left: 32vw; top: -45vh; animation: moveDown 1.2s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.1s; }
+        .l-up-3 { left: 42vw; bottom: -45vh; animation: moveUp 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.3s; }
+        .l-down-3 { left: 52vw; top: -45vh; animation: moveDown 1.5s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.5s; }
+        .l-up-4 { left: 62vw; bottom: -45vh; animation: moveUp 1.2s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.2s; }
+        .l-down-4 { left: 72vw; top: -45vh; animation: moveDown 1.7s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.4s; }
+        .l-up-5 { left: 82vw; bottom: -45vh; animation: moveUp 1.3s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.1s; }
+        .l-down-5 { left: 92vw; top: -45vh; animation: moveDown 1.4s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.3s; }
+
+        .intro-content {
+          position: relative;
+          z-index: 100;
+          text-align: center;
+          background: rgba(3, 3, 3, 0.75);
+          padding: 40px 60px;
+          border-radius: 4px;
+          backdrop-filter: blur(4px);
+        }
+        .fade-out {
+          opacity: 0;
+          visibility: hidden;
+        }
+      ` + getThemeStyle(siteTheme.active) }} />
+
+      <AnimatePresence>
+        {showSplash && (
+          <div 
+            id="intro-splash" 
+            className="fixed inset-0 bg-[#030303] z-[999999] flex items-center justify-center overflow-hidden transition-opacity duration-800"
+          >
+            <div className="intro-animation-bg absolute inset-0 pointer-events-none z-1">
+              <div className="moving-grid-line mg-1"></div>
+              <div className="moving-grid-line mg-2"></div>
+              <div className="moving-grid-line mg-3"></div>
+              <div className="moving-grid-line mg-4"></div>
+              <div className="moving-grid-line mg-5"></div>
+              <div className="moving-grid-line mg-6"></div>
+              <div className="moving-grid-line mg-7"></div>
+              <div className="moving-grid-line mg-8"></div>
+              <div className="moving-grid-line mg-9"></div>
+              <div className="moving-grid-line mg-10"></div>
+
+              <div className="dynamic-line l-up-1"></div>
+              <div className="dynamic-line l-down-1"></div>
+              <div className="dynamic-line l-up-2"></div>
+              <div className="dynamic-line l-down-2"></div>
+              <div className="dynamic-line l-up-3"></div>
+              <div className="dynamic-line l-down-3"></div>
+              <div className="dynamic-line l-up-4"></div>
+              <div className="dynamic-line l-down-4"></div>
+              <div className="dynamic-line l-up-5"></div>
+              <div className="dynamic-line l-down-5"></div>
+            </div>
+
+            <div className="intro-content relative z-[100] text-center bg-[#030303]/75 p-[40px_60px] rounded-[4px] backdrop-blur-[4px]">
+              <h1 className="text-white font-light text-4xl sm:text-6xl tracking-[12px] mb-2 font-serif animate-[fadeInDown_1s_ease_forwards]">
+                S.ART
+              </h1>
+              <p className="text-[#aaaaaa] font-sans text-xs sm:text-sm tracking-[16px] uppercase mb-8 animate-[fadeInUp_1s_ease_forwards]">
+                BOUTIQUE
+              </p>
+              <div className="w-[60px] h-[2px] bg-white mx-auto animate-[loadLine_1.5s_ease_infinite_alternate]" />
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
       <CustomCursor active={isCursorTransformed && cursorPreferEnabled} />
       <ScrollToTop />
       {isReviewPage ? (
