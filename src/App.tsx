@@ -1306,19 +1306,25 @@ const ProductCard = React.memo(function ProductCard({
   index = 0,
   formatPrice,
 }: ProductCardProps & { index?: number }) {
+  const col = index % 3;
+  const initialX = col === 0 ? -40 : col === 2 ? 40 : 0;
+  const initialY = 40;
+
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 30 }}
+      initial={{ opacity: 0, x: initialX, y: initialY, scale: 0.97 }}
       whileInView={{ 
         opacity: 1, 
-        y: 0,
+        x: 0, 
+        y: 0, 
+        scale: 1,
         transition: { 
-          duration: 0.6, 
-          ease: [0.16, 1, 0.3, 1],
-          delay: (index % 4) * 0.05
+          duration: 0.5,
+          ease: [0.25, 1, 0.5, 1],
+          delay: (index % 3) * 0.04
         } 
       }}
-      viewport={{ once: true, amount: 0.05 }}
+      viewport={{ once: true, amount: 0.5 }}
       className={`group cursor-pointer flex flex-col bg-white dark:bg-[#161616] border border-black/10 dark:border-white/10 hover:border-gold/60 rounded-[10px] relative overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.02)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.08)] transition-all duration-500 h-full ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
@@ -4395,7 +4401,7 @@ export default function App() {
           left: 0;
           width: 100vw;
           height: 100vh;
-          background-color: #030303;
+          background-color: #ffffff;
           display: flex;
           justify-content: center;
           align-items: center;
@@ -4409,33 +4415,16 @@ export default function App() {
           left: 0;
           width: 100%;
           height: 100%;
-          z-index: 1;
+          z-index: 10;
           pointer-events: none;
         }
-        .moving-grid-line {
-          position: absolute;
-          top: -100vh;
-          bottom: -100vh;
-          width: 1px;
-          background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.25), transparent);
-        }
-        .mg-1 { left: 8vw; animation: slideVertical 2.5s linear infinite; }
-        .mg-2 { left: 18vw; animation: slideVertical 3.1s linear infinite reverse; }
-        .mg-3 { left: 28vw; animation: slideVertical 2.2s linear infinite; }
-        .mg-4 { left: 38vw; animation: slideVertical 2.8s linear infinite reverse; }
-        .mg-5 { left: 48vw; animation: slideVertical 2.0s linear infinite; }
-        .mg-6 { left: 58vw; animation: slideVertical 3.4s linear infinite reverse; }
-        .mg-7 { left: 68vw; animation: slideVertical 2.6s linear infinite; }
-        .mg-8 { left: 78vw; animation: slideVertical 2.3s linear infinite reverse; }
-        .mg-9 { left: 88vw; animation: slideVertical 2.9s linear infinite; }
-        .mg-10 { left: 95vw; animation: slideVertical 2.1s linear infinite reverse; }
 
         .dynamic-line {
           position: absolute;
           width: 2px;
           height: 45vh;
-          background: linear-gradient(to bottom, transparent, #ffffff, transparent);
-          opacity: 0.6;
+          background: linear-gradient(to bottom, transparent, #111111, transparent);
+          opacity: 0.25;
         }
         .l-up-1 { left: 5vw; bottom: -45vh; animation: moveUp 1.3s cubic-bezier(0.77, 0, 0.175, 1) infinite; }
         .l-down-1 { left: 14vw; top: -45vh; animation: moveDown 1.1s cubic-bezier(0.77, 0, 0.175, 1) infinite; animation-delay: 0.2s; }
@@ -4450,12 +4439,10 @@ export default function App() {
 
         .intro-content {
           position: relative;
-          z-index: 100;
+          z-index: 1;
           text-align: center;
-          background: rgba(3, 3, 3, 0.75);
-          padding: 40px 60px;
-          border-radius: 4px;
-          backdrop-filter: blur(4px);
+          background: transparent;
+          padding: 20px;
         }
         .fade-out {
           opacity: 0;
@@ -4470,20 +4457,9 @@ export default function App() {
             initial={{ opacity: 1 }}
             exit={{ opacity: 0, scale: 1.05 }}
             transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed inset-0 bg-[#030303] z-[999999] flex items-center justify-center overflow-hidden pointer-events-none"
+            className="fixed inset-0 bg-[#ffffff] z-[999999] flex items-center justify-center overflow-hidden pointer-events-none"
           >
-            <div className="intro-animation-bg absolute inset-0 pointer-events-none z-1">
-              <div className="moving-grid-line mg-1"></div>
-              <div className="moving-grid-line mg-2"></div>
-              <div className="moving-grid-line mg-3"></div>
-              <div className="moving-grid-line mg-4"></div>
-              <div className="moving-grid-line mg-5"></div>
-              <div className="moving-grid-line mg-6"></div>
-              <div className="moving-grid-line mg-7"></div>
-              <div className="moving-grid-line mg-8"></div>
-              <div className="moving-grid-line mg-9"></div>
-              <div className="moving-grid-line mg-10"></div>
-
+            <div className="intro-animation-bg absolute inset-0 pointer-events-none z-10">
               <div className="dynamic-line l-up-1"></div>
               <div className="dynamic-line l-down-1"></div>
               <div className="dynamic-line l-up-2"></div>
@@ -4501,15 +4477,15 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
               transition={{ duration: 0.8, ease: "easeInOut" }}
-              className="intro-content relative z-[100] text-center bg-[#030303]/75 p-[40px_60px] rounded-[4px] backdrop-blur-[4px]"
+              className="intro-content relative z-1 text-center bg-transparent p-5"
             >
-              <h1 className="text-white font-light text-4xl sm:text-6xl tracking-[12px] mb-2 font-serif">
+              <h1 className="text-[#111111] font-light text-4xl sm:text-6xl tracking-[12px] mb-2 font-serif">
                 S.ART
               </h1>
-              <p className="text-[#aaaaaa] font-sans text-xs sm:text-sm tracking-[16px] uppercase mb-8">
+              <p className="text-[#666666] font-sans text-xs sm:text-sm tracking-[16px] uppercase mb-8">
                 BOUTIQUE
               </p>
-              <div className="w-[60px] h-[2px] bg-white mx-auto animate-[loadLine_1.5s_ease_infinite_alternate]" />
+              <div className="w-[60px] h-[2px] bg-[#111111] mx-auto animate-[loadLine_1.5s_ease_infinite_alternate]" />
             </motion.div>
           </motion.div>
         )}
