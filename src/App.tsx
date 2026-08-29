@@ -455,7 +455,7 @@ const MovingParticles = ({ activeTheme = "luxury" }: { activeTheme?: string }) =
   );
 };
 
-const SectionHeading = ({ subtitle, title }: { subtitle: string, title: string }) => {
+const SectionHeading = ({ subtitle, title }: { subtitle?: string, title: string }) => {
   return (
     <motion.div 
       initial={{ opacity: 0, y: 30 }}
@@ -464,15 +464,17 @@ const SectionHeading = ({ subtitle, title }: { subtitle: string, title: string }
       transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
       className="px-[5%] mb-20"
     >
-      <motion.span 
-        initial={{ opacity: 0, x: -20 }}
-        whileInView={{ opacity: 1, x: 0 }}
-        viewport={{ once: true }}
-        transition={{ delay: 0.2, duration: 0.8 }}
-        className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-bold block mb-4"
-      >
-        {subtitle}
-      </motion.span>
+      {subtitle ? (
+        <motion.span 
+          initial={{ opacity: 0, x: -20 }}
+          whileInView={{ opacity: 1, x: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.2, duration: 0.8 }}
+          className="text-luxury-gold text-[10px] uppercase tracking-[0.5em] font-bold block mb-4"
+        >
+          {subtitle}
+        </motion.span>
+      ) : null}
       <h2 className="font-serif text-4xl md:text-5xl text-luxury-foreground italic transition-colors">
         {title}
       </h2>
@@ -1001,6 +1003,7 @@ const Navbar = ({
   view,
   unreadCount = 0,
   onNotificationClick,
+  isVisible = true,
 }: {
   user: any;
   profile: any;
@@ -1017,6 +1020,7 @@ const Navbar = ({
   view: string;
   unreadCount?: number;
   onNotificationClick?: () => void;
+  isVisible?: boolean;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1026,7 +1030,7 @@ const Navbar = ({
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
     };
-    window.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -1038,20 +1042,20 @@ const Navbar = ({
   const forceScrolled = isScrolled || view !== "home";
 
   const headerBgClass = forceScrolled 
-    ? "py-3 bg-[#FCFAF7]/95 backdrop-blur-md border-b border-black/5 shadow-[0_4px_30px_rgba(0,0,0,0.02)]" 
+    ? "py-3 bg-[#FCFAF7]/95 dark:bg-[#121212]/95 backdrop-blur-md border-b border-black/5 dark:border-white/5 shadow-[0_4px_30px_rgba(0,0,0,0.02)]" 
     : "py-5 bg-transparent";
 
   const textColorClass = forceScrolled 
-    ? "text-luxury-foreground" 
+    ? "text-luxury-foreground dark:text-white" 
     : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)]";
 
   const iconClass = `${
-    forceScrolled ? "text-luxury-foreground" : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]"
+    forceScrolled ? "text-luxury-foreground dark:text-white" : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]"
   } hover:text-gold transition-all duration-300 transform hover:scale-110 active:scale-95`;
 
   const linkClass = `text-[10px] uppercase tracking-[0.25em] font-medium transition-colors duration-300 ${
     forceScrolled 
-      ? "text-luxury-foreground/70 hover:text-gold" 
+      ? "text-luxury-foreground/70 dark:text-white/70 hover:text-gold" 
       : "text-white/85 hover:text-gold drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
   }`;
 
@@ -1074,7 +1078,7 @@ const Navbar = ({
   };
 
   return (
-    <header className={`fixed w-full top-0 z-[9999] transition-all duration-500 ${headerBgClass}`}>
+    <header className={`fixed w-full top-0 z-[9999] transition-all duration-500 transform ${headerBgClass} ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
       <div className="max-w-7xl mx-auto w-full px-4 md:px-6 flex justify-between items-center">
         
         {/* Left: Branding & Logo */}
@@ -1285,6 +1289,207 @@ const Navbar = ({
   );
 };
 
+const FeaturedProductsSection = ({
+  products,
+  formatPrice,
+  getEffectivePrice,
+  getImageUrl,
+  handleBuy,
+  checkoutLoading,
+  setSelectedProduct,
+  setDetailProduct,
+  setView,
+}: {
+  products: Product[];
+  formatPrice: (v: any) => string;
+  getEffectivePrice: (p: any) => number;
+  getImageUrl: (url: string) => string;
+  handleBuy: (p: Product) => void;
+  checkoutLoading: string | null;
+  setSelectedProduct: (p: Product) => void;
+  setDetailProduct: (p: Product) => void;
+  setView: (v: any) => void;
+}) => {
+  const featuredProducts = React.useMemo(() => products.filter(p => p.is_featured && p.is_active !== false), [products]);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const [activeIndex, setActiveIndex] = React.useState(0);
+
+  if (featuredProducts.length === 0) return null;
+
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const scrollLeftPos = container.scrollLeft;
+      const cardWidth = container.querySelector('div')?.clientWidth || 380;
+      const index = Math.round(scrollLeftPos / (cardWidth + 24));
+      setActiveIndex(Math.max(0, Math.min(index, featuredProducts.length - 1)));
+    }
+  };
+
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -420, behavior: 'smooth' });
+    }
+  };
+
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 420, behavior: 'smooth' });
+    }
+  };
+
+  return (
+    <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
+      <SectionHeading title="Destaques da Temporada" />
+
+      <div className="relative px-[5%] mt-12 max-w-7xl mx-auto">
+        {/* Desktop Navigation Arrows */}
+        <div className="hidden md:flex items-center justify-between absolute inset-y-0 -left-6 -right-6 z-30 pointer-events-none">
+          <button
+            onClick={scrollLeft}
+            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95"
+            title="Anterior"
+          >
+            <ChevronLeft size={24} />
+          </button>
+          <button
+            onClick={scrollRight}
+            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95"
+            title="Seguinte"
+          >
+            <ChevronRight size={24} />
+          </button>
+        </div>
+
+        {/* Horizontal Carousel Scroll Container */}
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex items-center gap-6 overflow-x-auto snap-x snap-mandatory py-10 px-4 -mx-4 focus:outline-none scroll-smooth"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {featuredProducts.map((featuredProduct, idx) => {
+            const isActive = idx === activeIndex;
+            return (
+              <motion.div 
+                key={featuredProduct.id} 
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ 
+                  opacity: 1, 
+                  y: 0,
+                  transition: { duration: 0.5, ease: "easeOut" } 
+                }}
+                viewport={{ once: true, amount: 0.1 }}
+                className={`shrink-0 snap-center group relative flex flex-col justify-end rounded-[12px] overflow-hidden bg-[#181818] border transition-all duration-500 cursor-pointer shadow-xl ${
+                  isActive 
+                    ? 'w-[320px] sm:w-[380px] md:w-[440px] h-[480px] sm:h-[540px] md:h-[580px] border-gold/80 shadow-2xl z-20 scale-100 md:scale-105' 
+                    : 'w-[280px] sm:w-[320px] md:w-[360px] h-[420px] sm:h-[480px] md:h-[520px] border-black/10 dark:border-white/10 opacity-80 scale-95 hover:opacity-100'
+                }`}
+                onClick={() => {
+                  setSelectedProduct(featuredProduct);
+                  setDetailProduct(featuredProduct);
+                  setView("product-detail");
+                }}
+              >
+                {/* Starburst discount badge */}
+                {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                  <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute top-4 right-4 z-20 pointer-events-none" />
+                ) : null}
+
+                {/* Full Image Background */}
+                <div className="absolute inset-0 w-full h-full overflow-hidden bg-[#121212]">
+                  <img 
+                    src={getImageUrl(featuredProduct.image_url || "")} 
+                    alt={featuredProduct.title}
+                    className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-out"
+                    loading="lazy"
+                  />
+                  
+                  {/* Category Badge on top left */}
+                  <div className="absolute top-4 left-4 z-10">
+                    {featuredProduct.category && (
+                      <span className="bg-black/60 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 shadow-md">
+                        {featuredProduct.category}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Dark Gradient Overlay & Minimalist Content at Bottom */}
+                <div className="relative z-10 inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-5 sm:p-6 flex flex-col justify-end text-white">
+                  <div className="space-y-1.5 mb-3">
+                    {/* Minimalist Stars */}
+                    <div className="flex items-center gap-1 text-gold">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} size={12} className="fill-gold text-gold" />
+                      ))}
+                    </div>
+
+                    <h3 className="font-serif text-lg sm:text-xl md:text-2xl text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1 drop-shadow">
+                      {featuredProduct.title}
+                    </h3>
+                    
+                    {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                      <span className="inline-block text-xs font-mono text-neutral-300/85 line-through drop-shadow">
+                        {formatPrice(featuredProduct.pvp)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="pt-3 border-t border-white/15 flex items-center justify-between gap-3">
+                    <div className="flex items-baseline">
+                      <span className="text-lg sm:text-xl font-serif font-bold text-white tracking-tight drop-shadow">
+                        {formatPrice(getEffectivePrice(featuredProduct))}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e: any) => {
+                        e.stopPropagation();
+                        handleBuy(featuredProduct);
+                      }}
+                      disabled={checkoutLoading === featuredProduct.id}
+                      className="animate-button-shimmer text-black font-extrabold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-4 sm:px-5 py-2.5 rounded-full transition-all flex items-center gap-2 shrink-0 shadow-[0_0_20px_rgba(197,160,89,0.5)] hover:shadow-[0_0_30px_rgba(197,160,89,0.8)] hover:scale-105 active:scale-95 border border-white/60"
+                    >
+                      {checkoutLoading === featuredProduct.id ? (
+                        <Loader2 size={15} className="animate-spin text-black" />
+                      ) : (
+                        <>
+                          <span className="font-serif tracking-wider font-extrabold">Comprar</span>
+                          <ShoppingBag size={14} className="stroke-[2.5]" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Pagination Dots */}
+        <div className="flex items-center justify-center gap-2 mt-8">
+          {featuredProducts.map((_, dotIdx) => (
+            <button
+              key={dotIdx}
+              onClick={() => {
+                if (scrollContainerRef.current) {
+                  const cardWidth = scrollContainerRef.current.querySelector('div')?.clientWidth || 380;
+                  scrollContainerRef.current.scrollTo({ left: dotIdx * (cardWidth + 24), behavior: 'smooth' });
+                  setActiveIndex(dotIdx);
+                }
+              }}
+              className={`h-2.5 rounded-full transition-all duration-300 ${dotIdx === activeIndex ? 'w-8 bg-gold' : 'w-2.5 bg-neutral-300 dark:bg-neutral-700 hover:bg-gold/50'}`}
+              title={`Ir para destaque ${dotIdx + 1}`}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
 interface ProductCardProps {
   key?: React.Key;
   product: Product;
@@ -1306,26 +1511,25 @@ const ProductCard = React.memo(function ProductCard({
   index = 0,
   formatPrice,
 }: ProductCardProps & { index?: number }) {
-  const col = index % 3;
-  const initialX = col === 0 ? -40 : col === 2 ? 40 : 0;
-  const initialY = 40;
+  // Variable aspect ratios for natural differing heights (masonry puzzle-like effect)
+  const aspectRatios = ['aspect-[3/4]', 'aspect-[4/5]', 'aspect-[3/5]', 'aspect-[4/6]', 'aspect-square', 'aspect-[5/6]'];
+  const ratioIndex = (index + (product.title?.length || 0)) % aspectRatios.length;
+  const imageAspect = aspectRatios[ratioIndex];
 
   return (
     <motion.div 
-      initial={{ opacity: 0, x: initialX, y: initialY, scale: 0.97 }}
+      initial={{ opacity: 0, scale: 0.98 }}
       whileInView={{ 
         opacity: 1, 
-        x: 0, 
-        y: 0, 
         scale: 1,
         transition: { 
-          duration: 0.5,
-          ease: [0.25, 1, 0.5, 1],
-          delay: (index % 3) * 0.04
+          duration: 0.4,
+          ease: "easeOut",
+          delay: (index % 4) * 0.02
         } 
       }}
-      viewport={{ once: true, amount: 0.5 }}
-      className={`group cursor-pointer flex flex-col bg-white dark:bg-[#161616] border border-black/10 dark:border-white/10 hover:border-gold/60 rounded-[10px] relative overflow-visible shadow-[0_4px_24px_rgba(0,0,0,0.02)] hover:shadow-[0_16px_40px_rgba(0,0,0,0.08)] transition-all duration-500 h-full ${className}`}
+      viewport={{ once: true, amount: 0.2 }}
+      className={`group cursor-pointer flex flex-col bg-[#141414] border border-white/[0.08] hover:border-gold/60 rounded-[4px] relative overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all duration-300 ${className}`}
       onClick={() => {
         if (isOwned && product.product_type !== 'physical' && onRead) {
           onRead(product);
@@ -1334,68 +1538,63 @@ const ProductCard = React.memo(function ProductCard({
         }
       }}
     >
-      {/* 16-point Serrated Starburst Discount Badge overlapping top-right border */}
+      {/* 16-point Serrated Starburst Discount Badge if applicable */}
       {product.discount_percent && product.discount_percent > 0 ? (
         <StarburstDiscountBadge discount={product.discount_percent} />
       ) : null}
 
-      {/* Aspect Ratio 3:4 Image Frame */}
-      <div className="relative w-full aspect-[3/4] overflow-hidden bg-[#FAF8F5] dark:bg-[#1a1a1a] rounded-t-[9px] border-b border-black/5 dark:border-white/10 flex items-center justify-center">
+      {/* Dynamic Aspect Ratio Image Frame with Overlaid Minimalist Content */}
+      <div className={`relative w-full ${imageAspect} overflow-hidden bg-[#1a1a1a] flex items-center justify-center`}>
         <motion.img
           src={getImageUrl(product.image_url)}
           alt={product.title}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover transition-transform duration-[1000ms] ease-out group-hover:scale-108"
+          className="w-full h-full object-cover transition-transform duration-[800ms] ease-out group-hover:scale-105"
           loading="lazy"
           decoding="async"
         />
         
-        {/* Subtle luxury vignette overlay on hover */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
-      </div>
-
-      {/* Product Information */}
-      <div className="flex flex-col p-4 md:p-5 text-left flex-grow bg-white dark:bg-[#161616] rounded-b-[9px] justify-between space-y-3">
-        <div>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            {product.category ? (
-              <span className="text-[8px] md:text-[9px] uppercase tracking-[0.25em] text-gold font-mono font-bold truncate">
-                {product.category}
-              </span>
-            ) : <span />}
-
+        {/* Sleek Dark Gradient Overlay at the bottom containing title, price and rounded buy button */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-transparent flex flex-col justify-end p-3.5 md:p-4 text-white">
+          <div className="space-y-1 mb-2.5">
+            <h4 className="text-xs md:text-sm font-serif text-white font-medium tracking-wide leading-snug line-clamp-2 group-hover:text-gold transition-colors duration-300 drop-shadow">
+              {product.title}
+            </h4>
             {product.discount_percent && product.discount_percent > 0 ? (
-              <span className="line-through text-neutral-400 dark:text-neutral-500 text-[10px] md:text-xs font-mono font-normal shrink-0">
+              <span className="inline-block text-[10px] font-mono text-neutral-300/80 line-through drop-shadow">
                 {formatPrice ? formatPrice(product.pvp) : `€${product.pvp}`}
               </span>
             ) : null}
           </div>
-          
-          <h4 className="text-xs md:text-sm font-serif text-luxury-foreground dark:text-white font-semibold tracking-wide leading-snug line-clamp-2 group-hover:text-gold transition-colors duration-300">
-            {product.title}
-          </h4>
-        </div>
-        
-        <div className="flex justify-between items-center pt-3 border-t border-black/[0.06] dark:border-white/10 gap-2">
-          <span className="text-base md:text-lg font-serif text-luxury-foreground dark:text-white font-semibold tracking-tight">
-            {formatPrice ? formatPrice(getEffectivePrice(product)) : `€${getEffectivePrice(product)}`}
-          </span>
-          
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isOwned && product.product_type !== 'physical' && onRead) {
-                onRead(product);
-              } else {
-                onBuy(product);
-              }
-            }}
-            className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] font-extrabold text-black bg-gold hover:bg-amber-400 px-3 md:px-4 py-1.5 md:py-2 rounded-none transition-all flex items-center gap-1.5 shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-95 shrink-0"
-          >
-            <ShoppingBag size={12} className="stroke-[2.5]" />
-            <span>{isOwned && product.product_type !== 'physical' ? 'Aceder' : 'Comprar'}</span>
-          </button>
+
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+            <div className="flex items-center gap-2">
+              <span className="text-sm md:text-base font-serif text-white font-semibold tracking-tight drop-shadow">
+                {formatPrice ? formatPrice(getEffectivePrice(product)) : `€${getEffectivePrice(product)}`}
+              </span>
+            </div>
+
+            <motion.button
+              type="button"
+              whileInView={{
+                x: [0, -3, 3, -2, 2, 0],
+                transition: { duration: 0.5, delay: 0.2 + (index % 4) * 0.05 }
+              }}
+              viewport={{ once: true }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (isOwned && product.product_type !== 'physical' && onRead) {
+                  onRead(product);
+                } else {
+                  onBuy(product);
+                }
+              }}
+              className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] font-extrabold text-black bg-gold hover:bg-amber-400 px-3.5 py-1.5 rounded-full transition-all flex items-center gap-1 shadow-lg hover:shadow-xl active:scale-95 shrink-0"
+            >
+              <ShoppingBag size={11} className="stroke-[2.5]" />
+              <span>{isOwned && product.product_type !== 'physical' ? 'Aceder' : 'Comprar'}</span>
+            </motion.button>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -3172,6 +3371,30 @@ export default function App() {
       navigateTo("home");
     }
   };
+
+  const [scrollY, setScrollY] = useState(0);
+  const [isNavbarVisible, setIsNavbarVisible] = useState(true);
+  const lastScrollYRef = useRef(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      setScrollY(currentScrollY);
+
+      if (currentScrollY <= 20) {
+        setIsNavbarVisible(true);
+      } else if (currentScrollY > lastScrollYRef.current + 8) {
+        setIsNavbarVisible(false);
+      } else if (currentScrollY < lastScrollYRef.current - 8) {
+        setIsNavbarVisible(true);
+      }
+      lastScrollYRef.current = currentScrollY;
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const [purchasedProducts, setPurchasedProducts] = useState<Order[]>([]);
   const [successProduct, setSuccessProduct] = useState<Product | null>(null);
   const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
@@ -4529,6 +4752,7 @@ export default function App() {
               view={view}
               unreadCount={unreadCount}
               onNotificationClick={() => setIsNotificationOpen(true)}
+              isVisible={isNavbarVisible}
             />
           )}
 
@@ -4657,7 +4881,7 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="w-full"
             >
-                <section className="relative h-[100dvh] min-h-screen w-full flex items-center justify-center overflow-hidden bg-luxury-bg">
+                <section style={{ transform: `translateY(${scrollY * 0.35}px)` }} className="sticky top-0 h-[100dvh] min-h-screen w-full flex items-center justify-center overflow-hidden bg-luxury-bg z-0">
                   <MovingParticles activeTheme={siteTheme.active} />
                 {/* Background Video/Image Container */}
                 <div className="absolute inset-0 z-0 bg-[#050505]">
@@ -4810,184 +5034,25 @@ export default function App() {
                 </motion.div>
               </section>
 
-              {(() => {
-                const featuredProducts = products.filter(p => p.is_featured && p.is_active !== false);
-                if (featuredProducts.length === 0) return null;
-                
-                // Helper function to get column span class for dynamic bento grid layout
-                const getBentoColSpanClass = (index: number, total: number) => {
-                  if (total === 1) return 'col-span-12 max-w-5xl mx-auto';
-                  if (total === 2) {
-                    return index === 0 ? 'col-span-12 lg:col-span-7' : 'col-span-12 lg:col-span-5';
-                  }
-                  if (total === 3) {
-                    if (index === 0) return 'col-span-12 lg:col-span-6';
-                    return 'col-span-12 lg:col-span-3';
-                  }
-                  // For 4 or more items: alternate row proportions (7/5, 5/7, 8/4, etc.)
-                  const patternIndex = index % 4;
-                  if (patternIndex === 0) return 'col-span-12 lg:col-span-7';
-                  if (patternIndex === 1) return 'col-span-12 lg:col-span-5';
-                  if (patternIndex === 2) return 'col-span-12 lg:col-span-5';
-                  return 'col-span-12 lg:col-span-7';
-                };
+              <div className="relative z-20 bg-luxury-bg shadow-[0_-40px_80px_rgba(0,0,0,0.6)] rounded-t-[3rem]">
+                <FeaturedProductsSection 
+                  products={products} 
+                  formatPrice={formatPrice} 
+                  getEffectivePrice={getEffectivePrice} 
+                  getImageUrl={getImageUrl} 
+                  handleBuy={handleBuy} 
+                  checkoutLoading={checkoutLoading} 
+                  setSelectedProduct={setSelectedProduct} 
+                  setDetailProduct={setDetailProduct} 
+                  setView={setView} 
+                />
 
-                return (
-                  <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
+                <InfiniteProductMarquee products={products} />
 
-                    <SectionHeading subtitle="Seleção Master Premium" title="Destaques da Temporada" />
-
-                    <motion.div 
-                      initial="hidden"
-                      whileInView="visible"
-                      viewport={{ once: true, margin: "-100px" }}
-                      variants={{
-                        hidden: { opacity: 0 },
-                        visible: {
-                          opacity: 1,
-                          transition: {
-                            staggerChildren: 0.15
-                          }
-                        }
-                      }}
-                      className="px-[5%] mt-12 max-w-7xl mx-auto"
-                    >
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch overflow-visible">
-                        {featuredProducts.map((featuredProduct, idx) => {
-                          const colSpan = getBentoColSpanClass(idx, featuredProducts.length);
-                          const isHero = colSpan.includes('lg:col-span-7') || colSpan.includes('lg:col-span-8') || featuredProducts.length === 1;
-
-                          return (
-                            <motion.div 
-                              key={featuredProduct.id} 
-                              initial={{ opacity: 0, y: 20 }}
-                              whileInView={{ 
-                                opacity: 1, 
-                                y: 0,
-                                transition: { duration: 0.5, ease: "easeOut" } 
-                              }}
-                              viewport={{ once: true, amount: 0.1 }}
-                              className={`${colSpan} group relative flex flex-col justify-between rounded-none overflow-hidden bg-[#FAF8F5] dark:bg-[#181818] border border-black/10 dark:border-white/10 hover:border-gold/60 transition-all duration-300 cursor-pointer h-full shadow-md hover:shadow-2xl`}
-                              onClick={() => {
-                                setSelectedProduct(featuredProduct);
-                                setDetailProduct(featuredProduct);
-                                setView("product-detail");
-                              }}
-                            >
-                              {/* Starburst discount badge on featured card */}
-                              {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
-                                <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute -top-3.5 -right-3.5 z-20 pointer-events-none" />
-                              ) : null}
-
-                              {/* Image Header - Dynamic aspect ratio based on card size */}
-                              <div className={`relative w-full overflow-hidden bg-[#F5F0E8] dark:bg-[#121212] rounded-none border-b border-black/10 dark:border-white/10 ${isHero ? 'aspect-[16/9] lg:aspect-[16/8.5]' : 'aspect-[16/10] lg:aspect-[4/3]'}`}>
-                                <img 
-                                  src={getImageUrl(featuredProduct.image_url || "")} 
-                                  alt={featuredProduct.title}
-                                  className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-out"
-                                  loading="lazy"
-                                />
-                                
-                                {/* Category Badge and Original Price if present */}
-                                <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-                                  {featuredProduct.category && (
-                                    <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 text-luxury-foreground dark:text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 rounded-none shadow-sm">
-                                      {featuredProduct.category}
-                                    </span>
-                                  )}
-                                  {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
-                                    <span className="bg-white/95 dark:bg-black/80 border border-black/10 dark:border-white/15 line-through text-neutral-400 dark:text-neutral-400 font-mono text-[10px] font-normal px-2.5 py-1 rounded-none shadow-sm">
-                                      {formatPrice(featuredProduct.pvp)}
-                                    </span>
-                                  ) : null}
-                                </div>
-
-                                {featuredProduct.free_shipping && (
-                                  <div className="absolute bottom-4 left-4 z-10">
-                                    <span className="bg-emerald-900/10 dark:bg-emerald-950/80 border border-emerald-600/30 text-emerald-700 dark:text-emerald-400 font-mono text-[9px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-none flex items-center gap-1">
-                                      <Truck size={12} />
-                                      Frete Grátis
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Card Body - Warm nude/cream background in light mode */}
-                              <div className="p-6 lg:p-7 flex flex-col justify-between flex-1 space-y-5 relative z-10 bg-[#FAF8F5] dark:bg-[#181818] rounded-none">
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center gap-1 text-gold">
-                                      {[...Array(5)].map((_, i) => (
-                                        <Star key={i} size={13} className="fill-gold text-gold" />
-                                      ))}
-                                      <span className="text-luxury-foreground/60 dark:text-white/60 text-[10px] font-mono ml-1 font-semibold">
-                                        5.0 (Exclusivo)
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <h3 className={`font-serif ${isHero ? 'text-2xl sm:text-3xl' : 'text-xl sm:text-2xl'} text-luxury-foreground dark:text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1`}>
-                                    {featuredProduct.title}
-                                  </h3>
-
-                                  {featuredProduct.description && (
-                                    <p className="text-luxury-foreground/75 dark:text-white/70 text-xs sm:text-sm font-sans line-clamp-2 leading-relaxed">
-                                      {featuredProduct.description}
-                                    </p>
-                                  )}
-                                </div>
-
-                                {/* Price & Action Row */}
-                                <div className="pt-4 border-t border-black/10 dark:border-white/10 flex items-center justify-between gap-4">
-                                  <div className="flex flex-col">
-                                    <span className="text-[9px] uppercase tracking-[0.2em] text-[#8C7A6B] dark:text-white/50 font-mono font-bold">
-                                      Valor de Investimento
-                                    </span>
-                                    <div className="flex items-baseline gap-2 flex-wrap">
-                                      <span className="text-xl sm:text-2xl font-serif font-bold text-luxury-foreground dark:text-gold">
-                                        {formatPrice(getEffectivePrice(featuredProduct))}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    type="button"
-                                    onClick={(e: any) => {
-                                      e.stopPropagation();
-                                      handleBuy(featuredProduct);
-                                    }}
-                                    disabled={checkoutLoading === featuredProduct.id}
-                                    className="bg-gold hover:bg-amber-400 text-black font-extrabold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-5 sm:px-6 py-2.5 sm:py-3 rounded-none transition-all flex items-center gap-2 shrink-0 shadow-md hover:scale-[1.02] active:scale-95"
-                                  >
-                                    {checkoutLoading === featuredProduct.id ? (
-                                      <Loader2 size={14} className="animate-spin text-black" />
-                                    ) : (
-                                      <>
-                                        <span>Comprar</span>
-                                        <ShoppingBag size={14} className="stroke-[2.5]" />
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            </motion.div>
-                          );
-                        })}
-                      </div>
-                    </motion.div>
-                  </section>
-                );
-              })()}
-
-              <InfiniteProductMarquee products={products} />
-
-              <section className="pt-16 pb-24 w-full relative" id="boutique">
+                <section className="pt-16 pb-24 w-full relative" id="boutique">
                 {/* Section Header Title */}
                 <div className="px-[5%] mb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
                   <div className="flex flex-col">
-                    <span className="text-[10px] uppercase tracking-[0.3em] text-luxury-gold font-mono font-bold mb-1">
-                      Coleção Exclusiva
-                    </span>
                     <motion.h2 
                       initial={{ opacity: 0, x: -20 }}
                       whileInView={{ opacity: 1, x: 0 }}
@@ -5000,7 +5065,7 @@ export default function App() {
                 </div>
 
                 {/* STICKY FILTER BAR (Fixa-se no topo da tela por baixo da barra de navegação durante o scroll) */}
-                <div className="sticky top-[60px] md:top-[70px] z-50 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-all duration-300">
+                <div className={`sticky ${isNavbarVisible ? 'top-[60px] md:top-[70px]' : 'top-0'} z-50 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-all duration-300`}>
                   <div className="max-w-2xl mx-auto flex items-center justify-center gap-2 sm:gap-3.5">
                     
                     {/* Seletor 1: Categoria (Dropdown) */}
@@ -5358,6 +5423,7 @@ export default function App() {
                   )}
                 </div>
               </section>
+            </div>
             </motion.div>
           )}
 

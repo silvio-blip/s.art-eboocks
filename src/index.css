@@ -144,6 +144,31 @@
     animation: border-beam-vertical-reverse 2s linear infinite;
   }
 
+  @keyframes button-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .animate-button-shimmer {
+    background: linear-gradient(90deg, #C5A059 0%, #F3E5AB 35%, #FFF 50%, #F3E5AB 65%, #C5A059 100%);
+    background-size: 200% 100%;
+    animation: button-shimmer 2.5s infinite linear;
+  }
+
+  @keyframes shake-vibrate {
+    0% { transform: translate(0, 0); }
+    15% { transform: translate(-2px, 2px); }
+    30% { transform: translate(2px, -2px); }
+    45% { transform: translate(-2px, -1px); }
+    60% { transform: translate(2px, 1px); }
+    75% { transform: translate(-1px, 2px); }
+    100% { transform: translate(0, 0); }
+  }
+
+  .animate-shake {
+    animation: shake-vibrate 0.4s ease-in-out;
+  }
+
   .glass-distortion {
     background: rgba(255, 255, 255, 0.03);
     backdrop-filter: blur(20px) saturate(180%);
@@ -261,28 +286,36 @@ aside {
 }
 
 .bento-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
+    column-count: 2;
+    column-gap: 6px;
     width: 100%;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
     .bento-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 24px;
+        column-count: 2;
+        column-gap: 8px;
     }
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1024px) {
     .bento-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 32px;
+        column-count: 3;
+        column-gap: 10px;
+    }
+}
+
+@media (min-width: 1536px) {
+    .bento-grid {
+        column-count: 4;
+        column-gap: 12px;
     }
 }
 
 .bento-grid > * {
-    display: block;
+    break-inside: avoid;
+    margin-bottom: 8px;
+    display: inline-block;
     width: 100%;
 }
 
