@@ -4465,9 +4465,12 @@ export default function App() {
 
       <AnimatePresence>
         {showSplash && (
-          <div 
+          <motion.div 
             id="intro-splash" 
-            className="fixed inset-0 bg-[#030303] z-[999999] flex items-center justify-center overflow-hidden transition-opacity duration-800"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.05 }}
+            transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed inset-0 bg-[#030303] z-[999999] flex items-center justify-center overflow-hidden pointer-events-none"
           >
             <div className="intro-animation-bg absolute inset-0 pointer-events-none z-1">
               <div className="moving-grid-line mg-1"></div>
@@ -4493,16 +4496,22 @@ export default function App() {
               <div className="dynamic-line l-down-5"></div>
             </div>
 
-            <div className="intro-content relative z-[100] text-center bg-[#030303]/75 p-[40px_60px] rounded-[4px] backdrop-blur-[4px]">
-              <h1 className="text-white font-light text-4xl sm:text-6xl tracking-[12px] mb-2 font-serif animate-[fadeInDown_1s_ease_forwards]">
+            <motion.div 
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+              transition={{ duration: 0.8, ease: "easeInOut" }}
+              className="intro-content relative z-[100] text-center bg-[#030303]/75 p-[40px_60px] rounded-[4px] backdrop-blur-[4px]"
+            >
+              <h1 className="text-white font-light text-4xl sm:text-6xl tracking-[12px] mb-2 font-serif">
                 S.ART
               </h1>
-              <p className="text-[#aaaaaa] font-sans text-xs sm:text-sm tracking-[16px] uppercase mb-8 animate-[fadeInUp_1s_ease_forwards]">
+              <p className="text-[#aaaaaa] font-sans text-xs sm:text-sm tracking-[16px] uppercase mb-8">
                 BOUTIQUE
               </p>
               <div className="w-[60px] h-[2px] bg-white mx-auto animate-[loadLine_1.5s_ease_infinite_alternate]" />
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
       <CustomCursor active={isCursorTransformed && cursorPreferEnabled} />
