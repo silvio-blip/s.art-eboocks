@@ -688,6 +688,8 @@ export default function AdminDashboard({
     image_mobile: "",
     video_url: "",
     video_mobile_url: "",
+    video_loop: true,
+    video_mobile_loop: true,
     title: "",
     subtitle: "",
     buttonText: ""
@@ -6518,6 +6520,17 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                         placeholder="https://exemplo.com/video-desktop.mp4"
                         className="w-full bg-white/5 border border-white/10 px-3 py-2 text-xs outline-none focus:border-luxury-gold transition-all text-white/90 placeholder:text-white/20 font-mono"
                       />
+                      <div className="flex items-center justify-between pt-1 px-1">
+                        <label className="flex items-center gap-2 cursor-pointer text-[11px] text-white/80 hover:text-white transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={siteHero.video_loop !== false}
+                            onChange={(e) => setSiteHero({ ...siteHero, video_loop: e.target.checked })}
+                            className="rounded bg-black/50 border-white/20 text-luxury-gold focus:ring-0 w-3.5 h-3.5"
+                          />
+                          <span>Modo de Reprodução Desktop: <strong className="text-luxury-gold">{siteHero.video_loop !== false ? "Loop Contínuo (Repetir)" : "Parar / Travar no Final"}</strong></span>
+                        </label>
+                      </div>
                     </div>
                   </div>
 
@@ -6604,6 +6617,17 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                         placeholder="https://exemplo.com/video-mobile.mp4 (Opcional)"
                         className="w-full bg-white/5 border border-white/10 px-3 py-2 text-xs outline-none focus:border-sky-400 transition-all text-white/90 placeholder:text-white/20 font-mono"
                       />
+                      <div className="flex items-center justify-between pt-1 px-1">
+                        <label className="flex items-center gap-2 cursor-pointer text-[11px] text-white/80 hover:text-white transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={siteHero.video_mobile_loop !== false}
+                            onChange={(e) => setSiteHero({ ...siteHero, video_mobile_loop: e.target.checked })}
+                            className="rounded bg-black/50 border-white/20 text-sky-400 focus:ring-0 w-3.5 h-3.5"
+                          />
+                          <span>Modo de Reprodução Mobile: <strong className="text-sky-400">{siteHero.video_mobile_loop !== false ? "Loop Contínuo (Repetir)" : "Parar / Travar no Final"}</strong></span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -6659,8 +6683,13 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                             className="w-full h-full object-cover opacity-70"
                             autoPlay
                             muted
-                            loop
+                            loop={siteHero.video_loop !== false}
                             playsInline
+                            onEnded={(e) => {
+                              if (siteHero.video_loop === false) {
+                                (e.target as HTMLVideoElement).pause();
+                              }
+                            }}
                           />
                         ) : siteHero.image ? (
                           <img
@@ -6694,8 +6723,13 @@ curl -X GET "https://sart-full.pt/api/v1/products" \\
                             className="w-full h-full object-cover opacity-70"
                             autoPlay
                             muted
-                            loop
+                            loop={siteHero.video_mobile_loop !== false}
                             playsInline
+                            onEnded={(e) => {
+                              if (siteHero.video_mobile_loop === false) {
+                                (e.target as HTMLVideoElement).pause();
+                              }
+                            }}
                           />
                         ) : (siteHero.image_mobile || siteHero.image) ? (
                           <img

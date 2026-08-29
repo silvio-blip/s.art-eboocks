@@ -3185,6 +3185,8 @@ export default function App() {
     image_mobile: "",
     video_url: "",
     video_mobile_url: "",
+    video_loop: true,
+    video_mobile_loop: true,
     title: "Luxo & Exclusividade",
     subtitle: "A Essência da Exclusividade",
     buttonText: "Explorar Coleção"
@@ -4669,9 +4671,12 @@ export default function App() {
                         muted
                         playsInline
                         preload="auto"
+                        loop={siteHero.video_loop !== false}
                         poster={getImageUrl(siteHero.image)}
                         onEnded={(e) => {
-                          (e.target as HTMLVideoElement).pause();
+                          if (siteHero.video_loop === false) {
+                            (e.target as HTMLVideoElement).pause();
+                          }
                         }}
                         className={`${siteHero.video_mobile_url ? 'hidden md:block' : 'block'} w-full h-full object-cover opacity-100 transition-opacity duration-1000`}
                       >
@@ -4691,9 +4696,12 @@ export default function App() {
                           muted
                           playsInline
                           preload="auto"
+                          loop={siteHero.video_mobile_loop !== false}
                           poster={getImageUrl(siteHero.image_mobile || siteHero.image)}
                           onEnded={(e) => {
-                            (e.target as HTMLVideoElement).pause();
+                            if (siteHero.video_mobile_loop === false) {
+                              (e.target as HTMLVideoElement).pause();
+                            }
                           }}
                           className="block md:hidden w-full h-full object-cover opacity-100 transition-opacity duration-1000"
                         >
