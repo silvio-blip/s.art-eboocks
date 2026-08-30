@@ -514,10 +514,10 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
 
       {/* Premium Tab Navigation */}
       <div className="flex flex-col items-center gap-8 border-b border-neutral-700/80 pb-8 relative overflow-hidden">
-        <div className="flex p-1.5 bg-neutral-900 border-2 border-neutral-700 rounded-full shadow-xl">
+        <div className="flex w-full max-w-md sm:w-auto p-1 sm:p-1.5 bg-neutral-900 border-2 border-neutral-700 rounded-full shadow-xl">
           <button 
             onClick={() => setActiveTab('general')}
-            className={`relative px-6 md:px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
+            className={`relative flex-1 sm:flex-initial flex items-center justify-center px-3 sm:px-6 md:px-8 py-2.5 sm:py-3 text-[9px] sm:text-[10px] uppercase tracking-[0.1em] sm:tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden whitespace-nowrap ${
               activeTab === 'general' ? 'text-black' : 'text-neutral-200 hover:text-amber-400'
             }`}
           >
@@ -528,13 +528,13 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 transition={{ type: "spring", stiffness: 380, damping: 30 }}
               />
             )}
-            <span className="relative z-10 flex items-center gap-2">
-              <User size={14} /> GERAL
+            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+              <User size={13} className="sm:w-3.5 sm:h-3.5" /> GERAL
             </span>
           </button>
           <button 
             onClick={() => setActiveTab('orders')}
-            className={`relative px-6 md:px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
+            className={`relative flex-1 sm:flex-initial flex items-center justify-center px-3 sm:px-6 md:px-8 py-2.5 sm:py-3 text-[9px] sm:text-[10px] uppercase tracking-[0.1em] sm:tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden whitespace-nowrap ${
               activeTab === 'orders' ? 'text-black' : 'text-neutral-200 hover:text-amber-400'
             }`}
           >
@@ -545,10 +545,10 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 transition={{ type: "spring", stiffness: 380, damping: 30 }}
               />
             )}
-            <span className="relative z-10 flex items-center gap-2">
-              <ShoppingBag size={14} /> PEDIDOS
+            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+              <ShoppingBag size={13} className="sm:w-3.5 sm:h-3.5" /> PEDIDOS
               {purchasedProducts.length > 0 && (
-                <span className={`text-[9px] px-2 py-0.5 rounded-full font-black ${activeTab === 'orders' ? 'bg-black text-amber-400' : 'bg-neutral-800 text-neutral-200 border border-neutral-700'}`}>
+                <span className={`text-[8px] sm:text-[9px] px-1.5 sm:px-2 py-0.5 rounded-full font-black ${activeTab === 'orders' ? 'bg-black text-amber-400' : 'bg-neutral-800 text-neutral-200 border border-neutral-700'}`}>
                   {purchasedProducts.length}
                 </span>
               )}
@@ -556,7 +556,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
           </button>
           <button 
             onClick={() => setActiveTab('refunds')}
-            className={`relative px-6 md:px-8 py-3 text-[10px] uppercase tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden ${
+            className={`relative flex-1 sm:flex-initial flex items-center justify-center px-3 sm:px-6 md:px-8 py-2.5 sm:py-3 text-[9px] sm:text-[10px] uppercase tracking-[0.1em] sm:tracking-[0.3em] font-black transition-all duration-500 rounded-full overflow-hidden whitespace-nowrap ${
               activeTab === 'refunds' ? 'text-black' : 'text-neutral-200 hover:text-amber-400'
             }`}
           >
@@ -567,10 +567,10 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                 transition={{ type: "spring", stiffness: 380, damping: 30 }}
               />
             )}
-            <span className="relative z-10 flex items-center gap-2">
-              <RotateCcw size={14} /> REEMBOLSOS
+            <span className="relative z-10 flex items-center gap-1.5 sm:gap-2">
+              <RotateCcw size={13} className="sm:w-3.5 sm:h-3.5" /> REEMBOLSOS
               {refundOrders.length > 0 && (
-                <span className={`text-[9px] px-2 py-0.5 rounded-full font-black ${activeTab === 'refunds' ? 'bg-black text-amber-400' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
+                <span className={`text-[8px] sm:text-[9px] px-1.5 sm:px-2 py-0.5 rounded-full font-black ${activeTab === 'refunds' ? 'bg-black text-amber-400' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'}`}>
                   {refundOrders.length}
                 </span>
               )}

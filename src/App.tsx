@@ -6137,7 +6137,11 @@ export default function App() {
                     setCursorPreferEnabled(data.custom_cursor_enabled);
                   }
                 }}
-                onRefundRequest={(order) => setRefundOrder(order)}
+                onRefundRequest={(order) => {
+                  if (user) {
+                    fetchDashboardData(user.id);
+                  }
+                }}
                 onLogout={handleLogout}
               />
             </div>
@@ -6298,71 +6302,7 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {refundOrder && (
-        <Dialog
-          open={!!refundOrder}
-          onOpenChange={(open) => !open && setRefundOrder(null)}
-        >
-          <DialogContent className="max-w-md rounded-none border-black/5 dark:border-white/5 bg-white/95 dark:bg-black/95 backdrop-blur-xl p-8 z-[200]">
-            <DialogHeader className="space-y-4">
-              <div className="text-center font-serif text-2xl text-red-500">
-                Solicitar Devolução
-              </div>
-              <div className="text-center text-[10px] uppercase tracking-widest text-black/60 dark:text-white/60 leading-relaxed">
-                O seu pedido será enviado para análise administrativa pela nossa equipa de curadoria.
-              </div>
-              <div className="text-center text-sm text-black/80 dark:text-white/80 leading-relaxed bg-red-50 dark:bg-red-950/20 p-4 border border-red-100 dark:border-red-900/50">
-                Atenção: A confirmar a devolução, o acesso à obra e suporte associado serão bloqueados permanentemente após aprovação administrativa.
-              </div>
-            </DialogHeader>
-            <div className="flex flex-col gap-4 pt-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 mb-2">
-                    Digite o nome exato da obra para confirmar:
-                  </label>
-                  <input
-                    type="text"
-                    placeholder={refundOrder.product?.title}
-                    value={refundBookName}
-                    onChange={(e) => setRefundBookName(e.target.value)}
-                    className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 text-center dark:text-white transition-colors"
-                  />
-                </div>
 
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-[0.2em] font-medium text-black/60 dark:text-white/60 mb-2">
-                    Motivo da sua solicitação: (Obrigatório)
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Explique por que deseja o reembolso..."
-                    value={refundReason}
-                    onChange={(e) => setRefundReason(e.target.value)}
-                    className="w-full bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10 p-3 text-sm outline-none focus:border-red-500 dark:text-white transition-colors resize-none"
-                  />
-                </div>
-              </div>
-              <Button
-                onClick={handleRefund}
-                disabled={
-                  isRefunding || 
-                  refundBookName !== refundOrder.product?.title ||
-                  !refundReason || 
-                  refundReason.trim().length < 10
-                }
-                className="rounded-none bg-red-500 hover:bg-red-600 text-white h-12 uppercase tracking-[0.2em] text-[9px] font-bold mt-2 transition-all disabled:opacity-50"
-              >
-                {isRefunding ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  "Confirmar Pedido de Devolução"
-                )}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
 
       <footer className="border-t border-white/5 py-16 px-6 bg-[#050505] transition-colors duration-500">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-center md:text-left">
