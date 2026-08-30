@@ -257,7 +257,9 @@ const initDB = async () => {
         { name: 'shipping_tracking_url', type: 'TEXT' },
         { name: 'subtotal', type: 'DECIMAL(10,2) DEFAULT 0' },
         { name: 'shipping_cost', type: 'DECIMAL(10,2) DEFAULT 0' },
-        { name: 'discount_amount', type: 'DECIMAL(10,2) DEFAULT 0' }
+        { name: 'discount_amount', type: 'DECIMAL(10,2) DEFAULT 0' },
+        { name: 'product_title', type: 'TEXT' },
+        { name: 'product_image_url', type: 'TEXT' }
       ];
 
       for (const col of columnsToEnsure) {
@@ -281,6 +283,21 @@ const initDB = async () => {
         } catch(e) { 
           console.error(`[INIT] Error ensuring column ${col.name}:`, e);
         }
+      }
+
+      // Backfill product_title and product_image_url for old orders
+      try {
+        await supabase.rpc('exec_sql', { sql: `
+          UPDATE public.orders o
+          SET 
+            product_title = COALESCE(o.product_title, p.title),
+            product_image_url = COALESCE(o.product_image_url, p.image_url)
+          FROM public.products p
+          WHERE o.product_id = p.id AND (o.product_title IS NULL OR o.product_image_url IS NULL);
+        ` });
+        console.log('[INIT] Completed backfilling product_title and product_image_url for existing orders.');
+      } catch (e) {
+        console.error('[INIT] Error backfilling product titles/images:', e);
       }
 
       try {
@@ -486,6 +503,18 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
       // 2. CRIAR PEDIDO
       const quantity = parseInt(metadata.quantity || "0") || (session as any).line_items?.data?.[0]?.quantity || 1;
       
+      let productTitle = '';
+      let productImage = '';
+      try {
+        const { data: prod } = await supabase.from('products').select('title, image_url').eq('id', internalProductId).maybeSingle();
+        if (prod) {
+          productTitle = prod.title;
+          productImage = prod.image_url;
+        }
+      } catch (e) {
+        console.warn('[STRIPE WEBHOOK] Error fetching product info for webhook caching:', e);
+      }
+
       const orderData = {
         user_id: userId,
         product_id: internalProductId,
@@ -502,7 +531,9 @@ app.post('/api/webhooks/stripe', express.raw({type: 'application/json'}), async 
         selected_options: metadata.selected_options ? JSON.parse(metadata.selected_options) : {},
         customer_email: session.customer_details?.email || customerData?.email || metadata?.email,
         quantity: quantity,
-        currency: metadata.currency || session.currency?.toUpperCase() || 'EUR'
+        currency: metadata.currency || session.currency?.toUpperCase() || 'EUR',
+        product_title: productTitle,
+        product_image_url: productImage
       };
 
       const { data: createdOrders, error: orderError } = await supabase

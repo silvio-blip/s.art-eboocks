@@ -1477,10 +1477,17 @@ export default function AdminDashboard({
           console.error("[DEBUG] Erro ao buscar produtos dos pedidos:", productsError);
         }
 
-        const merged = ordersData.map((order) => ({
-          ...order,
-          product: productsData?.find((p) => p.id === order.product_id) || null,
-        }));
+        const merged = ordersData.map((order) => {
+          const foundProduct = productsData?.find((p) => p.id === order.product_id);
+          return {
+            ...order,
+            product: foundProduct || (order.product_title ? {
+              id: order.product_id,
+              title: order.product_title,
+              image_url: order.product_image_url
+            } : null),
+          };
+        });
 
         setOrders(merged as any);
       }

@@ -445,26 +445,43 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
     setIsSubmittingRefund(true);
     const tid = toast.loading('A registar solicitação de reembolso...');
     try {
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          status: 'refund_pending',
-          payment_status: 'refund_pending'
+      const response = await fetch('/api/request-refund', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          orderId: refundModalOrder.id,
+          userId: user.id,
+          reason: `${refundReason}: ${refundDetails || 'Nenhum detalhe adicional'}`
         })
-        .eq('id', refundModalOrder.id);
+      });
 
-      if (error) {
-        console.warn('Supabase refund update warning:', error);
-      }
-
-      if (onRefundRequest) {
-        onRefundRequest(refundModalOrder);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro ao processar solicitação de reembolso.');
       }
 
       toast.success('Solicitação de reembolso enviada com sucesso! A equipa financeira entrará em contacto.', { id: tid });
+
+      // Instantly update local order states to avoid waiting for fetch latency
+      const updatedStatus = 'refund_requested';
       
       if (selectedOrder && selectedOrder.id === refundModalOrder.id) {
-        setSelectedOrder(prev => prev ? { ...prev, status: 'refund_pending', payment_status: 'refund_pending' } : null);
+        setSelectedOrder(prev => prev ? { 
+          ...prev, 
+          status: updatedStatus, 
+          payment_status: updatedStatus,
+          refund_reason: `${refundReason}: ${refundDetails || 'Nenhum detalhe adicional'}`
+        } : null);
+      }
+
+      if (onRefundRequest) {
+        onRefundRequest({
+          ...refundModalOrder,
+          status: updatedStatus,
+          payment_status: updatedStatus
+        });
       }
       
       setRefundModalOrder(null);
@@ -1445,307 +1462,319 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] bg-black/95 backdrop-blur-2xl flex items-center justify-center p-4"
+            className="fixed inset-0 z-[10000] bg-black/98 backdrop-blur-3xl flex items-center justify-center p-4"
             onClick={() => setSelectedOrder(null)}
           >
             <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 30 }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
-              className="bg-[#050505] w-full max-w-4xl max-h-[90vh] border border-white/10 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative flex flex-col"
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 350, damping: 28 }}
+              className="bg-[#0c0c0c] w-full max-w-5xl max-h-[92vh] border border-neutral-800 overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative flex flex-col rounded-none"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Luxury Detail Header */}
-              <div className="relative h-48 md:h-64 shrink-0 overflow-hidden">
+              <div className="relative h-56 md:h-72 shrink-0 overflow-hidden border-b border-neutral-800">
                 <img 
                   src={getImageUrl(selectedOrder.product?.image_url || '')} 
                   alt="" 
-                  className="w-full h-full object-cover grayscale opacity-95 hover:grayscale-0 hover:opacity-70 transition-all duration-1000" 
+                  className="w-full h-full object-cover grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all duration-1000" 
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c0c] via-[#0c0c0c]/40 to-transparent" />
                 <button 
                   onClick={() => setSelectedOrder(null)} 
-                  className="absolute top-4 right-4 md:top-8 md:right-8 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/50 border border-white/20 flex items-center justify-center text-white hover:bg-luxury-gold hover:text-black hover:border-luxury-gold transition-all duration-500 z-50"
+                  className="absolute top-6 right-6 md:top-8 md:right-8 w-11 h-11 rounded-none bg-black/80 border border-neutral-700 flex items-center justify-center text-white hover:bg-amber-400 hover:text-black hover:border-amber-400 transition-all duration-300 z-50"
                 >
-                  <X size={20} />
+                  <X size={18} />
                 </button>
                 
-                <div className="absolute bottom-6 left-6 md:bottom-10 md:left-10 space-y-1">
-                   <p className="text-luxury-gold text-[8px] md:text-[10px] uppercase tracking-[0.5em] font-black">Manifesto Detalhado</p>
-                   <h3 className="text-2xl md:text-4xl font-serif italic text-white leading-none line-clamp-2 md:line-clamp-3 overflow-hidden">
-                      {selectedOrder.product?.title || 'Manifestação Sem Nome'}
+                <div className="absolute bottom-8 left-8 md:bottom-12 md:left-12 space-y-2">
+                   <p className="text-amber-400 text-[9px] uppercase tracking-[0.6em] font-black">MEMBRO EXCLUSIVO</p>
+                   <h3 className="text-3xl md:text-5xl font-serif text-white tracking-tight leading-none line-clamp-2 font-light">
+                      {selectedOrder.product?.title || 'Manifestação S.art'}
                    </h3>
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto luxury-scrollbar">
-                <div className="p-6 md:p-10 grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12">
+              <div className="flex-1 overflow-y-auto luxury-scrollbar bg-[#080808]">
+                <div className="p-8 md:p-12 grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12">
                   {/* Secondary details */}
-                  <div className="md:col-span-7 space-y-8">
+                  <div className="md:col-span-7 space-y-10">
+                    
+                    {/* Logística de Luxo Card */}
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 text-amber-400">
-                          <Truck size={20} />
-                          <span className="text-[11px] uppercase tracking-[0.4em] font-black">LOGÍSTICA DE LUXO</span>
+                          <Truck size={18} className="stroke-[1.5]" />
+                          <span className="text-[10px] uppercase tracking-[0.4em] font-black">LOGÍSTICA DE LUXO</span>
                         </div>
                         {selectedOrder.shipping_status === 'pending' && !isEditingAddress && (
                           <button 
                             onClick={() => startEditingAddress(selectedOrder)}
-                            className="text-[10px] uppercase tracking-widest text-amber-400 hover:text-white transition-colors flex items-center gap-2 border-2 border-amber-400/50 bg-neutral-900 px-3.5 py-1.5 font-bold"
+                            className="text-[9px] uppercase tracking-[0.2em] text-amber-400 hover:text-white transition-colors flex items-center gap-2 border border-amber-400/35 bg-[#121212] px-4 py-2 font-bold"
                           >
-                            <Edit size={13} /> ALTERAR MORADA
+                            <Edit size={12} /> ALTERAR MORADA
                           </button>
                         )}
                       </div>
-                        {selectedOrder.shipping_details ? (() => {
-                          const details = typeof selectedOrder.shipping_details === 'string' 
-                            ? (JSON.parse(selectedOrder.shipping_details) || {}) 
-                            : selectedOrder.shipping_details;
-                          
-                          return (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6 md:p-8 bg-neutral-900 border-2 border-neutral-700 border-l-amber-400 border-l-4 relative shadow-lg">
-                              {isEditingAddress ? (
-                                <div className="col-span-2 space-y-6 animate-in fade-in zoom-in-95 duration-500">
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                      <label className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Morada</label>
-                                      <input 
-                                        type="text" 
-                                        value={addressForm.address} 
-                                        onChange={e => setAddressForm({...addressForm, address: e.target.value})}
-                                        className="w-full bg-black border-2 border-neutral-600 p-3 text-sm text-white focus:border-amber-400 outline-none font-medium"
-                                      />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <label className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Cidade</label>
-                                      <input 
-                                        type="text" 
-                                        value={addressForm.city} 
-                                        onChange={e => setAddressForm({...addressForm, city: e.target.value})}
-                                        className="w-full bg-black border-2 border-neutral-600 p-3 text-sm text-white focus:border-amber-400 outline-none font-medium"
-                                      />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <label className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Cód. Postal</label>
-                                      <input 
-                                        type="text" 
-                                        value={addressForm.zip} 
-                                        onChange={e => setAddressForm({...addressForm, zip: e.target.value})}
-                                        className="w-full bg-black border-2 border-neutral-600 p-3 text-sm text-white focus:border-amber-400 outline-none font-medium"
-                                      />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <label className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Telefone</label>
-                                      <input 
-                                        type="text" 
-                                        value={addressForm.phone} 
-                                        onChange={e => setAddressForm({...addressForm, phone: e.target.value})}
-                                        className="w-full bg-black border-2 border-neutral-600 p-3 text-sm text-white focus:border-amber-400 outline-none font-medium"
-                                      />
-                                    </div>
-                                    <div className="space-y-2 md:col-span-2">
-                                      <label className="text-[9px] uppercase tracking-widest text-neutral-200 font-bold">Email de Contacto</label>
-                                      <input 
-                                        type="email" 
-                                        value={addressForm.email} 
-                                        onChange={e => setAddressForm({...addressForm, email: e.target.value})}
-                                        className="w-full bg-black border-2 border-neutral-600 p-3 text-sm text-white focus:border-amber-400 outline-none font-medium"
-                                      />
-                                    </div>
+                      
+                      {selectedOrder.shipping_details ? (() => {
+                        const details = typeof selectedOrder.shipping_details === 'string' 
+                          ? (JSON.parse(selectedOrder.shipping_details) || {}) 
+                          : selectedOrder.shipping_details;
+                        
+                        return (
+                          <div className="p-6 md:p-8 bg-[#121212] border border-neutral-800 relative shadow-xl">
+                            {isEditingAddress ? (
+                              <div className="space-y-6 animate-in fade-in zoom-in-95 duration-500">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                  <div className="space-y-2">
+                                    <label className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Morada</label>
+                                    <input 
+                                      type="text" 
+                                      value={addressForm.address} 
+                                      onChange={e => setAddressForm({...addressForm, address: e.target.value})}
+                                      className="w-full bg-[#181818] border border-neutral-700 p-4 text-xs font-semibold uppercase tracking-wider text-white focus:border-amber-400 outline-none rounded-none focus:ring-1 focus:ring-amber-400 transition-all"
+                                    />
                                   </div>
-                                  <div className="flex gap-4 pt-4">
-                                    <Button 
-                                      onClick={handleUpdateAddress}
-                                      disabled={isUpdatingAddress}
-                                      className="flex-1 bg-amber-400 text-black font-black rounded-none h-11 text-[10px] uppercase tracking-widest hover:bg-white"
-                                    >
-                                      {isUpdatingAddress ? 'A SALVAR...' : 'GUARDAR ALTERAÇÕES'}
-                                    </Button>
-                                    <Button 
-                                      onClick={() => setIsEditingAddress(false)}
-                                      variant="outline"
-                                      className="flex-1 bg-neutral-800 border-2 border-neutral-600 text-white rounded-none h-11 text-[10px] font-black uppercase tracking-widest hover:bg-neutral-700"
-                                    >
-                                      CANCELAR
-                                    </Button>
+                                  <div className="space-y-2">
+                                    <label className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Cidade</label>
+                                    <input 
+                                      type="text" 
+                                      value={addressForm.city} 
+                                      onChange={e => setAddressForm({...addressForm, city: e.target.value})}
+                                      className="w-full bg-[#181818] border border-neutral-700 p-4 text-xs font-semibold uppercase tracking-wider text-white focus:border-amber-400 outline-none rounded-none focus:ring-1 focus:ring-amber-400 transition-all"
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <label className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Código Postal</label>
+                                    <input 
+                                      type="text" 
+                                      value={addressForm.zip} 
+                                      onChange={e => setAddressForm({...addressForm, zip: e.target.value})}
+                                      className="w-full bg-[#181818] border border-neutral-700 p-4 text-xs font-semibold uppercase tracking-wider text-white focus:border-amber-400 outline-none rounded-none focus:ring-1 focus:ring-amber-400 transition-all"
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <label className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Telemóvel</label>
+                                    <input 
+                                      type="text" 
+                                      value={addressForm.phone} 
+                                      onChange={e => setAddressForm({...addressForm, phone: e.target.value})}
+                                      className="w-full bg-[#181818] border border-neutral-700 p-4 text-xs font-semibold uppercase tracking-wider text-white focus:border-amber-400 outline-none rounded-none focus:ring-1 focus:ring-amber-400 transition-all"
+                                    />
+                                  </div>
+                                  <div className="space-y-2 md:col-span-2">
+                                    <label className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Email de Contacto</label>
+                                    <input 
+                                      type="email" 
+                                      value={addressForm.email} 
+                                      onChange={e => setAddressForm({...addressForm, email: e.target.value})}
+                                      className="w-full bg-[#181818] border border-neutral-700 p-4 text-xs font-semibold uppercase tracking-wider text-white focus:border-amber-400 outline-none rounded-none focus:ring-1 focus:ring-amber-400 transition-all"
+                                    />
                                   </div>
                                 </div>
-                              ) : (
-                                <>
-                                  <div className="space-y-3">
-                                    <p className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Destinatário</p>
-                                    <p className="text-base text-white font-serif italic font-bold leading-relaxed">
-                                      {details.fullName || 
-                                       `${details.firstName || ''} ${details.lastName || ''}`.trim() || 
-                                       'Nome Preservado'}
-                                    </p>
-                                  </div>
-                                  <div className="space-y-3">
-                                    <p className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Residência de Entrega</p>
-                                    <p className="text-sm text-neutral-200 font-mono leading-relaxed font-semibold">
-                                      {details.address}<br />
-                                      {details.zip || details.postalCode} {details.city}<br />
-                                      <span className="text-amber-400 font-bold">{details.country || 'PT'}</span>
-                                    </p>
-                                  </div>
-                                  <div className="md:col-span-2 space-y-3 border-t border-neutral-700 pt-4">
-                                     <p className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Contacto Seguro</p>
-                                     <p className="text-sm text-neutral-100 font-mono font-bold">{details.phone || 'Privado'}</p>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          );
-                        })() : (
-                          <p className="text-sm text-neutral-200 font-serif italic bg-neutral-900 p-6 border-2 border-neutral-700 font-medium">Os detalhes logísticos estão em fase de digitalização.</p>
-                        )}
+                                <div className="flex gap-4 pt-4">
+                                  <Button 
+                                    onClick={handleUpdateAddress}
+                                    disabled={isUpdatingAddress}
+                                    className="flex-1 bg-amber-400 text-black font-black rounded-none h-12 text-[10px] uppercase tracking-widest hover:bg-white"
+                                  >
+                                    {isUpdatingAddress ? 'A SALVAR...' : 'GUARDAR ALTERAÇÕES'}
+                                  </Button>
+                                  <Button 
+                                    onClick={() => setIsEditingAddress(false)}
+                                    variant="outline"
+                                    className="flex-1 bg-neutral-900 border border-neutral-700 text-white rounded-none h-12 text-[10px] font-black uppercase tracking-widest hover:bg-neutral-800"
+                                  >
+                                    CANCELAR
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-1">
+                                  <p className="text-[9px] uppercase tracking-[0.15em] text-neutral-500 font-bold">Destinatário</p>
+                                  <p className="text-base text-white font-serif italic font-bold">
+                                    {details.fullName || 
+                                     `${details.firstName || ''} ${details.lastName || ''}`.trim() || 
+                                     'Nome Preservado'}
+                                  </p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-[9px] uppercase tracking-[0.15em] text-neutral-500 font-bold">Residência de Entrega</p>
+                                  <p className="text-sm text-neutral-200 font-mono leading-relaxed font-semibold">
+                                    {details.address}<br />
+                                    {details.zip || details.postalCode} {details.city}<br />
+                                    <span className="text-amber-400 font-bold">{details.country || 'PT'}</span>
+                                  </p>
+                                </div>
+                                <div className="md:col-span-2 space-y-1 border-t border-neutral-800 pt-4">
+                                   <p className="text-[9px] uppercase tracking-[0.15em] text-neutral-500 font-bold">Contacto Seguro</p>
+                                   <p className="text-sm text-neutral-100 font-mono font-bold">{details.phone || 'Privado'}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })() : (
+                        <p className="text-sm text-neutral-400 font-serif italic bg-[#121212] p-6 border border-neutral-800">Os detalhes logísticos estão em fase de digitalização.</p>
+                      )}
                     </div>
 
-                  <div className="space-y-4">
-                     <div className="flex items-center gap-3 text-amber-400">
-                        <FileText size={20} />
-                        <span className="text-[11px] uppercase tracking-[0.4em] font-black">Rastreamento de Elite</span>
-                     </div>
-                     <div className="p-6 md:p-8 bg-neutral-900 border-2 border-neutral-700 space-y-6 shadow-lg">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-8">
-                           <div className="space-y-1">
-                              <p className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Estado Atual</p>
-                              <p className="text-sm font-black uppercase tracking-widest">
-                                {(() => {
-                                  const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
-                                  const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refund_pending';
-                                  const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(selectedOrder.status?.toLowerCase() || '') || ['canceled', 'cancelled'].includes(selectedOrder.shipping_status?.toLowerCase() || '');
-
-                                  if (isRefunded) return <span className="text-rose-400 font-black">PEDIDO REEMBOLSADO</span>;
-                                  if (isRefundPending) return <span className="text-amber-300 font-black">REEMBOLSO EM ANÁLISE</span>;
-                                  if (isCanceled) return <span className="text-red-400 font-black">PEDIDO CANCELADO</span>;
-                                  if (selectedOrder.shipping_status === 'delivered') return <span className="text-emerald-400 font-black">ENTREGUE</span>;
-                                  if (selectedOrder.shipping_status === 'out_for_delivery') return <span className="text-amber-300 font-black">EM DISTRIBUIÇÃO</span>;
-                                  if (selectedOrder.shipping_status === 'sent') return <span className="text-blue-400 font-black">EM TRÂNSITO</span>;
-                                  if (['confirmed', 'confirmed_order'].includes(selectedOrder.shipping_status || '')) return <span className="text-white font-black">CONFIRMADO</span>;
-                                  if (['preparing', 'ready'].includes(selectedOrder.shipping_status || '')) return <span className="text-white font-black">EM PREPARAÇÃO</span>;
-                                  return <span className="text-white font-black">{selectedOrder.shipping_status || 'Aguardando Verificação'}</span>;
-                                })()}
-                              </p>
-                           </div>
-                           {selectedOrder.shipping_status_metadata?.lastExternalStatus && (
+                    {/* Rastreamento de Elite Card */}
+                    <div className="space-y-4">
+                       <div className="flex items-center gap-3 text-amber-400">
+                          <FileText size={18} className="stroke-[1.5]" />
+                          <span className="text-[10px] uppercase tracking-[0.4em] font-black">RASTREAMENTO DE ELITE</span>
+                       </div>
+                       <div className="p-6 md:p-8 bg-[#121212] border border-neutral-800 space-y-6 shadow-xl">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                              <div className="space-y-1">
-                                <p className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">Status Logística</p>
-                                <p className="text-xs text-orange-400 font-black uppercase tracking-widest">
-                                  {selectedOrder.shipping_status_metadata.lastExternalStatus}
+                                <p className="text-[9px] uppercase tracking-[0.15em] text-neutral-500 font-bold">Estado Atual</p>
+                                <p className="text-xs font-black uppercase tracking-widest">
+                                  {(() => {
+                                    const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
+                                    const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refund_pending';
+                                    const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(selectedOrder.status?.toLowerCase() || '') || ['canceled', 'cancelled'].includes(selectedOrder.shipping_status?.toLowerCase() || '');
+
+                                    if (isRefunded) return <span className="text-rose-400">REEMBOLSADO</span>;
+                                    if (isRefundPending) return <span className="text-amber-400">EM ANÁLISE</span>;
+                                    if (isCanceled) return <span className="text-red-400">CANCELADO</span>;
+                                    if (selectedOrder.shipping_status === 'delivered') return <span className="text-emerald-400">ENTREGUE</span>;
+                                    if (selectedOrder.shipping_status === 'out_for_delivery') return <span className="text-amber-400">DISTRIBUIÇÃO</span>;
+                                    if (selectedOrder.shipping_status === 'sent') return <span className="text-blue-400">EM TRÂNSITO</span>;
+                                    if (['confirmed', 'confirmed_order'].includes(selectedOrder.shipping_status || '')) return <span className="text-white">CONFIRMADO</span>;
+                                    if (['preparing', 'ready'].includes(selectedOrder.shipping_status || '')) return <span className="text-white">EM PREPARAÇÃO</span>;
+                                    return <span className="text-white">{selectedOrder.shipping_status || 'Verificando'}</span>;
+                                  })()}
                                 </p>
                              </div>
-                           )}
-                           <div className="space-y-1">
-                              <p className="text-[9px] uppercase tracking-widest text-neutral-400 font-bold">SLA Estimado</p>
-                              <p className="text-xs text-amber-400 font-black uppercase tracking-widest">Premium (4-7 Dias)</p>
+                             {selectedOrder.shipping_status_metadata?.lastExternalStatus && (
+                               <div className="space-y-1">
+                                  <p className="text-[9px] uppercase tracking-[0.15em] text-neutral-500 font-bold">Status Logística</p>
+                                  <p className="text-xs text-orange-400 font-black uppercase tracking-widest">
+                                    {selectedOrder.shipping_status_metadata.lastExternalStatus}
+                                  </p>
+                               </div>
+                             )}
+                             <div className="space-y-1">
+                                <p className="text-[9px] uppercase tracking-[0.15em] text-neutral-500 font-bold">SLA Estimado</p>
+                                <p className="text-xs text-amber-400 font-black uppercase tracking-widest">Premium (4-7 Dias)</p>
+                             </div>
+                          </div>
+                          
+                          {(selectedOrder.shipping_status_metadata?.trackingNumber || selectedOrder.shipping_tracking_code) && (
+                            <div className="pt-6 border-t border-neutral-800 space-y-4">
+                               <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-black p-4 rounded-none border border-neutral-800 gap-4 overflow-hidden">
+                                  <span className="font-mono text-sm md:text-base xl:text-lg text-white font-bold tracking-tighter break-all w-full">{selectedOrder.shipping_status_metadata?.trackingNumber || selectedOrder.shipping_tracking_code}</span>
+                                  {(selectedOrder.shipping_status_metadata?.trackingUrl || selectedOrder.shipping_tracking_url) && (
+                                    <a 
+                                      href={selectedOrder.shipping_status_metadata?.trackingUrl || selectedOrder.shipping_tracking_url} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-2 text-amber-400 text-[10px] uppercase tracking-widest font-black hover:text-white transition-colors whitespace-nowrap pt-2 xl:pt-0"
+                                    >
+                                      RASTREAR <ArrowUpRight size={14} />
+                                    </a>
+                                  )}
+                               </div>
+                            </div>
+                          )}
+                       </div>
+                    </div>
+                  </div>
+
+                  {/* Vertical Info Pillar */}
+                  <div className="md:col-span-5 space-y-10">
+                     
+                     {/* Elegant Investimento Card */}
+                     <div className="p-8 bg-gradient-to-br from-amber-400 to-amber-500 text-black space-y-6 shadow-2xl border border-amber-300 relative overflow-hidden group">
+                        <div className="absolute right-0 bottom-0 opacity-10 translate-x-6 translate-y-6 pointer-events-none group-hover:scale-105 transition-transform duration-1000">
+                          <CreditCard size={180} />
+                        </div>
+                        <div className="flex items-center gap-3 opacity-90 relative z-10">
+                           <CreditCard size={18} className="text-black" />
+                           <span className="text-[10px] uppercase tracking-[0.4em] font-black text-black">INVESTIMENTO SEGURO</span>
+                        </div>
+                        <div className="space-y-1 relative z-10">
+                           <p className="text-5xl font-serif font-black tracking-tighter text-black">
+                             {formatPrice ? formatPrice(selectedOrder.total_amount) : `€${selectedOrder.total_amount.toFixed(2)}`}
+                           </p>
+                           <p className="text-[9px] uppercase tracking-widest font-black text-black/80">Total Transacionado</p>
+                        </div>
+                        <div className="pt-6 border-t border-black/15 flex flex-col gap-4 relative z-10">
+                           <div className="flex justify-between items-center text-[9px] uppercase tracking-widest font-black">
+                              <span className="text-black/70">Status</span>
+                              <span className="bg-black text-amber-400 px-3 py-1 text-[8px] font-black">
+                                 {(() => {
+                                   const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
+                                   const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refund_pending';
+                                   const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(selectedOrder.status?.toLowerCase() || '');
+
+                                   if (isRefunded) return 'REEMBOLSADO';
+                                   if (isRefundPending) return 'EM ANÁLISE';
+                                   if (isCanceled) return 'CANCELADO';
+                                   return 'PAGO / CONFIRMADO';
+                                 })()}
+                              </span>
+                           </div>
+                           <div className="flex justify-between items-center text-[9px] uppercase tracking-widest font-black">
+                              <span className="text-black/70">Tópico</span>
+                              <span className="font-black text-black">AQUISIÇÃO ÚNICA</span>
+                           </div>
+                        </div>
+                     </div>
+
+                     {/* Metadados Card */}
+                     <div className="p-6 md:p-8 bg-[#121212] border border-neutral-800 space-y-6 shadow-xl">
+                        <div className="flex items-center gap-3 text-amber-400">
+                           <Hash size={18} className="stroke-[1.5]" />
+                           <span className="text-[10px] uppercase tracking-[0.4em] font-black">METADADOS SECRETO</span>
+                        </div>
+                        <div className="space-y-4 text-[11px] font-mono text-neutral-300 leading-relaxed max-w-full overflow-hidden font-semibold">
+                           <div className="grid grid-cols-2 gap-4 border-b border-neutral-800 pb-2">
+                              <span className="uppercase tracking-[0.1em] text-neutral-500 font-bold">REFERÊNCIA</span>
+                              <span className="text-white select-all text-right break-all font-bold">Sart-{selectedOrder.id.toUpperCase()}</span>
+                           </div>
+                           <div className="grid grid-cols-2 gap-4 border-b border-neutral-800 pb-2">
+                              <span className="uppercase tracking-[0.1em] text-neutral-500 font-bold">HORÁRIO</span>
+                              <span className="text-white text-right font-bold">{new Date(selectedOrder.created_at).toLocaleTimeString()}</span>
+                           </div>
+                           <div className="grid grid-cols-2 gap-4">
+                              <span className="uppercase tracking-[0.1em] text-neutral-500 font-bold">DATA</span>
+                              <span className="text-white text-right font-bold">{new Date(selectedOrder.created_at).toLocaleDateString()}</span>
                            </div>
                         </div>
                         
-                        {(selectedOrder.shipping_status_metadata?.trackingNumber || selectedOrder.shipping_tracking_code) && (
-                          <div className="pt-6 border-t border-neutral-700 space-y-4">
-                             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-black p-4 rounded-none border border-neutral-700 gap-4 overflow-hidden">
-                                <span className="font-mono text-sm md:text-base xl:text-lg text-white font-bold tracking-tighter break-all w-full">{selectedOrder.shipping_status_metadata?.trackingNumber || selectedOrder.shipping_tracking_code}</span>
-                                {(selectedOrder.shipping_status_metadata?.trackingUrl || selectedOrder.shipping_tracking_url) && (
-                                  <a 
-                                    href={selectedOrder.shipping_status_metadata?.trackingUrl || selectedOrder.shipping_tracking_url} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-2 text-amber-400 text-[10px] uppercase tracking-widest font-black hover:text-white transition-colors whitespace-nowrap pt-2 xl:pt-0"
-                                  >
-                                    RASTREAR <ArrowUpRight size={14} />
-                                  </a>
-                                )}
-                             </div>
-                          </div>
-                        )}
+                        <button
+                           onClick={async () => {
+                             try {
+                               const newValue = !(selectedOrder.notifications_enabled !== false);
+                               const { error } = await supabase
+                                 .from('orders')
+                                 .update({ notifications_enabled: newValue })
+                                 .eq('id', selectedOrder.id);
+                               
+                               if (error) throw error;
+                               setSelectedOrder(prev => prev ? { ...prev, notifications_enabled: newValue } : null);
+                               toast.success(newValue ? "Alertas de luxo ativados" : "Alertas silenciados");
+                             } catch (err: any) {
+                               toast.error("Erro na comunicação segura: " + err.message);
+                             }
+                           }}
+                           className="w-full py-4 bg-[#181818] hover:bg-neutral-800 border border-neutral-800 text-[9px] uppercase tracking-[0.3em] font-black text-neutral-200 transition-all flex items-center justify-center gap-4 rounded-none"
+                        >
+                           <Mail size={13} className={selectedOrder.notifications_enabled !== false ? 'text-amber-400' : ''} />
+                           {selectedOrder.notifications_enabled !== false ? 'ALERTAS ATIVOS' : 'ALERTAS DESATIVADOS'}
+                        </button>
                      </div>
                   </div>
                 </div>
-
-                {/* Vertical Info Pillar */}
-                <div className="md:col-span-5 space-y-8">
-                   <div className="p-8 bg-amber-400 text-black space-y-6 shadow-2xl border-2 border-amber-300">
-                      <div className="flex items-center gap-3 opacity-80">
-                         <CreditCard size={20} />
-                         <span className="text-[11px] uppercase tracking-[0.4em] font-black">INVESTIMENTO</span>
-                      </div>
-                      <div className="space-y-1">
-                         <p className="text-5xl font-serif font-black tracking-tighter">{formatPrice ? formatPrice(selectedOrder.total_amount) : `€${selectedOrder.total_amount.toFixed(2)}`}</p>
-                         <p className="text-[10px] uppercase tracking-widest font-black">Total Transacionado</p>
-                      </div>
-                      <div className="pt-6 border-t-2 border-black/20 flex flex-col gap-4">
-                         <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
-                            <span>Status</span>
-                            <span className="bg-black text-amber-400 px-3 py-1 font-black">
-                               {(() => {
-                                 const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
-                                 const isRefundPending = ['refund_pending', 'waiting_refund', 'refund_requested'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refund_pending';
-                                 const isCanceled = ['canceled', 'cancelled', 'cancelado'].includes(selectedOrder.status?.toLowerCase() || '');
-
-                                 if (isRefunded) return 'REEMBOLSADO';
-                                 if (isRefundPending) return 'REEMBOLSO EM ANÁLISE';
-                                 if (isCanceled) return 'CANCELADO';
-                                 return 'PAGO / CONFIRMADO';
-                               })()}
-                            </span>
-                         </div>
-                         <div className="flex justify-between items-center text-[10px] uppercase tracking-widest font-bold">
-                            <span>Tópico</span>
-                            <span className="font-black">AQUISIÇÃO ÚNICA</span>
-                         </div>
-                      </div>
-                   </div>
-
-                   <div className="p-6 md:p-8 bg-neutral-900 border-2 border-neutral-700 space-y-6 shadow-xl">
-                      <div className="flex items-center gap-3 text-amber-400">
-                         <Hash size={20} />
-                         <span className="text-[11px] uppercase tracking-[0.4em] font-black">METADADOS</span>
-                      </div>
-                      <div className="space-y-4 text-[11px] font-mono text-neutral-200 leading-relaxed max-w-full overflow-hidden font-semibold">
-                         <div className="grid grid-cols-2 gap-4 border-b border-neutral-800 pb-2">
-                            <span className="uppercase tracking-widest text-neutral-400">REFERÊNCIA</span>
-                            <span className="text-white select-all text-right break-all font-bold">Sart-{selectedOrder.id.toUpperCase()}</span>
-                         </div>
-                         <div className="grid grid-cols-2 gap-4 border-b border-neutral-800 pb-2">
-                            <span className="uppercase tracking-widest text-neutral-400">HORÁRIO</span>
-                            <span className="text-white text-right font-bold">{new Date(selectedOrder.created_at).toLocaleTimeString()}</span>
-                         </div>
-                         <div className="grid grid-cols-2 gap-4">
-                            <span className="uppercase tracking-widest text-neutral-400">DATA</span>
-                            <span className="text-white text-right font-bold">{new Date(selectedOrder.created_at).toLocaleDateString()}</span>
-                         </div>
-                      </div>
-                      
-                      <button
-                         onClick={async () => {
-                           try {
-                             const newValue = !(selectedOrder.notifications_enabled !== false);
-                             const { error } = await supabase
-                               .from('orders')
-                               .update({ notifications_enabled: newValue })
-                               .eq('id', selectedOrder.id);
-                             
-                             if (error) throw error;
-                             setSelectedOrder(prev => prev ? { ...prev, notifications_enabled: newValue } : null);
-                             toast.success(newValue ? "Alertas de luxo ativados" : "Alertas silenciados");
-                           } catch (err: any) {
-                             toast.error("Erro na comunicação segura: " + err.message);
-                           }
-                         }}
-                         className="w-full py-4 bg-neutral-800 hover:bg-neutral-700 border-2 border-neutral-600 text-[10px] uppercase tracking-[0.3em] font-black text-neutral-200 transition-all flex items-center justify-center gap-4"
-                      >
-                         <Mail size={14} className={selectedOrder.notifications_enabled !== false ? 'text-amber-400' : ''} />
-                         {selectedOrder.notifications_enabled !== false ? 'ALERTAS ATIVOS' : 'ALERTAS DESATIVADOS'}
-                      </button>
-                   </div>
-                 </div>
-               </div>
               </div>
 
               {/* Modal Footer Controls */}
-              <div className="p-6 md:p-8 bg-neutral-900 border-t-2 border-neutral-700 flex flex-col md:flex-row gap-4 items-center justify-between">
+              <div className="p-8 bg-[#121212] border-t border-neutral-800 flex flex-col md:flex-row gap-4 items-center justify-between shrink-0">
                  <div className="flex items-center gap-3 w-full md:w-auto">
                     {(() => {
                       const isRefunded = ['refunded', 'reembolsado'].includes(selectedOrder.status?.toLowerCase() || '') || selectedOrder.payment_status === 'refunded';
@@ -1753,14 +1782,14 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       
                       if (isRefunded) {
                         return (
-                          <span className="flex items-center gap-2 text-rose-400 text-xs font-black uppercase tracking-widest bg-rose-500/10 border border-rose-500/30 px-3 py-2">
+                          <span className="flex items-center gap-2 text-rose-400 text-xs font-black uppercase tracking-widest bg-rose-500/10 border border-rose-500/20 px-4 py-2.5">
                             <RotateCcw size={14} /> ESTORNO CONCLUÍDO
                           </span>
                         );
                       }
                       if (isRefundPending) {
                         return (
-                          <span className="flex items-center gap-2 text-amber-300 text-xs font-black uppercase tracking-widest bg-amber-400/10 border border-amber-400/30 px-3 py-2">
+                          <span className="flex items-center gap-2 text-amber-400 text-xs font-black uppercase tracking-widest bg-amber-400/10 border border-amber-400/20 px-4 py-2.5">
                             <Clock size={14} /> REEMBOLSO EM ANÁLISE
                           </span>
                         );
@@ -1768,7 +1797,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                       return (
                         <button
                           onClick={() => handleOpenRefundModal(selectedOrder)}
-                          className="flex items-center gap-2 text-neutral-300 hover:text-amber-400 text-[10px] font-black uppercase tracking-widest bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 px-4 py-3 transition-all"
+                          className="flex items-center gap-2 text-neutral-300 hover:text-amber-400 text-[9px] font-black uppercase tracking-[0.25em] bg-[#1a1a1a] hover:bg-[#222] border border-neutral-850 px-5 py-3 transition-all rounded-none"
                         >
                           <RotateCcw size={13} /> SOLICITAR REEMBOLSO
                         </button>
@@ -1777,7 +1806,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                  </div>
                  <Button 
                    onClick={() => setSelectedOrder(null)}
-                   className="w-full md:w-auto h-12 md:h-14 px-8 md:px-12 bg-amber-400 text-black rounded-none text-[10px] uppercase tracking-[0.4em] font-black hover:bg-white transition-all duration-500 shadow-xl"
+                   className="w-full md:w-auto h-12 md:h-13 px-10 bg-amber-400 text-black rounded-none text-[9px] uppercase tracking-[0.4em] font-black hover:bg-white transition-all duration-300 shadow-xl"
                  >
                    REGRESSAR À GALERIA
                  </Button>
@@ -1859,18 +1888,7 @@ export default function ProfileDashboard({ user, purchasedProducts, onProfileUpd
                     value={refundDetails}
                     onChange={(e) => setRefundDetails(e.target.value)}
                     placeholder="Descreva brevemente o estado da peça ou observações para a curadoria..."
-                    className="w-full p-4 bg-neutral-900 border-2 border-neutral-700 text-white text-xs font-medium focus:border-amber-400 focus:outline-none placeholder:text-neutral-500"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase tracking-widest text-neutral-300 font-black">IBAN / Conta Bancária para Estorno (Opcional se pagou por Cartão)</label>
-                  <input 
-                    type="text"
-                    value={refundIban}
-                    onChange={(e) => setRefundIban(e.target.value)}
-                    placeholder="PT50 0000 0000 0000 0000 0000 0"
-                    className="w-full p-4 bg-neutral-900 border-2 border-neutral-700 text-white font-mono text-xs focus:border-amber-400 focus:outline-none placeholder:text-neutral-600"
+                    className="w-full p-4 bg-[#121212] border border-neutral-800 text-white text-xs font-medium focus:border-amber-400 focus:outline-none placeholder:text-neutral-500 rounded-none"
                   />
                 </div>
 

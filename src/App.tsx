@@ -4653,7 +4653,12 @@ export default function App() {
 
       const mappedOrders = (orders || []).map((o: any) => ({
         ...o,
-        product: productsMap[o.product_id] || null,
+        product: productsMap[o.product_id] || (o.product_title ? {
+          id: o.product_id,
+          title: o.product_title,
+          image_url: o.product_image_url,
+          pvp: o.total_amount,
+        } : null),
       }));
 
       setPurchasedProducts(mappedOrders);
