@@ -3421,10 +3421,6 @@ export default function App() {
           const { data: { session } } = await supabase.auth.getSession();
           if (session && !user) {
             setUser(session.user);
-          } else if (!session && user) {
-            // Session lost or expired while away
-            console.warn("[SYSTEM] Sessão expirada durante inatividade.");
-            setUser(null);
           }
           
           if (user || session?.user) {
