@@ -510,6 +510,8 @@ interface Product {
   is_featured?: boolean;
   free_shipping?: boolean;
   discount_percent?: number;
+  provider?: string;
+  aliexpress_id?: string | number;
 }
 
 export function getEffectivePrice(product: Partial<Product> | null | undefined): number {
@@ -885,118 +887,20 @@ const LANGUAGE_MAP: Record<string, string> = {
 };
 
 // --- Boutique Logo ---
-const BoutiqueLogo = ({ className = "h-10", isScrolled = false }) => {
-  const [hasError, setHasError] = useState(false);
-  const color = isScrolled ? "var(--foreground)" : "#ffffff";
-
-  if (hasError) {
-    return (
-      <svg 
-        viewBox="0 0 120 120" 
-        className={`${className} transition-all duration-700`}
-        fill="none" 
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* S - Calligraphic main curve */}
-        <path 
-          d="M 54,24 C 70,22 80,28 78,38 C 76,50 56,54 50,62 C 42,72 44,84 56,86 C 68,88 78,82 78,74" 
-          stroke={color} 
-          strokeWidth="5.5" 
-          strokeLinecap="round" 
-          strokeLinejoin="round"
-          className="transition-colors duration-500"
-        />
-        
-        {/* S - Thin top flourish */}
-        <path 
-          d="M 40,36 C 40,24 52,22 62,22" 
-          stroke={color} 
-          strokeWidth="2.5" 
-          strokeLinecap="round"
-          className="transition-colors duration-500 opacity-90"
-        />
-
-        {/* A - Thin left leg */}
-        <path 
-          d="M 62,30 L 48,84" 
-          stroke={color} 
-          strokeWidth="2.5" 
-          strokeLinecap="round"
-          className="transition-colors duration-500"
-        />
-
-        {/* A - Thick right leg */}
-        <path 
-          d="M 64,28 L 78,84" 
-          stroke={color} 
-          strokeWidth="6" 
-          strokeLinecap="round"
-          className="transition-colors duration-500"
-        />
-        
-        {/* A - Flat serif foot on the right leg */}
-        <path 
-          d="M 70,84 L 88,84" 
-          stroke={color} 
-          strokeWidth="3" 
-          strokeLinecap="round"
-          className="transition-colors duration-500"
-        />
-
-        {/* A - Apex curve connection */}
-        <path 
-          d="M 60,28 Q 63,24 66,28" 
-          stroke={color} 
-          strokeWidth="3.5" 
-          strokeLinecap="round"
-          className="transition-colors duration-500"
-        />
-
-        {/* Sharp calligraphic horizontal brush-strokes (the 'slashes') */}
-        {/* Main middle slash */}
-        <path 
-          d="M 18,52 Q 45,54 86,42 Q 45,49 18,52 Z" 
-          fill={color} 
-          className="transition-colors duration-500"
-        />
-        
-        {/* Upper slash */}
-        <path 
-          d="M 24,47 Q 45,49 76,40 Q 45,45 24,47 Z" 
-          fill={color} 
-          className="transition-colors duration-500 opacity-90"
-        />
-        
-        {/* Lower slash */}
-        <path 
-          d="M 22,57 Q 45,58 70,48 Q 45,53 22,57 Z" 
-          fill={color} 
-          className="transition-colors duration-500 opacity-95"
-        />
-
-        {/* Dynamic brush-tip splits (stray marks pointing down-left) */}
-        <path 
-          d="M 25,58 Q 32,60 38,56 Q 32,58 25,58 Z" 
-          fill={color} 
-          className="transition-colors duration-500 opacity-80"
-        />
-        <path 
-          d="M 22,62 Q 30,64 36,58 Q 30,61 22,62 Z" 
-          fill={color} 
-          className="transition-colors duration-500 opacity-70"
-        />
-      </svg>
-    );
-  }
-
+const BoutiqueLogo = ({ className = "h-10", isScrolled = false }: { className?: string; isScrolled?: boolean }) => {
   return (
-    <img 
-      src="/logo.webp" 
-      alt="S.art Logo" 
-      className={`${className} transition-all duration-700 object-contain`}
-      onError={() => setHasError(true)}
-      referrerPolicy="no-referrer"
-    />
+    <div className={`relative inline-flex items-center justify-center shrink-0 ${className}`}>
+      <img 
+        src="/logo.png" 
+        alt="S.art Logo" 
+        className={`h-full w-auto object-contain transition-all duration-500 ${
+          isScrolled 
+            ? "dark:invert filter" 
+            : "brightness-0 invert drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]"
+        }`}
+        referrerPolicy="no-referrer"
+      />
+    </div>
   );
 };
 
@@ -1643,206 +1547,214 @@ const FeaturedProductsSection = ({
   setView: (v: any) => void;
 }) => {
   const featuredProducts = React.useMemo(() => products.filter(p => p.is_featured && p.is_active !== false), [products]);
-  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
-  const [activeIndex, setActiveIndex] = React.useState(0);
-  const scrollTickingRef = React.useRef(false);
+  const sectionRef = React.useRef<HTMLDivElement>(null);
+  const trackRef = React.useRef<HTMLDivElement>(null);
 
   if (featuredProducts.length === 0) return null;
 
-  const updateActiveCard = () => {
-    if (!scrollContainerRef.current) return;
-    const container = scrollContainerRef.current;
-    const containerCenter = container.scrollLeft + container.clientWidth / 2;
-    const cards = container.querySelectorAll<HTMLElement>('[data-featured-card]');
-    
-    let closestIndex = 0;
-    let minDistance = Infinity;
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end end"]
+  });
 
-    cards.forEach((card, i) => {
-      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
-      const distance = Math.abs(containerCenter - cardCenter);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestIndex = i;
-      }
+  const totalCards = featuredProducts.length;
+  // Calculate multiplier: enough vertical height for all cards horizontally + 100vh for Layer 3 to slide over
+  const scrollVhMultiplier = Math.max(2, totalCards) + 1;
+  const horizontalEndProgress = (scrollVhMultiplier - 1) / scrollVhMultiplier;
+  const [maxScrollX, setMaxScrollX] = React.useState(0);
+
+  React.useEffect(() => {
+    const calculateDistance = () => {
+      if (!trackRef.current) return;
+      const trackWidth = trackRef.current.scrollWidth;
+      const windowWidth = window.innerWidth;
+      // Total horizontal distance to travel so the last card is fully in view and aligned
+      const distance = Math.max(0, trackWidth - windowWidth + (windowWidth < 640 ? 40 : 100));
+      setMaxScrollX(distance);
+    };
+
+    calculateDistance();
+    window.addEventListener('resize', calculateDistance);
+    return () => window.removeEventListener('resize', calculateDistance);
+  }, [featuredProducts.length]);
+
+  const x = useTransform(scrollYProgress, [0, horizontalEndProgress, 1], [0, -maxScrollX, -maxScrollX]);
+
+  // Dynamic active index based on scrollYProgress
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  React.useEffect(() => {
+    return scrollYProgress.on("change", (latest) => {
+      const normalized = Math.min(1, latest / horizontalEndProgress);
+      const idx = Math.min(totalCards - 1, Math.max(0, Math.round(normalized * (totalCards - 1))));
+      setActiveIndex(idx);
     });
+  }, [scrollYProgress, totalCards, horizontalEndProgress]);
 
-    setActiveIndex(closestIndex);
-  };
-
-  const handleScroll = () => {
-    if (!scrollTickingRef.current) {
-      window.requestAnimationFrame(() => {
-        updateActiveCard();
-        scrollTickingRef.current = false;
-      });
-      scrollTickingRef.current = true;
-    }
-  };
-
-  const scrollToIndex = (index: number) => {
-    if (!scrollContainerRef.current) return;
-    const container = scrollContainerRef.current;
-    const cards = container.querySelectorAll<HTMLElement>('[data-featured-card]');
-    if (cards[index]) {
-      const card = cards[index];
-      const targetScrollLeft = card.offsetLeft - (container.clientWidth / 2) + (card.offsetWidth / 2);
-      container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
-      setActiveIndex(index);
-    }
-  };
-
-  const scrollLeft = () => {
-    scrollToIndex(Math.max(0, activeIndex - 1));
-  };
-
-  const scrollRight = () => {
-    scrollToIndex(Math.min(featuredProducts.length - 1, activeIndex + 1));
+  const scrollToCard = (index: number) => {
+    if (!sectionRef.current) return;
+    const rect = sectionRef.current.getBoundingClientRect();
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    const sectionTop = rect.top + scrollTop;
+    const scrollableDistance = rect.height - window.innerHeight;
+    const cardProgress = totalCards > 1 ? index / (totalCards - 1) : 0;
+    const targetProgress = cardProgress * horizontalEndProgress;
+    window.scrollTo({
+      top: sectionTop + targetProgress * scrollableDistance,
+      behavior: "smooth"
+    });
   };
 
   return (
-    <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
-      <SectionHeading title="Destaques da Temporada" />
+    <div 
+      ref={sectionRef} 
+      id="featured-section" 
+      className="relative w-full bg-luxury-bg border-b border-luxury-border/30"
+      style={{ height: `${scrollVhMultiplier * 100}vh` }}
+    >
+      <div className="sticky top-0 h-screen w-full flex flex-col justify-center overflow-hidden bg-luxury-bg">
+        <div className="pt-8 pb-4 shrink-0">
+          <SectionHeading title="Destaques da Temporada" />
+        </div>
 
-      <div className="relative mt-10 max-w-7xl mx-auto">
         {/* Desktop Navigation Arrows */}
-        <div className="hidden md:flex items-center justify-between absolute inset-y-0 left-4 right-4 z-30 pointer-events-none">
+        <div className="hidden md:flex items-center justify-between absolute inset-y-0 left-6 right-6 z-30 pointer-events-none">
           <button
-            onClick={scrollLeft}
-            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
+            onClick={() => scrollToCard(Math.max(0, activeIndex - 1))}
+            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
             disabled={activeIndex === 0}
             title="Anterior"
           >
             <ChevronLeft size={24} />
           </button>
           <button
-            onClick={scrollRight}
-            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
-            disabled={activeIndex === featuredProducts.length - 1}
+            onClick={() => scrollToCard(Math.min(totalCards - 1, activeIndex + 1))}
+            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
+            disabled={activeIndex === totalCards - 1}
             title="Seguinte"
           >
             <ChevronRight size={24} />
           </button>
         </div>
 
-        {/* Horizontal Carousel Scroll Container with exact center padding */}
-        <div 
-          ref={scrollContainerRef}
-          onScroll={handleScroll}
-          className="flex items-center gap-6 sm:gap-8 overflow-x-auto snap-x snap-mandatory py-12 px-[calc(50%-140px)] sm:px-[calc(50%-160px)] md:px-[calc(50%-180px)] focus:outline-none scroll-smooth"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
-          {featuredProducts.map((featuredProduct, idx) => {
-            const isActive = idx === activeIndex;
-            return (
-              <div 
-                key={featuredProduct.id} 
-                data-featured-card
-                className={`shrink-0 snap-center group relative flex flex-col justify-end rounded-[16px] overflow-hidden bg-[#181818] border transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer will-change-transform w-[280px] sm:w-[320px] md:w-[360px] h-[440px] sm:h-[490px] md:h-[530px] ${
-                  isActive 
-                    ? 'scale-105 md:scale-110 border-gold shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(197,160,89,0.35)] ring-1 ring-gold/50 z-20 opacity-100' 
-                    : 'scale-90 md:scale-95 border-black/10 dark:border-white/10 opacity-60 hover:opacity-85 shadow-lg z-10'
-                }`}
-                onClick={() => {
-                  if (!isActive) {
-                    scrollToIndex(idx);
-                  } else {
-                    setSelectedProduct(featuredProduct);
-                    setDetailProduct(featuredProduct);
-                    setView("product-detail");
-                  }
-                }}
-              >
-                {/* Starburst discount badge */}
-                {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
-                  <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute top-4 right-4 z-20 pointer-events-none" />
-                ) : null}
+        {/* Horizontal Track pinned on vertical scroll */}
+        <div className="relative w-full overflow-hidden flex items-center py-6 px-4 md:px-12">
+          <motion.div 
+            ref={trackRef}
+            style={{ x }}
+            className="flex items-center gap-6 sm:gap-8 will-change-transform"
+          >
+            {featuredProducts.map((featuredProduct, idx) => {
+              const isActive = idx === activeIndex;
+              return (
+                <div 
+                  key={featuredProduct.id} 
+                  data-featured-card
+                  className={`shrink-0 relative flex flex-col justify-end overflow-hidden bg-[#181818] border transition-all duration-300 cursor-pointer w-[280px] sm:w-[320px] md:w-[360px] h-[440px] sm:h-[490px] md:h-[530px] ${
+                    isActive 
+                      ? 'border-gold ring-1 ring-gold/50 z-20 opacity-100' 
+                      : 'border-black/10 dark:border-white/10 opacity-70 hover:opacity-90 z-10'
+                  }`}
+                  onClick={() => {
+                    if (!isActive) {
+                      scrollToCard(idx);
+                    } else {
+                      setSelectedProduct(featuredProduct);
+                      setDetailProduct(featuredProduct);
+                      setView("product-detail");
+                    }
+                  }}
+                >
+                  {/* Starburst discount badge */}
+                  {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                    <StarburstDiscountBadge discount={featuredProduct.discount_percent} className="absolute top-4 right-4 z-20 pointer-events-none" />
+                  ) : null}
 
-                {/* Full Image Background */}
-                <div className="absolute inset-0 w-full h-full overflow-hidden bg-[#121212]">
-                  <img 
-                    src={getImageUrl(featuredProduct.image_url || "")} 
-                    alt={featuredProduct.title}
-                    className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ease-out"
-                    loading="lazy"
-                  />
-                  
-                  {/* Category Badge on top left */}
-                  <div className="absolute top-4 left-4 z-10">
-                    {featuredProduct.category && (
-                      <span className="bg-black/60 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 shadow-md rounded-sm">
-                        {featuredProduct.category}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Dark Gradient Overlay & Minimalist Content at Bottom */}
-                <div className="relative z-10 inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/65 to-transparent p-5 sm:p-6 flex flex-col justify-end text-white">
-                  <div className="space-y-1.5 mb-3">
-                    {/* Minimalist Stars */}
-                    <div className="flex items-center gap-1 text-gold">
-                      {[...Array(5)].map((_, i) => (
-                        <Star key={i} size={12} className="fill-gold text-gold" />
-                      ))}
-                    </div>
-
-                    <h3 className="font-serif text-lg sm:text-xl md:text-2xl text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1 drop-shadow">
-                      {featuredProduct.title}
-                    </h3>
+                  {/* Full Image Background */}
+                  <div className="absolute inset-0 w-full h-full overflow-hidden bg-[#121212]">
+                    <img 
+                      src={getImageUrl(featuredProduct.image_url || "")} 
+                      alt={featuredProduct.title}
+                      className="w-full h-full object-cover transform hover:scale-105 transition-transform duration-700 ease-out"
+                      loading="lazy"
+                    />
                     
-                    {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
-                      <span className="inline-block text-xs font-mono text-neutral-300/85 line-through drop-shadow">
-                        {formatPrice(featuredProduct.pvp)}
-                      </span>
-                    ) : null}
+                    {/* Category Badge on top left */}
+                    <div className="absolute top-4 left-4 z-10">
+                      {featuredProduct.category && (
+                        <span className="bg-black/60 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1">
+                          {featuredProduct.category}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="pt-3 border-t border-white/15 flex items-center justify-between gap-3">
-                    <div className="flex items-baseline">
-                      <span className="text-lg sm:text-xl font-serif font-bold text-white tracking-tight drop-shadow">
-                        {formatPrice(getEffectivePrice(featuredProduct))}
-                      </span>
+                  {/* Dark Gradient Overlay & Minimalist Content at Bottom */}
+                  <div className="relative z-10 inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/65 to-transparent p-5 sm:p-6 flex flex-col justify-end text-white">
+                    <div className="space-y-1.5 mb-3">
+                      {/* Minimalist Stars */}
+                      <div className="flex items-center gap-1 text-gold">
+                        {[...Array(5)].map((_, i) => (
+                          <Star key={i} size={12} className="fill-gold text-gold" />
+                        ))}
+                      </div>
+
+                      <h3 className="font-serif text-lg sm:text-xl md:text-2xl text-white font-medium tracking-wide group-hover:text-gold transition-colors line-clamp-1">
+                        {featuredProduct.title}
+                      </h3>
+                      
+                      {featuredProduct.discount_percent && featuredProduct.discount_percent > 0 ? (
+                        <span className="inline-block text-xs font-mono text-neutral-300/85 line-through">
+                          {formatPrice(featuredProduct.pvp)}
+                        </span>
+                      ) : null}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={(e: any) => {
-                        e.stopPropagation();
-                        handleBuy(featuredProduct);
-                      }}
-                      disabled={checkoutLoading === featuredProduct.id}
-                      className="animate-button-shimmer text-black font-extrabold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-4 sm:px-5 py-2.5 rounded-full transition-all flex items-center gap-2 shrink-0 shadow-[0_0_20px_rgba(197,160,89,0.5)] hover:shadow-[0_0_30px_rgba(197,160,89,0.8)] hover:scale-105 active:scale-95 border border-white/60"
-                    >
-                      {checkoutLoading === featuredProduct.id ? (
-                        <Loader2 size={15} className="animate-spin text-black" />
-                      ) : (
-                        <>
-                          <span className="font-serif tracking-wider font-extrabold">Comprar</span>
-                          <ShoppingBag size={14} className="stroke-[2.5]" />
-                        </>
-                      )}
-                    </button>
+                    <div className="pt-3 border-t border-white/15 flex items-center justify-between gap-3">
+                      <div className="flex items-baseline">
+                        <span className="text-lg sm:text-xl font-serif font-bold text-white tracking-tight">
+                          {formatPrice(getEffectivePrice(featuredProduct))}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e: any) => {
+                          e.stopPropagation();
+                          handleBuy(featuredProduct);
+                        }}
+                        disabled={checkoutLoading === featuredProduct.id}
+                        className="animate-button-shimmer text-black font-extrabold text-[10px] sm:text-xs uppercase tracking-[0.15em] px-4 sm:px-5 py-2.5 transition-all flex items-center gap-2 shrink-0 hover:scale-105 active:scale-95 border border-white/60"
+                      >
+                        {checkoutLoading === featuredProduct.id ? (
+                          <Loader2 size={15} className="animate-spin text-black" />
+                        ) : (
+                          <>
+                            <span className="font-serif tracking-wider font-extrabold">Comprar</span>
+                            <ShoppingBag size={14} className="stroke-[2.5]" />
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </motion.div>
         </div>
 
         {/* Pagination Dots */}
-        <div className="flex items-center justify-center gap-2 mt-4">
+        <div className="flex items-center justify-center gap-2 mt-4 pb-6 shrink-0">
           {featuredProducts.map((_, dotIdx) => (
             <button
               key={dotIdx}
-              onClick={() => scrollToIndex(dotIdx)}
-              className={`h-2.5 rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${dotIdx === activeIndex ? 'w-8 bg-gold shadow-[0_0_12px_rgba(197,160,89,0.6)]' : 'w-2.5 bg-neutral-300 dark:bg-neutral-700 hover:bg-gold/50'}`}
+              onClick={() => scrollToCard(dotIdx)}
+              className={`h-2 rounded-full transition-all duration-300 ${dotIdx === activeIndex ? 'w-8 bg-gold' : 'w-2 bg-neutral-400 dark:bg-neutral-600 hover:bg-gold/50'}`}
               title={`Ir para destaque ${dotIdx + 1}`}
             />
           ))}
         </div>
       </div>
-    </section>
+    </div>
   );
 };
 
@@ -3729,13 +3641,8 @@ export default function App() {
   };
 
   const { scrollY } = useScroll();
-  const rawHeroY = useTransform(scrollY, [0, 1200], [0, -360]);
-  const heroY = useSpring(rawHeroY, {
-    stiffness: 90,
-    damping: 22,
-    mass: 0.12,
-    restDelta: 0.001
-  });
+  // Hero background subtle upward parallax on scroll
+  const heroY = useTransform(scrollY, [0, 1000], [0, -300]);
 
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
   const isNavbarVisibleRef = useRef(true);
@@ -5417,7 +5324,8 @@ export default function App() {
                 </motion.div>
               </motion.section>
 
-              <div className="relative z-20 bg-luxury-bg shadow-[0_-40px_80px_rgba(0,0,0,0.6)] rounded-t-[3rem]">
+              {/* CAMADA 2: Seção de Destaques (Sobe sobre o Hero e os cards rolam horizontalmente conforme o scroll vertical) */}
+              <div className="relative z-10 w-full bg-luxury-bg border-t border-luxury-border/30">
                 <FeaturedProductsSection 
                   products={products} 
                   formatPrice={formatPrice} 
@@ -5429,7 +5337,10 @@ export default function App() {
                   setDetailProduct={setDetailProduct} 
                   setView={setView} 
                 />
+              </div>
 
+              {/* CAMADA 3: Seção dos Cards de Produtos / Catálogo Boutique (Sobe por cima dos Destaques como Camada z-20 após o último produto) */}
+              <div className="relative z-20 -mt-[100vh] bg-luxury-bg border-t border-luxury-border/30 min-h-screen">
                 <InfiniteProductMarquee products={products} />
 
                 <section className="pt-16 pb-24 w-full relative" id="boutique">

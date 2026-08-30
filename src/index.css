@@ -149,10 +149,21 @@
     100% { background-position: 200% 0; }
   }
 
+  @keyframes luxury-pulse-loop {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 15px rgba(197, 160, 89, 0.4), 0 0 0 0 rgba(197, 160, 89, 0.5);
+    }
+    50% {
+      transform: scale(1.04);
+      box-shadow: 0 0 25px rgba(197, 160, 89, 0.75), 0 0 0 5px rgba(197, 160, 89, 0.15);
+    }
+  }
+
   .animate-button-shimmer {
     background: linear-gradient(90deg, #C5A059 0%, #F3E5AB 35%, #FFF 50%, #F3E5AB 65%, #C5A059 100%);
     background-size: 200% 100%;
-    animation: button-shimmer 2.5s infinite linear;
+    animation: button-shimmer 2.5s infinite linear, luxury-pulse-loop 2s infinite ease-in-out;
   }
 
   @keyframes shake-vibrate {
