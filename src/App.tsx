@@ -1172,42 +1172,42 @@ const Navbar = ({
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
                           transition={{ duration: 0.2, ease: "easeOut" }}
-                          className="absolute top-full right-0 mt-3 w-72 bg-white/95 dark:bg-[#121212]/95 backdrop-blur-2xl border border-black/10 dark:border-white/10 rounded-2xl shadow-2xl z-[101] overflow-hidden p-2"
+                          className="absolute top-full right-0 mt-3 w-80 bg-neutral-950 border-2 border-neutral-700 rounded-2xl shadow-2xl z-[101] overflow-hidden p-3"
                         >
                           {/* User Header Summary */}
-                          <div className="p-3 bg-black/[0.03] dark:bg-white/[0.03] rounded-xl border border-black/5 dark:border-white/5 mb-1.5 flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full border border-gold/40 overflow-hidden shrink-0 bg-neutral-200">
+                          <div className="p-3.5 bg-neutral-900 rounded-xl border-2 border-neutral-700 mb-2 flex items-center gap-3 shadow-inner">
+                            <div className="w-11 h-11 rounded-full border-2 border-amber-400 overflow-hidden shrink-0 bg-neutral-800">
                               {avatarUrl ? (
                                 <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Avatar" />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gold/20 text-gold">
-                                  <User size={18} />
+                                <div className="w-full h-full flex items-center justify-center bg-amber-400/20 text-amber-400 font-bold">
+                                  <User size={20} />
                                 </div>
                               )}
                             </div>
                             <div className="flex flex-col min-w-0">
-                              <span className="text-xs font-bold text-luxury-foreground dark:text-white truncate">
+                              <span className="text-sm font-bold text-white truncate">
                                 {profile?.full_name || user?.user_metadata?.full_name || "Cliente S.art"}
                               </span>
-                              <span className="text-[10px] text-luxury-foreground/60 dark:text-white/50 truncate font-mono">
+                              <span className="text-xs text-neutral-300 truncate font-mono font-medium">
                                 {user?.email}
                               </span>
-                              <span className="text-[8px] font-mono uppercase tracking-widest text-gold mt-0.5 font-bold">
+                              <span className="text-[9px] font-mono uppercase tracking-widest text-amber-400 mt-0.5 font-black">
                                 {isAdmin ? "👑 Administrador S.art" : "✦ Membro VIP"}
                               </span>
                             </div>
                           </div>
 
-                          <div className="space-y-0.5">
+                          <div className="space-y-1">
                             {/* Profile Link */}
                             <button
                               onClick={() => {
                                 setIsProfileMenuOpen(false);
                                 onDashboardClick("dashboard");
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 text-xs text-luxury-foreground/80 dark:text-white/80 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all font-medium"
+                              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-xs text-neutral-100 hover:text-amber-400 hover:bg-neutral-900 border border-transparent hover:border-neutral-700 rounded-xl transition-all font-bold"
                             >
-                              <User size={15} className="text-gold shrink-0" />
+                              <User size={16} className="text-amber-400 shrink-0" />
                               <span>Minha Conta & Encomendas</span>
                             </button>
 
@@ -1218,10 +1218,10 @@ const Navbar = ({
                                   setIsProfileMenuOpen(false);
                                   onNotificationClick();
                                 }}
-                                className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-luxury-foreground/80 dark:text-white/80 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all font-medium"
+                                className="w-full flex items-center justify-between px-3.5 py-2.5 text-xs text-neutral-100 hover:text-amber-400 hover:bg-neutral-900 border border-transparent hover:border-neutral-700 rounded-xl transition-all font-bold"
                               >
                                 <div className="flex items-center gap-3">
-                                  <Bell size={15} className="text-gold shrink-0" />
+                                  <Bell size={16} className="text-amber-400 shrink-0" />
                                   <span>Notificações da Boutique</span>
                                 </div>
                                 {unreadCount > 0 && (
@@ -1239,14 +1239,14 @@ const Navbar = ({
                                   setIsProfileMenuOpen(false);
                                   onDashboardClick("admin");
                                 }}
-                                className="w-full flex items-center gap-3 px-3 py-2.5 text-xs text-gold font-bold hover:bg-gold/10 rounded-xl transition-all"
+                                className="w-full flex items-center gap-3 px-3.5 py-2.5 text-xs text-amber-400 font-black hover:bg-amber-400/10 border border-transparent hover:border-amber-400/30 rounded-xl transition-all"
                               >
-                                <Shield size={15} className="shrink-0" />
+                                <Shield size={16} className="shrink-0" />
                                 <span>Painel de Administração</span>
                               </button>
                             )}
 
-                            <div className="my-1 border-t border-black/5 dark:border-white/5" />
+                            <div className="my-1.5 border-t border-neutral-700" />
 
                             {/* Logout */}
                             <button
@@ -1254,9 +1254,9 @@ const Navbar = ({
                                 setIsProfileMenuOpen(false);
                                 onLogoutClick();
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 text-xs text-red-500 hover:bg-red-500/10 rounded-xl transition-all font-medium"
+                              className="w-full flex items-center gap-3 px-3.5 py-2.5 text-xs text-red-400 hover:text-white hover:bg-red-500/20 border border-transparent hover:border-red-500/30 rounded-xl transition-all font-bold"
                             >
-                              <LogOut size={15} className="shrink-0" />
+                              <LogOut size={16} className="shrink-0" />
                               <span>Terminar Sessão</span>
                             </button>
                           </div>
@@ -1616,25 +1616,7 @@ const FeaturedProductsSection = ({
           <SectionHeading title="Destaques da Temporada" />
         </div>
 
-        {/* Desktop Navigation Arrows */}
-        <div className="hidden md:flex items-center justify-between absolute inset-y-0 left-6 right-6 z-30 pointer-events-none">
-          <button
-            onClick={() => scrollToCard(Math.max(0, activeIndex - 1))}
-            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
-            disabled={activeIndex === 0}
-            title="Anterior"
-          >
-            <ChevronLeft size={24} />
-          </button>
-          <button
-            onClick={() => scrollToCard(Math.min(totalCards - 1, activeIndex + 1))}
-            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
-            disabled={activeIndex === totalCards - 1}
-            title="Seguinte"
-          >
-            <ChevronRight size={24} />
-          </button>
-        </div>
+
 
         {/* Horizontal Track pinned on vertical scroll */}
         <div className="relative w-full overflow-hidden flex items-center py-6 px-4 md:px-12">
