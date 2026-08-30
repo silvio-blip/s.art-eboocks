@@ -5405,7 +5405,7 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
       `${customerData.firstName || ""} ${customerData.lastName || ""}`
     ).trim() || "Cliente S.art";
 
-    const address = {
+    const address: any = {
         address: sanitizeAddressInput(customerData.address || customerData.street || customerData.morada || customerData.address_line_1 || "Rua Principal"),
         city: sanitizeAddressInput(customerData.city || customerData.cidade || customerData.distrito || "Lisboa"),
         contact_person: customerName,
@@ -5417,6 +5417,13 @@ async function fulfillAliExpressOrder(order: any, product: any, customerData: an
         province: sanitizeAddressInput(customerData.province || customerData.state || customerData.distrito || customerData.city || "Lisboa"),
         zip: (customerData.zip || customerData.postalCode || customerData.postal_code || customerData.codigo_postal || "1000-001").trim()
     };
+
+    if (customerData.identification || customerData.cpf || customerData.nif || customerData.tax_id) {
+        const idVal = String(customerData.identification || customerData.cpf || customerData.nif || customerData.tax_id).trim();
+        address.passport_no = idVal;
+        address.tax_number = idVal;
+        address.cpf = idVal;
+    }
 
     const aliId = cleanAliExpressId(product.aliexpress_id);
     if (!aliId) {

@@ -744,7 +744,19 @@ function ScrollToTop() {
   return null;
 }
 
-const CountryDropdown = ({ value, onChange, className = "", isScrolled = false }: { value: any; onChange: (c: any) => void; className?: string; isScrolled?: boolean }) => {
+const CountryDropdown = ({ 
+  value, 
+  onChange, 
+  className = "", 
+  isScrolled = false,
+  placement = "bottom"
+}: { 
+  value: any; 
+  onChange: (c: any) => void; 
+  className?: string; 
+  isScrolled?: boolean;
+  placement?: "top" | "bottom";
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const getCurrencySymbol = (code: string) => {
     switch (code) {
@@ -762,6 +774,8 @@ const CountryDropdown = ({ value, onChange, className = "", isScrolled = false }
     }
   };
 
+  const isTop = placement === "top";
+
   return (
     <div className={`relative ${className}`}>
       <button 
@@ -773,11 +787,11 @@ const CountryDropdown = ({ value, onChange, className = "", isScrolled = false }
         }`}
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-sm leading-none shrink-0">{value.flag || "🌐"}</span>
+          <span className="text-sm leading-none shrink-0">{value?.flag || "🌐"}</span>
           <span className="text-[10px] md:text-[11px] font-mono font-bold leading-none tracking-tight">
-            {value.code || value.currency} ({getCurrencySymbol(value.currency)})
+            {value?.code || value?.currency} ({getCurrencySymbol(value?.currency)})
           </span>
-          <ChevronDown size={12} className="text-luxury-gold transition-transform duration-300 group-hover:translate-y-0.5 shrink-0" />
+          <ChevronDown size={12} className={`text-luxury-gold transition-transform duration-300 ${isOpen ? (isTop ? 'rotate-180' : '-rotate-180') : 'group-hover:translate-y-0.5'} shrink-0`} />
         </div>
       </button>
 
@@ -786,11 +800,11 @@ const CountryDropdown = ({ value, onChange, className = "", isScrolled = false }
           <>
             <div className="fixed inset-0 z-[100]" onClick={() => setIsOpen(false)} />
             <motion.div 
-              initial={{ opacity: 0, y: 8, scale: 0.95 }}
+              initial={{ opacity: 0, y: isTop ? -8 : 8, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.95 }}
+              exit={{ opacity: 0, y: isTop ? -8 : 8, scale: 0.95 }}
               transition={{ duration: 0.2 }}
-              className="absolute top-full right-0 mt-2 w-64 bg-luxury-card border border-luxury-border shadow-2xl z-[101] overflow-hidden rounded-xl"
+              className={`absolute ${isTop ? 'bottom-full mb-2' : 'top-full mt-2'} right-0 w-64 bg-luxury-card border border-luxury-border shadow-2xl z-[101] overflow-hidden rounded-xl`}
             >
               <div className="p-2.5 border-b border-luxury-border bg-black/10 dark:bg-white/5 flex items-center justify-between">
                 <span className="text-[9px] uppercase tracking-[0.2em] text-luxury-gold font-bold flex items-center gap-1.5">
@@ -801,9 +815,9 @@ const CountryDropdown = ({ value, onChange, className = "", isScrolled = false }
                   {COUNTRIES.length} Países
                 </span>
               </div>
-              <div className="max-h-80 overflow-y-auto luxury-scrollbar p-1.5 space-y-0.5">
+              <div className="max-h-72 overflow-y-auto luxury-scrollbar p-1.5 space-y-0.5">
                 {COUNTRIES.map(country => {
-                  const isSelected = value.code === country.code;
+                  const isSelected = value?.code === country.code;
                   return (
                     <button 
                       key={country.code}
@@ -1004,6 +1018,7 @@ const Navbar = ({
   unreadCount = 0,
   onNotificationClick,
   isVisible = true,
+  onTermsClick,
 }: {
   user: any;
   profile: any;
@@ -1021,43 +1036,74 @@ const Navbar = ({
   unreadCount?: number;
   onNotificationClick?: () => void;
   isVisible?: boolean;
+  onTermsClick?: () => void;
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
+    let ticking = false;
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const scrolled = window.scrollY > 20;
+          setIsScrolled(prev => prev !== scrolled ? scrolled : prev);
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Fechar a pesquisa automaticamente se o utilizador clicar fora e não houver texto digitado
+  useEffect(() => {
+    if (!isSearchOpen) return;
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        if (!searchQuery || searchQuery.trim() === "") {
+          setIsSearchOpen(false);
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [isSearchOpen, searchQuery]);
+
   const avatarUrl = profile?.avatar_url 
     ? getImageUrl(profile.avatar_url) 
     : (user?.user_metadata?.avatar_url || user?.user_metadata?.picture || "");
 
+  const isAdmin = Boolean(
+    profile?.is_admin || 
+    profile?.is_employee || 
+    user?.id === "3d596215-583e-498f-9fd5-36b83d8bccf5" || 
+    user?.id === "00d44feb-0b51-405e-86f7-31b67edfb7b6"
+  );
+
   // Dynamic Styles
   const forceScrolled = isScrolled || view !== "home";
+  const isHeaderActive = forceScrolled || isSearchOpen;
 
-  const headerBgClass = forceScrolled 
-    ? "py-3 bg-[#FCFAF7]/95 dark:bg-[#121212]/95 backdrop-blur-md border-b border-black/5 dark:border-white/5 shadow-[0_4px_30px_rgba(0,0,0,0.02)]" 
-    : "py-5 bg-transparent";
+  const headerBgClass = isHeaderActive 
+    ? "py-3.5 bg-white/80 dark:bg-[#0c0c0c]/85 backdrop-blur-xl border-b border-black/5 dark:border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.03)]" 
+    : "py-4 md:py-5 bg-transparent border-b border-transparent shadow-none backdrop-blur-none";
 
-  const textColorClass = forceScrolled 
+  const textColorClass = isHeaderActive 
     ? "text-luxury-foreground dark:text-white" 
-    : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.35)]";
+    : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]";
 
   const iconClass = `${
-    forceScrolled ? "text-luxury-foreground dark:text-white" : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]"
-  } hover:text-gold transition-all duration-300 transform hover:scale-110 active:scale-95`;
-
-  const linkClass = `text-[10px] uppercase tracking-[0.25em] font-medium transition-colors duration-300 ${
-    forceScrolled 
-      ? "text-luxury-foreground/70 dark:text-white/70 hover:text-gold" 
-      : "text-white/85 hover:text-gold drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
-  }`;
+    isHeaderActive ? "text-luxury-foreground dark:text-white" : "text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]"
+  } hover:text-gold transition-all duration-300 transform hover:scale-105 active:scale-95`;
 
   const handleScrollToSection = (id: string) => {
     setIsMobileMenuOpen(false);
@@ -1077,215 +1123,501 @@ const Navbar = ({
     }, 150);
   };
 
+  const effectiveVisible = isVisible || isSearchOpen;
+
   return (
-    <header className={`fixed w-full top-0 z-[9999] transition-all duration-500 transform ${headerBgClass} ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
-      <div className="max-w-7xl mx-auto w-full px-4 md:px-6 flex justify-between items-center">
-        
-        {/* Left: Branding & Logo */}
-        <button
-          onClick={() => {
-            onHomeClick();
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          className="flex items-center gap-2.5 hover:opacity-85 transition-all duration-300 group"
-        >
-          <BoutiqueLogo className="h-10 w-auto max-w-[120px] transform duration-500" isScrolled={forceScrolled} />
-          <div className="flex flex-col text-left">
-            <span className={`text-sm font-serif font-semibold tracking-[0.2em] leading-none uppercase ${textColorClass} transition-colors duration-500`}>
+    <>
+      <header className={`fixed w-full top-0 z-[9999] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${headerBgClass} ${effectiveVisible ? 'translate-y-0' : '-translate-y-full'}`}>
+        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 flex justify-between items-center">
+          
+          {/* Left: Branding & Logo ONLY */}
+          <button
+            onClick={() => {
+              onHomeClick();
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className="flex items-center gap-2.5 hover:opacity-85 transition-all duration-300 group shrink-0"
+          >
+            <BoutiqueLogo className="h-8 sm:h-9 w-auto max-w-[120px] transform duration-500" isScrolled={isHeaderActive} />
+            <span className={`text-base sm:text-lg font-serif font-semibold tracking-[0.25em] leading-none uppercase ${textColorClass} transition-colors duration-500`}>
               S.art
             </span>
-          </div>
-        </button>
-
-        {/* Center: Desktop Navigation Links */}
-        <nav className="hidden md:flex items-center gap-8">
-          <button 
-            onClick={() => handleScrollToSection("boutique")}
-            className={linkClass}
-          >
-            Coleção
           </button>
-          <button 
-            onClick={() => handleScrollToSection("featured-section")}
-            className={linkClass}
-          >
-            Novidades
-          </button>
-        </nav>
 
-        {/* Right: Actions Toolbar */}
-        <div className="flex items-center gap-2.5 md:gap-4">
-          <CountryDropdown 
-            value={selectedCountry} 
-            onChange={onCountryChange} 
-            isScrolled={isScrolled}
-          />
+          {/* Center: Clean breathing space (Vazio para dar ar respirável) */}
+          <div className="flex-1" />
 
-          {/* Luxury Search Bar */}
-          <div className="relative flex items-center">
+          {/* Right: Actions Toolbar -> 🔍 (Pesquisa) | 👤 (Avatar - Oculto durante busca) | ☰ (Menu) */}
+          <div className="flex items-center gap-2.5 sm:gap-3.5 md:gap-4.5">
+            
+            {/* 1. Luxury Search Button / Expanding Input */}
+            <div ref={searchContainerRef} className="relative flex items-center">
+              <AnimatePresence>
+                {isSearchOpen && (
+                  <motion.div 
+                    initial={{ width: 0, opacity: 0, scale: 0.95 }}
+                    animate={{ width: "min(50vw, 210px)", opacity: 1, scale: 1 }}
+                    exit={{ width: 0, opacity: 0, scale: 0.95 }}
+                    transition={{ type: "spring", stiffness: 350, damping: 30 }}
+                    className={`overflow-hidden flex items-center ${
+                      isHeaderActive 
+                        ? "bg-black/5 dark:bg-white/10 border-black/10 dark:border-white/15" 
+                        : "bg-black/60 border-white/25"
+                    } border rounded-full pl-3 pr-1.5 py-1 mr-1 shadow-sm backdrop-blur-md`}
+                  >
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => onSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          onSearch("");
+                          setIsSearchOpen(false);
+                        }
+                      }}
+                      placeholder={currentLanguage === 'pt' ? "PROCURAR..." : "SEARCH..."}
+                      autoFocus
+                      className={`bg-transparent border-none ${isHeaderActive ? "text-luxury-foreground dark:text-white" : "text-white"} w-full outline-none text-[9px] sm:text-[10px] uppercase tracking-[0.18em] placeholder:opacity-50 font-medium`}
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => onSearch("")}
+                        className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10 text-luxury-gold shrink-0 transition-colors"
+                        title="Limpar pesquisa"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <button
+                onClick={() => {
+                  if (isSearchOpen) {
+                    onSearch("");
+                    setIsSearchOpen(false);
+                  } else {
+                    setIsSearchOpen(true);
+                  }
+                }}
+                className={`p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${iconClass} shrink-0`}
+                aria-label={isSearchOpen ? "Fechar Pesquisa" : "Pesquisar"}
+                title={isSearchOpen ? "Cancelar e Fechar Pesquisa" : "Pesquisar na loja"}
+              >
+                {isSearchOpen ? <X size={20} className="text-luxury-gold" /> : <Search size={20} />}
+              </button>
+            </div>
+
+            {/* 2. User Profile / Avatar with Luxury Floating Dropdown (Oculta quando a busca abre para dar espaço) */}
             <AnimatePresence>
-              {isSearchOpen && (
+              {!isSearchOpen && (
                 <motion.div 
-                  initial={{ width: 0, opacity: 0, x: 20 }}
-                  animate={{ width: 180, opacity: 1, x: 0 }}
-                  exit={{ width: 0, opacity: 0, x: 20 }}
-                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  className={`overflow-hidden flex items-center ${
-                    isScrolled ? "bg-white border-black/10" : "bg-black/50 border-white/20"
-                  } border rounded-full px-4 py-1.5 mr-2.5 shadow-sm`}
+                  initial={{ opacity: 0, scale: 0.85, width: 0 }}
+                  animate={{ opacity: 1, scale: 1, width: "auto" }}
+                  exit={{ opacity: 0, scale: 0.85, width: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  className="relative flex items-center overflow-visible shrink-0"
                 >
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => onSearch(e.target.value)}
-                    onBlur={() => {
-                      if (searchQuery.trim() === "") {
-                        setIsSearchOpen(false);
-                      }
-                    }}
-                    placeholder={currentLanguage === 'pt' ? "PROCURAR..." : "SEARCH..."}
-                    autoFocus
-                    className={`bg-transparent border-none ${isScrolled ? "text-luxury-foreground" : "text-white"} w-full outline-none text-[9px] uppercase tracking-[0.3em] placeholder:opacity-50`}
-                  />
+                  {user ? (
+                    <button
+                      onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                      className="relative hover:opacity-90 transition-all transform hover:scale-105 active:scale-95 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full p-0.5 group"
+                      aria-label="Perfil do Utilizador"
+                      title="Aceder ao Perfil"
+                    >
+                      <div className="w-full h-full rounded-full border border-gold/60 overflow-hidden shrink-0 shadow-md bg-neutral-800 ring-2 ring-gold/20 group-hover:ring-gold/50 transition-all">
+                        {avatarUrl ? (
+                          <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Avatar" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gold/30 to-black text-gold">
+                            <User size={15} />
+                          </div>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <div className="absolute -top-1 -right-1 bg-gold text-black rounded-full p-0.5 border border-white dark:border-black shadow-sm">
+                          <Crown size={8} className="fill-black" />
+                        </div>
+                      )}
+                      {unreadCount > 0 && !isAdmin && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 rounded-full border border-white dark:border-black animate-pulse" />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={onAuthClick}
+                      className={`p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${iconClass}`}
+                      aria-label="Entrar / Minha Conta"
+                      title="Entrar ou Registar"
+                    >
+                      <User size={20} />
+                    </button>
+                  )}
+
+                  {/* Floating Profile Popover Dropdown */}
+                  <AnimatePresence>
+                    {isProfileMenuOpen && user && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-[100]" 
+                          onClick={() => setIsProfileMenuOpen(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.2, ease: "easeOut" }}
+                          className="absolute top-full right-0 mt-3 w-72 bg-white/95 dark:bg-[#121212]/95 backdrop-blur-2xl border border-black/10 dark:border-white/10 rounded-2xl shadow-2xl z-[101] overflow-hidden p-2"
+                        >
+                          {/* User Header Summary */}
+                          <div className="p-3 bg-black/[0.03] dark:bg-white/[0.03] rounded-xl border border-black/5 dark:border-white/5 mb-1.5 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full border border-gold/40 overflow-hidden shrink-0 bg-neutral-200">
+                              {avatarUrl ? (
+                                <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Avatar" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gold/20 text-gold">
+                                  <User size={18} />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-bold text-luxury-foreground dark:text-white truncate">
+                                {profile?.full_name || user?.user_metadata?.full_name || "Cliente S.art"}
+                              </span>
+                              <span className="text-[10px] text-luxury-foreground/60 dark:text-white/50 truncate font-mono">
+                                {user?.email}
+                              </span>
+                              <span className="text-[8px] font-mono uppercase tracking-widest text-gold mt-0.5 font-bold">
+                                {isAdmin ? "👑 Administrador S.art" : "✦ Membro VIP"}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-0.5">
+                            {/* Profile Link */}
+                            <button
+                              onClick={() => {
+                                setIsProfileMenuOpen(false);
+                                onDashboardClick("dashboard");
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 text-xs text-luxury-foreground/80 dark:text-white/80 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all font-medium"
+                            >
+                              <User size={15} className="text-gold shrink-0" />
+                              <span>Minha Conta & Encomendas</span>
+                            </button>
+
+                            {/* Notifications in Profile */}
+                            {onNotificationClick && (
+                              <button
+                                onClick={() => {
+                                  setIsProfileMenuOpen(false);
+                                  onNotificationClick();
+                                }}
+                                className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-luxury-foreground/80 dark:text-white/80 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all font-medium"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <Bell size={15} className="text-gold shrink-0" />
+                                  <span>Notificações da Boutique</span>
+                                </div>
+                                {unreadCount > 0 && (
+                                  <span className="min-w-5 h-5 bg-red-500 text-white font-mono text-[9px] font-black rounded-full flex items-center justify-center px-1.5 shadow">
+                                    {unreadCount}
+                                  </span>
+                                )}
+                              </button>
+                            )}
+
+                            {/* Admin Shield in Profile */}
+                            {isAdmin && (
+                              <button
+                                onClick={() => {
+                                  setIsProfileMenuOpen(false);
+                                  onDashboardClick("admin");
+                                }}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 text-xs text-gold font-bold hover:bg-gold/10 rounded-xl transition-all"
+                              >
+                                <Shield size={15} className="shrink-0" />
+                                <span>Painel de Administração</span>
+                              </button>
+                            )}
+
+                            <div className="my-1 border-t border-black/5 dark:border-white/5" />
+
+                            {/* Logout */}
+                            <button
+                              onClick={() => {
+                                setIsProfileMenuOpen(false);
+                                onLogoutClick();
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2 text-xs text-red-500 hover:bg-red-500/10 rounded-xl transition-all font-medium"
+                            >
+                              <LogOut size={15} className="shrink-0" />
+                              <span>Terminar Sessão</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* 3. Hamburger Menu Toggle Button (☰) */}
             <button
-              onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className={iconClass}
-              aria-label="Search"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className={`p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${iconClass}`}
+              aria-label="Abrir Menu"
+              title="Menu Principal"
             >
-              {isSearchOpen ? <X size={18} /> : <Search size={19} />}
+              <Menu size={22} />
             </button>
           </div>
-
-          {/* User / Dashboard Shortcut */}
-          <AnimatePresence>
-            {!isSearchOpen && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="flex items-center gap-3 md:gap-5"
-              >
-                {/* Real-time Notification Bell */}
-                {onNotificationClick && (
-                  <button
-                    onClick={onNotificationClick}
-                    className={`relative ${iconClass} p-1 rounded-full hover:bg-neutral-500/10 transition-colors flex items-center justify-center`}
-                    aria-label="Notifications"
-                    title="Notificações da Loja"
-                  >
-                    <Bell size={18} />
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 bg-red-500 text-white font-mono text-[8px] font-black rounded-full flex items-center justify-center px-1 animate-pulse border border-black shadow">
-                        {unreadCount}
-                      </span>
-                    )}
-                  </button>
-                )}
-                {user ? (
-                  <div className="flex items-center gap-3 md:gap-5">
-                    {(ADMIN_IDS.includes(user.id || "") || profile?.is_admin || profile?.is_employee) && (
-                      <button
-                        onClick={() => onDashboardClick("admin")}
-                        className={`${iconClass} flex items-center gap-1 focus:outline-none group/admin`}
-                        title="Painel de Administração"
-                      >
-                        <Shield size={18} className="group-hover/admin:rotate-12 transition-transform duration-500" />
-                        <span className="hidden lg:inline text-[8px] tracking-[0.2em] font-bold text-gold">PAINEL</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onDashboardClick("dashboard")}
-                      className="relative hover:opacity-85 transition-all transform hover:scale-110 active:scale-95 overflow-visible w-8 h-8 flex items-center justify-center"
-                    >
-                      <div className="w-8 h-8 rounded-full border border-gold/40 overflow-hidden shrink-0 shadow-sm bg-neutral-200">
-                        {avatarUrl ? (
-                          <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                        ) : (
-                          <User size={16} className={isScrolled ? "text-luxury-foreground" : "text-white"} />
-                        )}
-                      </div>
-                      {profile?.is_admin && (
-                        <div className="absolute -top-1.5 -right-1.5 bg-gold rounded-full p-0.5 border border-white shadow-sm animate-pulse">
-                          <Crown size={8} className="text-white fill-white" />
-                        </div>
-                      )}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={onAuthClick}
-                    className={iconClass}
-                    aria-label="Account"
-                  >
-                    <User size={19} />
-                  </button>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Mobile Menu Toggle Button */}
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className={`md:hidden ${iconClass}`}
-            aria-label="Toggle Menu"
-          >
-            {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
         </div>
-      </div>
+      </header>
 
-      {/* Mobile Menu Drawer */}
+      {/* Futuristic Slide-Over Sidebar Drawer (☰) */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: "auto" }}
-            exit={{ opacity: 0, y: -20, height: 0 }}
-            transition={{ duration: 0.4, ease: "easeInOut" }}
-            className="md:hidden absolute top-full left-0 w-full bg-[#FCFAF7]/98 backdrop-blur-2xl border-b border-black/5 p-6 space-y-6 shadow-xl z-50 overflow-hidden"
-          >
-            <div className="flex flex-col gap-4 border-b border-black/5 pb-4">
-              <button 
-                onClick={() => handleScrollToSection("boutique")}
-                className="text-left py-2.5 text-xs uppercase tracking-[0.2em] font-medium text-luxury-foreground/80 hover:text-gold"
-              >
-                Coleção
-              </button>
-              <button 
-                onClick={() => handleScrollToSection("featured-section")}
-                className="text-left py-2.5 text-xs uppercase tracking-[0.2em] font-medium text-luxury-foreground/80 hover:text-gold"
-              >
-                Novidades
-              </button>
-              <button 
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onDashboardClick("dashboard");
-                }}
-                className="text-left py-2.5 text-xs uppercase tracking-[0.2em] font-medium text-luxury-foreground/80 hover:text-gold"
-              >
-                Perfil / Minha Conta
-              </button>
-            </div>
-            
-            <div className="flex items-center bg-black/5 px-4 py-3 rounded-full border border-black/5 focus-within:border-gold/50 transition-all">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => onSearch(e.target.value)}
-                placeholder="Procurar na boutique..."
-                className="bg-transparent border-none text-luxury-foreground w-full outline-none text-xs tracking-wider placeholder:text-luxury-foreground/40"
-              />
-              <Search size={16} className="text-gold" />
-            </div>
-          </motion.div>
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[10000]"
+            />
+
+            {/* Slide-in Panel */}
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", damping: 28, stiffness: 280 }}
+              className="fixed inset-y-0 right-0 w-full max-w-[340px] sm:max-w-sm bg-[#FCFAF7]/98 dark:bg-[#0c0c0c]/98 backdrop-blur-2xl border-l border-black/10 dark:border-white/10 p-6 flex flex-col justify-between z-[10001] shadow-2xl overflow-y-auto"
+            >
+              {/* Drawer Header */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between pb-4 border-b border-black/5 dark:border-white/5">
+                  <div className="flex items-center gap-2">
+                    <BoutiqueLogo className="h-7 w-auto" isScrolled={true} />
+                    <span className="text-sm font-serif font-bold tracking-[0.2em] uppercase text-luxury-foreground dark:text-white">
+                      S.art
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 flex items-center justify-center text-luxury-foreground dark:text-white transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Quick User Card in Drawer */}
+                <div className="p-3.5 bg-black/[0.02] dark:bg-white/[0.03] rounded-2xl border border-black/5 dark:border-white/5">
+                  {user ? (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full border border-gold/40 overflow-hidden shrink-0 bg-neutral-200">
+                          {avatarUrl ? (
+                            <img src={avatarUrl} referrerPolicy="no-referrer" className="w-full h-full object-cover" alt="Avatar" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gold/20 text-gold">
+                              <User size={18} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-luxury-foreground dark:text-white">
+                            {profile?.full_name || user?.user_metadata?.full_name || "Membro S.art"}
+                          </span>
+                          <span className="text-[9px] text-gold font-mono uppercase tracking-wider font-bold">
+                            {isAdmin ? "Administrador" : "Conta Ativa"}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          onDashboardClick("dashboard");
+                        }}
+                        className="text-[9px] uppercase tracking-wider font-bold text-gold hover:underline"
+                      >
+                        Ver Perfil
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-luxury-foreground dark:text-white">Bem-vindo à S.art</span>
+                        <span className="text-[10px] text-luxury-foreground/60 dark:text-white/50">Aceda à sua conta VIP</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsMobileMenuOpen(false);
+                          onAuthClick();
+                        }}
+                        className="px-3.5 py-1.5 bg-gold text-black rounded-full text-[10px] uppercase font-bold tracking-wider hover:bg-gold/90 transition-colors shadow-sm"
+                      >
+                        Entrar
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Primary Navigation Links */}
+                <div className="space-y-1">
+                  <span className="text-[8px] uppercase tracking-[0.25em] font-mono text-luxury-foreground/40 dark:text-white/40 px-3">
+                    Navegação
+                  </span>
+                  
+                  <button 
+                    onClick={() => handleScrollToSection("boutique")}
+                    className="w-full flex items-center justify-between px-3 py-3 text-xs uppercase tracking-[0.18em] font-bold text-luxury-foreground/90 dark:text-white/90 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all"
+                  >
+                    <span>Coleção Boutique</span>
+                    <ChevronRight size={15} className="text-gold/60" />
+                  </button>
+
+                  <button 
+                    onClick={() => handleScrollToSection("featured-section")}
+                    className="w-full flex items-center justify-between px-3 py-3 text-xs uppercase tracking-[0.18em] font-bold text-luxury-foreground/90 dark:text-white/90 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all"
+                  >
+                    <span>Destaques da Temporada</span>
+                    <ChevronRight size={15} className="text-gold/60" />
+                  </button>
+
+                  {user && (
+                    <button 
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        onDashboardClick("dashboard");
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-3 text-xs uppercase tracking-[0.18em] font-bold text-luxury-foreground/90 dark:text-white/90 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all"
+                    >
+                      <span>Minha Conta & Encomendas</span>
+                      <ChevronRight size={15} className="text-gold/60" />
+                    </button>
+                  )}
+
+                  {onNotificationClick && (
+                    <button 
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        onNotificationClick();
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-3 text-xs uppercase tracking-[0.18em] font-bold text-luxury-foreground/90 dark:text-white/90 hover:text-gold hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>Notificações</span>
+                        {unreadCount > 0 && (
+                          <span className="min-w-4 h-4 bg-red-500 text-white font-mono text-[8px] font-black rounded-full flex items-center justify-center px-1">
+                            {unreadCount}
+                          </span>
+                        )}
+                      </div>
+                      <ChevronRight size={15} className="text-gold/60" />
+                    </button>
+                  )}
+
+                  {isAdmin && (
+                    <button 
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        onDashboardClick("admin");
+                      }}
+                      className="w-full flex items-center justify-between px-3 py-3 text-xs uppercase tracking-[0.18em] font-bold text-gold hover:bg-gold/10 rounded-xl transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Shield size={14} />
+                        <span>Painel de Administração</span>
+                      </div>
+                      <ChevronRight size={15} className="text-gold" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Destacado: Seletor de Região e Moeda PT (€) */}
+                <div className="p-4 bg-black/[0.03] dark:bg-white/[0.03] rounded-2xl border border-black/5 dark:border-white/5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] uppercase tracking-[0.2em] font-bold text-gold flex items-center gap-1.5">
+                      <Globe size={13} />
+                      Região & Moeda
+                    </span>
+                    <span className="text-[8px] font-mono text-luxury-foreground/40 dark:text-white/40 uppercase">
+                      Internacional
+                    </span>
+                  </div>
+                  <CountryDropdown 
+                    value={selectedCountry} 
+                    onChange={onCountryChange} 
+                    isScrolled={true}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Garantias & Escudo S.ART (Trust Section) */}
+                <div className="space-y-2 pt-2">
+                  <span className="text-[8px] uppercase tracking-[0.25em] font-mono text-luxury-foreground/40 dark:text-white/40 px-3">
+                    Garantia & Confiança
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div className="p-2.5 bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 rounded-xl flex items-center gap-2">
+                      <Shield size={14} className="text-gold shrink-0" />
+                      <span className="font-medium text-luxury-foreground/80 dark:text-white/80 leading-tight">Autenticidade Garantida</span>
+                    </div>
+                    <div className="p-2.5 bg-black/[0.02] dark:bg-white/[0.02] border border-black/5 dark:border-white/5 rounded-xl flex items-center gap-2">
+                      <Truck size={14} className="text-gold shrink-0" />
+                      <span className="font-medium text-luxury-foreground/80 dark:text-white/80 leading-tight">Envio Rápido & Seguro</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Drawer Footer Links */}
+              <div className="pt-6 border-t border-black/5 dark:border-white/5 space-y-3">
+                <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-luxury-foreground/60 dark:text-white/50">
+                  <button 
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      onHomeClick();
+                    }}
+                    className="hover:text-gold transition-colors"
+                  >
+                    Início
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      if (onTermsClick) {
+                        onTermsClick();
+                      }
+                    }}
+                    className="hover:text-gold transition-colors"
+                  >
+                    Termos & Privacidade
+                  </button>
+                  <a
+                    href="https://www.instagram.com/sart.full_oficial"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-gold transition-colors"
+                  >
+                    Instagram
+                  </a>
+                </div>
+                <div className="text-[8px] uppercase tracking-[0.3em] font-mono text-center text-luxury-foreground/30 dark:text-white/30">
+                  © 2026 Boutique S.art
+                </div>
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
-    </header>
+    </>
   );
 };
 
@@ -1313,82 +1645,112 @@ const FeaturedProductsSection = ({
   const featuredProducts = React.useMemo(() => products.filter(p => p.is_featured && p.is_active !== false), [products]);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = React.useState(0);
+  const scrollTickingRef = React.useRef(false);
 
   if (featuredProducts.length === 0) return null;
 
+  const updateActiveCard = () => {
+    if (!scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const containerCenter = container.scrollLeft + container.clientWidth / 2;
+    const cards = container.querySelectorAll<HTMLElement>('[data-featured-card]');
+    
+    let closestIndex = 0;
+    let minDistance = Infinity;
+
+    cards.forEach((card, i) => {
+      const cardCenter = card.offsetLeft + card.offsetWidth / 2;
+      const distance = Math.abs(containerCenter - cardCenter);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = i;
+      }
+    });
+
+    setActiveIndex(closestIndex);
+  };
+
   const handleScroll = () => {
-    if (scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      const scrollLeftPos = container.scrollLeft;
-      const cardWidth = container.querySelector('div')?.clientWidth || 380;
-      const index = Math.round(scrollLeftPos / (cardWidth + 24));
-      setActiveIndex(Math.max(0, Math.min(index, featuredProducts.length - 1)));
+    if (!scrollTickingRef.current) {
+      window.requestAnimationFrame(() => {
+        updateActiveCard();
+        scrollTickingRef.current = false;
+      });
+      scrollTickingRef.current = true;
+    }
+  };
+
+  const scrollToIndex = (index: number) => {
+    if (!scrollContainerRef.current) return;
+    const container = scrollContainerRef.current;
+    const cards = container.querySelectorAll<HTMLElement>('[data-featured-card]');
+    if (cards[index]) {
+      const card = cards[index];
+      const targetScrollLeft = card.offsetLeft - (container.clientWidth / 2) + (card.offsetWidth / 2);
+      container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
+      setActiveIndex(index);
     }
   };
 
   const scrollLeft = () => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollBy({ left: -420, behavior: 'smooth' });
-    }
+    scrollToIndex(Math.max(0, activeIndex - 1));
   };
 
   const scrollRight = () => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollBy({ left: 420, behavior: 'smooth' });
-    }
+    scrollToIndex(Math.min(featuredProducts.length - 1, activeIndex + 1));
   };
 
   return (
     <section id="featured-section" className="bg-luxury-bg py-20 border-b border-luxury-border overflow-hidden transition-colors duration-500 relative">
       <SectionHeading title="Destaques da Temporada" />
 
-      <div className="relative px-[5%] mt-12 max-w-7xl mx-auto">
+      <div className="relative mt-10 max-w-7xl mx-auto">
         {/* Desktop Navigation Arrows */}
-        <div className="hidden md:flex items-center justify-between absolute inset-y-0 -left-6 -right-6 z-30 pointer-events-none">
+        <div className="hidden md:flex items-center justify-between absolute inset-y-0 left-4 right-4 z-30 pointer-events-none">
           <button
             onClick={scrollLeft}
-            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95"
+            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
+            disabled={activeIndex === 0}
             title="Anterior"
           >
             <ChevronLeft size={24} />
           </button>
           <button
             onClick={scrollRight}
-            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95"
+            className="w-12 h-12 rounded-full bg-black/80 hover:bg-black text-white border border-white/20 shadow-2xl flex items-center justify-center pointer-events-auto transition-transform hover:scale-110 active:scale-95 disabled:opacity-30"
+            disabled={activeIndex === featuredProducts.length - 1}
             title="Seguinte"
           >
             <ChevronRight size={24} />
           </button>
         </div>
 
-        {/* Horizontal Carousel Scroll Container */}
+        {/* Horizontal Carousel Scroll Container with exact center padding */}
         <div 
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex items-center gap-6 overflow-x-auto snap-x snap-mandatory py-10 px-4 -mx-4 focus:outline-none scroll-smooth"
+          className="flex items-center gap-6 sm:gap-8 overflow-x-auto snap-x snap-mandatory py-12 px-[calc(50%-140px)] sm:px-[calc(50%-160px)] md:px-[calc(50%-180px)] focus:outline-none scroll-smooth"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {featuredProducts.map((featuredProduct, idx) => {
             const isActive = idx === activeIndex;
             return (
-              <motion.div 
+              <div 
                 key={featuredProduct.id} 
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ 
-                  opacity: 1, 
-                  y: 0,
-                  transition: { duration: 0.5, ease: "easeOut" } 
-                }}
-                viewport={{ once: true, amount: 0.1 }}
-                className={`shrink-0 snap-center group relative flex flex-col justify-end rounded-[12px] overflow-hidden bg-[#181818] border transition-all duration-500 cursor-pointer shadow-xl ${
+                data-featured-card
+                className={`shrink-0 snap-center group relative flex flex-col justify-end rounded-[16px] overflow-hidden bg-[#181818] border transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer will-change-transform w-[280px] sm:w-[320px] md:w-[360px] h-[440px] sm:h-[490px] md:h-[530px] ${
                   isActive 
-                    ? 'w-[320px] sm:w-[380px] md:w-[440px] h-[480px] sm:h-[540px] md:h-[580px] border-gold/80 shadow-2xl z-20 scale-100 md:scale-105' 
-                    : 'w-[280px] sm:w-[320px] md:w-[360px] h-[420px] sm:h-[480px] md:h-[520px] border-black/10 dark:border-white/10 opacity-80 scale-95 hover:opacity-100'
+                    ? 'scale-105 md:scale-110 border-gold shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(197,160,89,0.35)] ring-1 ring-gold/50 z-20 opacity-100' 
+                    : 'scale-90 md:scale-95 border-black/10 dark:border-white/10 opacity-60 hover:opacity-85 shadow-lg z-10'
                 }`}
                 onClick={() => {
-                  setSelectedProduct(featuredProduct);
-                  setDetailProduct(featuredProduct);
-                  setView("product-detail");
+                  if (!isActive) {
+                    scrollToIndex(idx);
+                  } else {
+                    setSelectedProduct(featuredProduct);
+                    setDetailProduct(featuredProduct);
+                    setView("product-detail");
+                  }
                 }}
               >
                 {/* Starburst discount badge */}
@@ -1408,7 +1770,7 @@ const FeaturedProductsSection = ({
                   {/* Category Badge on top left */}
                   <div className="absolute top-4 left-4 z-10">
                     {featuredProduct.category && (
-                      <span className="bg-black/60 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 shadow-md">
+                      <span className="bg-black/60 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] uppercase tracking-[0.2em] px-3 py-1 shadow-md rounded-sm">
                         {featuredProduct.category}
                       </span>
                     )}
@@ -1416,7 +1778,7 @@ const FeaturedProductsSection = ({
                 </div>
 
                 {/* Dark Gradient Overlay & Minimalist Content at Bottom */}
-                <div className="relative z-10 inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-5 sm:p-6 flex flex-col justify-end text-white">
+                <div className="relative z-10 inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/65 to-transparent p-5 sm:p-6 flex flex-col justify-end text-white">
                   <div className="space-y-1.5 mb-3">
                     {/* Minimalist Stars */}
                     <div className="flex items-center gap-1 text-gold">
@@ -1463,24 +1825,18 @@ const FeaturedProductsSection = ({
                     </button>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>
 
         {/* Pagination Dots */}
-        <div className="flex items-center justify-center gap-2 mt-8">
+        <div className="flex items-center justify-center gap-2 mt-4">
           {featuredProducts.map((_, dotIdx) => (
             <button
               key={dotIdx}
-              onClick={() => {
-                if (scrollContainerRef.current) {
-                  const cardWidth = scrollContainerRef.current.querySelector('div')?.clientWidth || 380;
-                  scrollContainerRef.current.scrollTo({ left: dotIdx * (cardWidth + 24), behavior: 'smooth' });
-                  setActiveIndex(dotIdx);
-                }
-              }}
-              className={`h-2.5 rounded-full transition-all duration-300 ${dotIdx === activeIndex ? 'w-8 bg-gold' : 'w-2.5 bg-neutral-300 dark:bg-neutral-700 hover:bg-gold/50'}`}
+              onClick={() => scrollToIndex(dotIdx)}
+              className={`h-2.5 rounded-full transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${dotIdx === activeIndex ? 'w-8 bg-gold shadow-[0_0_12px_rgba(197,160,89,0.6)]' : 'w-2.5 bg-neutral-300 dark:bg-neutral-700 hover:bg-gold/50'}`}
               title={`Ir para destaque ${dotIdx + 1}`}
             />
           ))}
@@ -3372,23 +3728,60 @@ export default function App() {
     }
   };
 
-  const [scrollY, setScrollY] = useState(0);
+  const { scrollY } = useScroll();
+  const rawHeroY = useTransform(scrollY, [0, 1200], [0, -360]);
+  const heroY = useSpring(rawHeroY, {
+    stiffness: 90,
+    damping: 22,
+    mass: 0.12,
+    restDelta: 0.001
+  });
+
   const [isNavbarVisible, setIsNavbarVisible] = useState(true);
+  const isNavbarVisibleRef = useRef(true);
   const lastScrollYRef = useRef(0);
+  const isCursorTransformedRef = useRef(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      setScrollY(currentScrollY);
+    let ticking = false;
 
-      if (currentScrollY <= 20) {
-        setIsNavbarVisible(true);
-      } else if (currentScrollY > lastScrollYRef.current + 8) {
-        setIsNavbarVisible(false);
-      } else if (currentScrollY < lastScrollYRef.current - 8) {
-        setIsNavbarVisible(true);
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+          const delta = currentScrollY - lastScrollYRef.current;
+
+          // Always show navbar near the top of the page
+          if (currentScrollY <= 40) {
+            if (!isNavbarVisibleRef.current) {
+              isNavbarVisibleRef.current = true;
+              setIsNavbarVisible(true);
+            }
+          } else if (delta > 14) {
+            // Scrolling down with intention -> hide navbar smoothly
+            if (isNavbarVisibleRef.current) {
+              isNavbarVisibleRef.current = false;
+              setIsNavbarVisible(false);
+            }
+          } else if (delta < -14) {
+            // Scrolling up with intention -> show navbar smoothly
+            if (!isNavbarVisibleRef.current) {
+              isNavbarVisibleRef.current = true;
+              setIsNavbarVisible(true);
+            }
+          }
+
+          // Cursor transformation trigger
+          if (currentScrollY > 220 && !isCursorTransformedRef.current) {
+            isCursorTransformedRef.current = true;
+            setIsCursorTransformed(true);
+          }
+
+          lastScrollYRef.current = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
       }
-      lastScrollYRef.current = currentScrollY;
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
@@ -3471,22 +3864,7 @@ export default function App() {
     }
     return true;
   });
-  const [scrollProgress, setScrollProgress] = useState(0);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      const scrollY = window.scrollY;
-      const progress = Math.min(scrollY / 300, 1); // Shorter distance for faster irritation
-      setScrollProgress(progress);
-      
-      // Trigger transformation earlier (at 75% progress) so it happens while still visible
-      if (progress >= 0.75 && !isCursorTransformed) {
-        setIsCursorTransformed(true);
-      }
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [isCursorTransformed]);
 
   const allCategories = useMemo(() => {
     return categories.map(c => c.name).filter(c => c !== "Todos").sort();
@@ -4447,10 +4825,11 @@ export default function App() {
       return;
     }
 
-    if (product.product_type === "physical") {
+    if (product.product_type === "physical" || product.sizes_enabled || product.colors_enabled || product.provider === 'aliexpress' || product.aliexpress_id) {
       navigateTo("product-detail", product);
     } else {
       setSelectedProduct(product);
+      setSelectedOptions({});
       
       // Track Meta Pixel AddToCart
       if (typeof window !== "undefined" && (window as any).fbq) {
@@ -4753,6 +5132,7 @@ export default function App() {
               unreadCount={unreadCount}
               onNotificationClick={() => setIsNotificationOpen(true)}
               isVisible={isNavbarVisible}
+              onTermsClick={() => setView("terms")}
             />
           )}
 
@@ -4881,7 +5261,10 @@ export default function App() {
               exit={{ opacity: 0 }}
               className="w-full"
             >
-                <section style={{ transform: `translateY(${scrollY * 0.35}px)` }} className="sticky top-0 h-[100dvh] min-h-screen w-full flex items-center justify-center overflow-hidden bg-luxury-bg z-0">
+                <motion.section 
+                  style={{ y: heroY, willChange: "transform" }} 
+                  className="sticky top-0 h-[100dvh] min-h-screen w-full flex items-center justify-center overflow-hidden bg-luxury-bg z-0"
+                >
                   <MovingParticles activeTheme={siteTheme.active} />
                 {/* Background Video/Image Container */}
                 <div className="absolute inset-0 z-0 bg-[#050505]">
@@ -5032,7 +5415,7 @@ export default function App() {
                     />
                   </motion.div>
                 </motion.div>
-              </section>
+              </motion.section>
 
               <div className="relative z-20 bg-luxury-bg shadow-[0_-40px_80px_rgba(0,0,0,0.6)] rounded-t-[3rem]">
                 <FeaturedProductsSection 
@@ -5065,7 +5448,7 @@ export default function App() {
                 </div>
 
                 {/* STICKY FILTER BAR (Fixa-se no topo da tela por baixo da barra de navegação durante o scroll) */}
-                <div className={`sticky ${isNavbarVisible ? 'top-[60px] md:top-[70px]' : 'top-0'} z-50 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-all duration-300`}>
+                <div className={`sticky top-0 z-40 bg-luxury-bg/95 backdrop-blur-md border-y border-luxury-border py-3 px-4 shadow-md mb-10 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${isNavbarVisible ? 'translate-y-[58px] md:translate-y-[68px]' : 'translate-y-0'}`}>
                   <div className="max-w-2xl mx-auto flex items-center justify-center gap-2 sm:gap-3.5">
                     
                     {/* Seletor 1: Categoria (Dropdown) */}
@@ -6088,25 +6471,29 @@ export default function App() {
         </Dialog>
       )}
 
-      <footer className="border-t border-white/5 py-24 px-6 bg-[#050505] transition-colors duration-500">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-12 text-center md:text-left">
-          <div className="space-y-4">
-            <div className="text-[9px] uppercase tracking-[0.3em] text-luxury-foreground/40 transition-colors">
+      <footer className="border-t border-white/5 py-16 px-6 bg-[#050505] transition-colors duration-500">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8 text-center md:text-left">
+          <div className="space-y-2">
+            <div className="text-[10px] uppercase tracking-[0.3em] font-serif font-bold text-white/90">
+              Boutique S.art
+            </div>
+            <div className="text-[9px] uppercase tracking-[0.25em] text-white/40 font-mono">
               © 2026 Boutique S.art | S.art-full.pt
             </div>
           </div>
-          <div className="flex gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-luxury-foreground/60 transition-colors">
+
+          <div className="flex items-center gap-8 text-[9px] uppercase tracking-[0.2em] font-medium text-white/60">
             <a
               href="https://www.instagram.com/sart.full_oficial"
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-luxury-gold transition-colors animate-pulse"
+              className="hover:text-luxury-gold transition-colors"
             >
               Instagram
             </a>
             <button
               onClick={() => setView("terms")}
-              className="hover:text-luxury-gold transition-colors text-left uppercase"
+              className="hover:text-luxury-gold transition-colors uppercase"
             >
               Termos e Privacidade
             </button>
